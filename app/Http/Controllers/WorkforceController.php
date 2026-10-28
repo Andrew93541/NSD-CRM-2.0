@@ -11,6 +11,7 @@ use Carbon\Carbon;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
@@ -64,12 +65,14 @@ class WorkforceController extends Controller
             $query->where(function ($q) use ($search) {
                 $q->where('first_name', 'like', $search)
                   ->orWhere('last_name', 'like', $search)
-                  ->orWhere('code', 'like', $search);
+                  ->orWhere('code', 'like', $search)
+                  ->orWhere('phone', 'like', $search)
+                  ->orWhere('trade_designation', 'like', $search);
             });
         }
 
         $workers = $query->orderBy('first_name')->paginate(20)->withQueryString();
-        $sites = Site::where('status', 'active')->get();
+        $sites = $this->authorizedActiveSites();
         $subcontractors = Subcontractor::where('is_active', true)->get();
 
         return view('workforce.index', compact('workers', 'sites', 'subcontractors'));
@@ -79,11 +82,13 @@ class WorkforceController extends Controller
     {
         Gate::authorize('create', Worker::class);
 
-        $sites = Site::where('status', 'active')->get();
+        $sites = $this->authorizedActiveSites();
         $subcontractors = Subcontractor::where('is_active', true)->get();
         $documentTypes = WorkerDocument::documentTypes();
+        $genders = Worker::GENDERS;
+        $departments = Worker::DEPARTMENTS;
 
-        return view('workforce.create', compact('sites', 'subcontractors', 'documentTypes'));
+        return view('workforce.create', compact('sites', 'subcontractors', 'documentTypes', 'genders', 'departments'));
     }
 
     public function store(Request $request): RedirectResponse
@@ -92,22 +97,10 @@ class WorkforceController extends Controller
 
         $companyId = TenantContext::getCompanyId();
 
-        $validated = $request->validate(array_merge([
-            'worker_type' => ['required', 'in:employee,direct_labour,subcontractor_worker'],
-            'first_name' => ['required', 'string', 'max:100'],
-            'last_name' => ['nullable', 'string', 'max:100'],
-            'phone' => ['nullable', 'string', 'max:30'],
-            'trade_designation' => ['required', 'string', 'max:100'],
-            'assigned_site_id' => [
-                'nullable',
-                Rule::exists('sites', 'id')->where(fn ($q) => $q->where('company_id', $companyId)),
-            ],
-            'subcontractor_id' => [
-                'nullable',
-                Rule::exists('subcontractors', 'id')->where(fn ($q) => $q->where('company_id', $companyId)),
-            ],
-            'daily_rate' => ['required', 'numeric', 'min:0'],
-        ], $this->documentValidationRules()));
+        $validated = $request->validate(array_merge(
+            $this->profileValidationRules($companyId, false),
+            $this->documentValidationRules()
+        ));
 
         if ($validated['worker_type'] === 'subcontractor_worker' && empty($validated['subcontractor_id'])) {
             return back()->withErrors(['subcontractor_id' => 'Subcontractor company is mandatory for subcontractor workers.'])->withInput();
@@ -129,27 +122,46 @@ class WorkforceController extends Controller
             'subcontractor_worker' => 'W-SUB',
         };
 
-        $worker = DB::transaction(function () use ($validated, $companyId, $prefix, $uploadedFiles, $request) {
+        $hasExtendedColumns = Schema::hasColumn('workers', 'date_of_birth');
+
+        $worker = DB::transaction(function () use ($validated, $companyId, $prefix, $uploadedFiles, $request, $hasExtendedColumns) {
             $count = Worker::withoutGlobalScopes()
                 ->where('company_id', $companyId)
                 ->where('worker_type', $validated['worker_type'])
                 ->count() + 1;
             $code = sprintf('%s-%03d', $prefix, $count);
 
-            $worker = new Worker([
+            $attributes = [
                 'worker_type' => $validated['worker_type'],
                 'first_name' => $validated['first_name'],
                 'last_name' => $validated['last_name'] ?? null,
                 'phone' => $validated['phone'] ?? null,
+                'aadhaar_last_four' => $validated['aadhaar_last_four'] ?? null,
                 'trade_designation' => $validated['trade_designation'],
                 'assigned_site_id' => $validated['assigned_site_id'] ?? null,
                 'subcontractor_id' => $validated['worker_type'] === 'subcontractor_worker' ? ($validated['subcontractor_id'] ?? null) : null,
                 'daily_rate' => $validated['daily_rate'],
-            ]);
+            ];
+
+            if ($hasExtendedColumns) {
+                $attributes['date_of_birth'] = $validated['date_of_birth'] ?? null;
+                $attributes['gender'] = $validated['gender'] ?? null;
+                $attributes['alternate_phone'] = $validated['alternate_phone'] ?? null;
+                $attributes['email'] = $validated['email'] ?? null;
+                $attributes['address'] = $validated['address'] ?? null;
+                $attributes['department'] = $validated['department'] ?? null;
+                $attributes['emergency_contact_name'] = $validated['emergency_contact_name'] ?? null;
+                $attributes['emergency_contact_relation'] = $validated['emergency_contact_relation'] ?? null;
+                $attributes['emergency_contact_phone'] = $validated['emergency_contact_phone'] ?? null;
+            }
+
+            $worker = new Worker($attributes);
             $worker->company_id = $companyId;
             $worker->code = $code;
-            $worker->status = 'active';
-            $worker->joining_date = Carbon::today();
+            $worker->status = $validated['status'] ?? 'active';
+            $worker->joining_date = !empty($validated['joining_date'])
+                ? Carbon::parse($validated['joining_date'])
+                : Carbon::today();
             $worker->save();
 
             if (!empty($uploadedFiles) && Schema::hasTable('worker_documents')) {
@@ -197,11 +209,13 @@ class WorkforceController extends Controller
         $documents = Schema::hasTable('worker_documents')
             ? $worker->documents()->with('uploader')->get()
             : collect();
-        $sites = Site::where('status', 'active')->get();
+        $sites = $this->authorizedActiveSites();
         $subcontractors = Subcontractor::where('is_active', true)->get();
         $documentTypes = WorkerDocument::documentTypes();
+        $genders = Worker::GENDERS;
+        $departments = Worker::DEPARTMENTS;
 
-        return view('workforce.edit', compact('worker', 'sites', 'subcontractors', 'documents', 'documentTypes'));
+        return view('workforce.edit', compact('worker', 'sites', 'subcontractors', 'documents', 'documentTypes', 'genders', 'departments'));
     }
 
     public function update(Request $request, Worker $worker): RedirectResponse
@@ -210,23 +224,10 @@ class WorkforceController extends Controller
 
         $companyId = TenantContext::getCompanyId();
 
-        $validated = $request->validate(array_merge([
-            'worker_type' => ['required', 'in:employee,direct_labour,subcontractor_worker'],
-            'first_name' => ['required', 'string', 'max:100'],
-            'last_name' => ['nullable', 'string', 'max:100'],
-            'phone' => ['nullable', 'string', 'max:30'],
-            'trade_designation' => ['required', 'string', 'max:100'],
-            'assigned_site_id' => [
-                'nullable',
-                Rule::exists('sites', 'id')->where(fn ($q) => $q->where('company_id', $companyId)),
-            ],
-            'subcontractor_id' => [
-                'nullable',
-                Rule::exists('subcontractors', 'id')->where(fn ($q) => $q->where('company_id', $companyId)),
-            ],
-            'daily_rate' => ['required', 'numeric', 'min:0'],
-            'status' => ['required', 'in:active,inactive,terminated'],
-        ], $this->documentValidationRules()));
+        $validated = $request->validate(array_merge(
+            $this->profileValidationRules($companyId, true),
+            $this->documentValidationRules()
+        ));
 
         if ($validated['worker_type'] === 'subcontractor_worker' && empty($validated['subcontractor_id'])) {
             return back()->withErrors(['subcontractor_id' => 'Subcontractor company is mandatory for subcontractor workers.'])->withInput();
@@ -246,18 +247,47 @@ class WorkforceController extends Controller
         }
         $this->validateDocumentBatch($uploadedFiles, (array) $request->input('document_types', []));
 
-        DB::transaction(function () use ($worker, $validated, $uploadedFiles, $request) {
-            $worker->fill([
+        $hasExtendedColumns = Schema::hasColumn('workers', 'date_of_birth');
+        $rawInput = $request->all();
+
+        DB::transaction(function () use ($worker, $validated, $uploadedFiles, $request, $hasExtendedColumns, $rawInput) {
+            $attributes = [
                 'worker_type' => $validated['worker_type'],
                 'first_name' => $validated['first_name'],
-                'last_name' => $validated['last_name'] ?? null,
-                'phone' => $validated['phone'] ?? null,
+                'last_name' => array_key_exists('last_name', $rawInput) ? ($validated['last_name'] ?? null) : $worker->last_name,
+                'phone' => array_key_exists('phone', $rawInput) ? ($validated['phone'] ?? null) : $worker->phone,
+                'aadhaar_last_four' => array_key_exists('aadhaar_last_four', $rawInput) ? ($validated['aadhaar_last_four'] ?? null) : $worker->aadhaar_last_four,
                 'trade_designation' => $validated['trade_designation'],
-                'assigned_site_id' => $validated['assigned_site_id'] ?? null,
+                'assigned_site_id' => array_key_exists('assigned_site_id', $rawInput) ? ($validated['assigned_site_id'] ?? null) : $worker->assigned_site_id,
                 'subcontractor_id' => $validated['subcontractor_id'] ?? null,
                 'daily_rate' => $validated['daily_rate'],
                 'status' => $validated['status'],
-            ]);
+                'joining_date' => array_key_exists('joining_date', $rawInput)
+                    ? (!empty($validated['joining_date']) ? Carbon::parse($validated['joining_date']) : null)
+                    : $worker->joining_date,
+            ];
+
+            if ($hasExtendedColumns) {
+                $extendedFields = [
+                    'date_of_birth',
+                    'gender',
+                    'alternate_phone',
+                    'email',
+                    'address',
+                    'department',
+                    'emergency_contact_name',
+                    'emergency_contact_relation',
+                    'emergency_contact_phone',
+                ];
+
+                foreach ($extendedFields as $field) {
+                    if (array_key_exists($field, $rawInput)) {
+                        $attributes[$field] = $validated[$field] ?? null;
+                    }
+                }
+            }
+
+            $worker->fill($attributes);
             $worker->save();
 
             if (!empty($uploadedFiles) && Schema::hasTable('worker_documents')) {
@@ -341,6 +371,61 @@ class WorkforceController extends Controller
         $doc->delete();
 
         return back()->with('success', 'Worker document removed from private storage.');
+    }
+
+    protected function authorizedActiveSites(): Collection
+    {
+        $user = Auth::user();
+        $sites = Site::where('status', 'active')->orderBy('name')->get();
+
+        if ($user && !$user->hasRole(['super_admin', 'company_admin', 'senior_manager', 'office_staff'])) {
+            return $sites->filter(fn (Site $site) => $user->isAssignedToSite($site))->values();
+        }
+
+        return $sites;
+    }
+
+    protected function profileValidationRules(int $companyId, bool $isUpdate): array
+    {
+        return [
+            // Personal Information
+            'first_name' => ['required', 'string', 'max:100'],
+            'last_name' => ['nullable', 'string', 'max:100'],
+            'date_of_birth' => ['nullable', 'date', 'before:today', 'after:1920-01-01'],
+            'gender' => ['nullable', 'string', Rule::in(array_keys(Worker::GENDERS))],
+            'aadhaar_last_four' => ['nullable', 'string', 'regex:/^\d{4}$/'],
+
+            // Contact Information
+            'phone' => ['nullable', 'string', 'max:30', 'regex:/^[0-9+\-\s()]{7,30}$/'],
+            'alternate_phone' => ['nullable', 'string', 'max:30', 'regex:/^[0-9+\-\s()]{7,30}$/'],
+            'email' => ['nullable', 'email', 'max:255'],
+            'address' => ['nullable', 'string', 'max:1000'],
+
+            // Employment Information
+            'worker_type' => ['required', 'in:employee,direct_labour,subcontractor_worker'],
+            'subcontractor_id' => [
+                'nullable',
+                Rule::exists('subcontractors', 'id')->where(fn ($q) => $q->where('company_id', $companyId)),
+            ],
+            'trade_designation' => ['required', 'string', 'max:100'],
+            'department' => ['nullable', 'string', 'max:100'],
+            'joining_date' => ['nullable', 'date', 'after:1970-01-01', 'before_or_equal:2100-12-31'],
+            'status' => $isUpdate
+                ? ['required', 'in:active,inactive,terminated']
+                : ['nullable', 'in:active,inactive,terminated'],
+            'daily_rate' => ['required', 'numeric', 'min:0', 'max:999999.99'],
+
+            // Site Assignment
+            'assigned_site_id' => [
+                'nullable',
+                Rule::exists('sites', 'id')->where(fn ($q) => $q->where('company_id', $companyId)),
+            ],
+
+            // Emergency Contact
+            'emergency_contact_name' => ['nullable', 'string', 'max:150'],
+            'emergency_contact_relation' => ['nullable', 'string', 'max:60'],
+            'emergency_contact_phone' => ['nullable', 'string', 'max:30', 'regex:/^[0-9+\-\s()]{7,30}$/'],
+        ];
     }
 
     protected function isValidWorkerDocumentPath(Worker $worker, WorkerDocument $doc): bool

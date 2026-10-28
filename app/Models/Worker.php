@@ -12,6 +12,25 @@ class Worker extends Model
 {
     use HasFactory, BelongsToCompany;
 
+    public const GENDERS = [
+        'male' => 'Male',
+        'female' => 'Female',
+        'other' => 'Other',
+        'prefer_not_to_say' => 'Prefer Not to Say',
+    ];
+
+    public const DEPARTMENTS = [
+        'Civil & Earthworks',
+        'Structural & Masonry',
+        'Plant & Heavy Machinery',
+        'Electrical & MEP',
+        'Fabrication & Welding',
+        'Quality & Safety (HSE)',
+        'Logistics & Stores',
+        'Site Administration',
+        'General Labour',
+    ];
+
     protected $fillable = [
         'company_id',
         'worker_type',
@@ -19,19 +38,29 @@ class Worker extends Model
         'code',
         'first_name',
         'last_name',
+        'date_of_birth',
+        'gender',
         'phone',
+        'alternate_phone',
+        'email',
+        'address',
         'aadhaar_last_four',
         'trade_designation',
+        'department',
         'assigned_site_id',
         'daily_rate',
         'status',
         'joining_date',
+        'emergency_contact_name',
+        'emergency_contact_relation',
+        'emergency_contact_phone',
     ];
 
     protected function casts(): array
     {
         return [
             'daily_rate' => 'decimal:2',
+            'date_of_birth' => 'date',
             'joining_date' => 'date',
         ];
     }
@@ -39,6 +68,15 @@ class Worker extends Model
     public function getFullNameAttribute(): string
     {
         return trim($this->first_name . ' ' . ($this->last_name ?? ''));
+    }
+
+    public function genderLabel(): ?string
+    {
+        if (!$this->gender) {
+            return null;
+        }
+
+        return __(self::GENDERS[$this->gender] ?? ucfirst(str_replace('_', ' ', $this->gender)));
     }
 
     public function company(): BelongsTo

@@ -1,7 +1,7 @@
 @extends('layouts.app')
 
 @section('content')
-<div class="max-w-3xl mx-auto space-y-6">
+<div class="max-w-4xl mx-auto space-y-6">
     <div class="pb-4 border-b border-slate-200 dark:border-slate-800 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div>
             <h1 class="text-2xl font-extrabold text-slate-900 dark:text-white tracking-tight">{{ __('Create Worker Profile') }}</h1>
@@ -28,90 +28,209 @@
             workerType: '{{ old('worker_type', 'employee') }}',
             docRows: [],
             submitting: false,
-            addDocRow() {
+            addDocRow(defaultType = 'aadhaar_identity', defaultTitle = '') {
                 if (this.docRows.length < 10) {
-                    this.docRows.push({ id: Date.now() + Math.random(), type: 'aadhaar_identity', title: '' });
+                    this.docRows.push({ id: Date.now() + Math.random(), type: defaultType, title: defaultTitle });
                 }
             },
             removeDocRow(idx) {
                 this.docRows.splice(idx, 1);
             }
          }">
-        <form method="POST" action="{{ route('workforce.store') }}" enctype="multipart/form-data" class="space-y-5" @submit="submitting = true">
+        <form method="POST" action="{{ route('workforce.store') }}" enctype="multipart/form-data" class="space-y-8" @submit="submitting = true">
             @csrf
 
-            <div>
-                <label class="block text-xs font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider mb-2">{{ __('Worker Category') }} *</label>
-                <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                    <label class="cursor-pointer border rounded-xl p-3 text-center transition" :class="workerType === 'employee' ? 'border-amber-500 bg-amber-500/10 text-amber-700 dark:text-white font-bold' : 'border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 text-slate-600 dark:text-slate-400'">
-                        <input type="radio" name="worker_type" value="employee" x-model="workerType" class="hidden">
-                        <div class="text-xs">{{ __('Direct Employee') }}</div>
-                    </label>
-                    <label class="cursor-pointer border rounded-xl p-3 text-center transition" :class="workerType === 'direct_labour' ? 'border-amber-500 bg-amber-500/10 text-amber-700 dark:text-white font-bold' : 'border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 text-slate-600 dark:text-slate-400'">
-                        <input type="radio" name="worker_type" value="direct_labour" x-model="workerType" class="hidden">
-                        <div class="text-xs">{{ __('Direct Labour') }}</div>
-                    </label>
-                    <label class="cursor-pointer border rounded-xl p-3 text-center transition" :class="workerType === 'subcontractor_worker' ? 'border-amber-500 bg-amber-500/10 text-amber-700 dark:text-white font-bold' : 'border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 text-slate-600 dark:text-slate-400'">
-                        <input type="radio" name="worker_type" value="subcontractor_worker" x-model="workerType" class="hidden">
-                        <div class="text-xs">{{ __('Subcontractor Worker') }}</div>
-                    </label>
+            <!-- SECTION 1: PERSONAL INFORMATION -->
+            <section class="space-y-4">
+                <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-2 border-b border-slate-200 dark:border-slate-800">
+                    <div>
+                        <h2 class="text-sm font-extrabold text-slate-900 dark:text-white uppercase tracking-wider">{{ __('1. Personal Information') }}</h2>
+                        <p class="text-xs text-slate-500 dark:text-slate-400">{{ __('Full name, demographic details, and masked identity verification.') }}</p>
+                    </div>
+                    <button type="button" @click="addDocRow('photograph', 'Passport Photograph')" class="self-start sm:self-auto px-3 py-1.5 rounded-lg bg-amber-500/10 hover:bg-amber-500/20 text-amber-700 dark:text-amber-400 border border-amber-500/30 text-xs font-bold transition">
+                        + {{ __('Attach Passport Photograph') }}
+                    </button>
                 </div>
-            </div>
 
-            <div x-show="workerType === 'subcontractor_worker'" class="p-4 rounded-xl bg-purple-50 dark:bg-purple-950/40 border border-purple-200 dark:border-purple-800/60 space-y-2">
-                <label class="block text-xs font-bold text-purple-700 dark:text-purple-300 uppercase tracking-wider">{{ __('Subcontractor Company') }} *</label>
-                <select name="subcontractor_id" class="w-full rounded-xl bg-white dark:bg-slate-950 border border-purple-300 dark:border-purple-800/80 p-2.5 text-sm text-slate-900 dark:text-white">
-                    <option value="">{{ __('Select Subcontractor Firm...') }}</option>
-                    @foreach($subcontractors as $sub)
-                        <option value="{{ $sub->id }}" {{ old('subcontractor_id') == $sub->id ? 'selected' : '' }}>{{ $sub->code }} — {{ $sub->name }}</option>
-                    @endforeach
-                </select>
-            </div>
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div>
+                        <label for="first_name" class="block text-xs font-bold text-slate-700 dark:text-slate-300 uppercase mb-1">{{ __('First Name') }} *</label>
+                        <input id="first_name" type="text" name="first_name" required maxlength="100" value="{{ old('first_name') }}" class="w-full rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-slate-800 p-2.5 text-sm text-slate-900 dark:text-white focus:border-amber-500 outline-none">
+                    </div>
+                    <div>
+                        <label for="last_name" class="block text-xs font-bold text-slate-700 dark:text-slate-300 uppercase mb-1">{{ __('Last Name') }}</label>
+                        <input id="last_name" type="text" name="last_name" maxlength="100" value="{{ old('last_name') }}" class="w-full rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-slate-800 p-2.5 text-sm text-slate-900 dark:text-white focus:border-amber-500 outline-none">
+                    </div>
+                </div>
 
-            <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div>
-                    <label class="block text-xs font-bold text-slate-700 dark:text-slate-300 uppercase mb-1">{{ __('First Name') }} *</label>
-                    <input type="text" name="first_name" required value="{{ old('first_name') }}" class="w-full rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-slate-800 p-2.5 text-sm text-slate-900 dark:text-white focus:border-amber-500 outline-none">
+                <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                    <div>
+                        <label for="date_of_birth" class="block text-xs font-bold text-slate-700 dark:text-slate-300 uppercase mb-1">{{ __('Date of Birth') }}</label>
+                        <input id="date_of_birth" type="date" name="date_of_birth" value="{{ old('date_of_birth') }}" max="{{ now()->subDay()->format('Y-m-d') }}" class="w-full rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-slate-800 p-2.5 text-sm text-slate-900 dark:text-white focus:border-amber-500 outline-none">
+                    </div>
+                    <div>
+                        <label for="gender" class="block text-xs font-bold text-slate-700 dark:text-slate-300 uppercase mb-1">{{ __('Gender') }}</label>
+                        <select id="gender" name="gender" class="w-full rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-slate-800 p-2.5 text-sm text-slate-900 dark:text-white focus:border-amber-500 outline-none">
+                            <option value="">{{ __('Select Gender...') }}</option>
+                            @foreach($genders ?? \App\Models\Worker::GENDERS as $genderKey => $genderLabel)
+                                <option value="{{ $genderKey }}" {{ old('gender') === $genderKey ? 'selected' : '' }}>{{ __($genderLabel) }}</option>
+                            @endforeach
+                        </select>
+                    </div>
+                    <div>
+                        <label for="aadhaar_last_four" class="block text-xs font-bold text-slate-700 dark:text-slate-300 uppercase mb-1">{{ __('Aadhaar Last 4 Digits') }}</label>
+                        <input id="aadhaar_last_four" type="text" name="aadhaar_last_four" inputmode="numeric" pattern="\d{4}" maxlength="4" placeholder="1234" value="{{ old('aadhaar_last_four') }}" class="w-full rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-slate-800 p-2.5 text-sm font-mono text-slate-900 dark:text-white placeholder-slate-400 dark:placeholder-slate-500 focus:border-amber-500 outline-none">
+                        <p class="text-[11px] text-slate-500 dark:text-slate-400 mt-1">{{ __('Privacy safe: store only last 4 digits.') }}</p>
+                    </div>
                 </div>
-                <div>
-                    <label class="block text-xs font-bold text-slate-700 dark:text-slate-300 uppercase mb-1">{{ __('Last Name') }}</label>
-                    <input type="text" name="last_name" value="{{ old('last_name') }}" class="w-full rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-slate-800 p-2.5 text-sm text-slate-900 dark:text-white focus:border-amber-500 outline-none">
-                </div>
-            </div>
+            </section>
 
-            <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div>
-                    <label class="block text-xs font-bold text-slate-700 dark:text-slate-300 uppercase mb-1">{{ __('Trade / Skill Designation') }} *</label>
-                    <input type="text" name="trade_designation" required placeholder="e.g. Excavator Operator, Mason" value="{{ old('trade_designation') }}" class="w-full rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-slate-800 p-2.5 text-sm text-slate-900 dark:text-white placeholder-slate-400 dark:placeholder-slate-500 focus:border-amber-500 outline-none">
+            <!-- SECTION 2: CONTACT INFORMATION -->
+            <section class="space-y-4">
+                <div class="pb-2 border-b border-slate-200 dark:border-slate-800">
+                    <h2 class="text-sm font-extrabold text-slate-900 dark:text-white uppercase tracking-wider">{{ __('2. Contact Information') }}</h2>
+                    <p class="text-xs text-slate-500 dark:text-slate-400">{{ __('Primary mobile number, alternate number, email, and residential/camp address.') }}</p>
                 </div>
-                <div>
-                    <label class="block text-xs font-bold text-slate-700 dark:text-slate-300 uppercase mb-1">{{ __('Phone Number') }}</label>
-                    <input type="text" name="phone" placeholder="+91 ..." value="{{ old('phone') }}" class="w-full rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-slate-800 p-2.5 text-sm text-slate-900 dark:text-white placeholder-slate-400 dark:placeholder-slate-500 focus:border-amber-500 outline-none">
-                </div>
-            </div>
 
-            <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                    <div>
+                        <label for="phone" class="block text-xs font-bold text-slate-700 dark:text-slate-300 uppercase mb-1">{{ __('Mobile Number') }}</label>
+                        <input id="phone" type="text" name="phone" maxlength="30" placeholder="+91 9876543210" value="{{ old('phone') }}" class="w-full rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-slate-800 p-2.5 text-sm text-slate-900 dark:text-white placeholder-slate-400 dark:placeholder-slate-500 focus:border-amber-500 outline-none">
+                    </div>
+                    <div>
+                        <label for="alternate_phone" class="block text-xs font-bold text-slate-700 dark:text-slate-300 uppercase mb-1">{{ __('Alternate Number') }}</label>
+                        <input id="alternate_phone" type="text" name="alternate_phone" maxlength="30" placeholder="+91 ..." value="{{ old('alternate_phone') }}" class="w-full rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-slate-800 p-2.5 text-sm text-slate-900 dark:text-white placeholder-slate-400 dark:placeholder-slate-500 focus:border-amber-500 outline-none">
+                    </div>
+                    <div>
+                        <label for="email" class="block text-xs font-bold text-slate-700 dark:text-slate-300 uppercase mb-1">{{ __('Email Address') }}</label>
+                        <input id="email" type="email" name="email" maxlength="255" placeholder="worker@example.com" value="{{ old('email') }}" class="w-full rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-slate-800 p-2.5 text-sm text-slate-900 dark:text-white placeholder-slate-400 dark:placeholder-slate-500 focus:border-amber-500 outline-none">
+                    </div>
+                </div>
+
                 <div>
-                    <label class="block text-xs font-bold text-slate-700 dark:text-slate-300 uppercase mb-1">{{ __('Assigned Primary Site') }}</label>
-                    <select name="assigned_site_id" class="w-full rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-slate-800 p-2.5 text-sm text-slate-900 dark:text-white focus:border-amber-500 outline-none">
+                    <label for="address" class="block text-xs font-bold text-slate-700 dark:text-slate-300 uppercase mb-1">{{ __('Residential / Camp Address') }}</label>
+                    <textarea id="address" name="address" rows="2" maxlength="1000" placeholder="{{ __('House/Room No, Labour Camp or Village, District, State, PIN...') }}" class="w-full rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-slate-800 p-2.5 text-sm text-slate-900 dark:text-white placeholder-slate-400 dark:placeholder-slate-500 focus:border-amber-500 outline-none">{{ old('address') }}</textarea>
+                </div>
+            </section>
+
+            <!-- SECTION 3: EMPLOYMENT INFORMATION -->
+            <section class="space-y-4">
+                <div class="pb-2 border-b border-slate-200 dark:border-slate-800">
+                    <h2 class="text-sm font-extrabold text-slate-900 dark:text-white uppercase tracking-wider">{{ __('3. Employment Information') }}</h2>
+                    <p class="text-xs text-slate-500 dark:text-slate-400">{{ __('Worker type, trade designation, department, joining date, status, and daily base rate.') }}</p>
+                </div>
+
+                <div>
+                    <label class="block text-xs font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider mb-2">{{ __('Worker Category') }} *</label>
+                    <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                        <label class="cursor-pointer border rounded-xl p-3 text-center transition" :class="workerType === 'employee' ? 'border-amber-500 bg-amber-500/10 text-amber-700 dark:text-white font-bold' : 'border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 text-slate-600 dark:text-slate-400'">
+                            <input type="radio" name="worker_type" value="employee" x-model="workerType" class="hidden">
+                            <div class="text-xs">{{ __('Direct Employee') }}</div>
+                        </label>
+                        <label class="cursor-pointer border rounded-xl p-3 text-center transition" :class="workerType === 'direct_labour' ? 'border-amber-500 bg-amber-500/10 text-amber-700 dark:text-white font-bold' : 'border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 text-slate-600 dark:text-slate-400'">
+                            <input type="radio" name="worker_type" value="direct_labour" x-model="workerType" class="hidden">
+                            <div class="text-xs">{{ __('Direct Labour') }}</div>
+                        </label>
+                        <label class="cursor-pointer border rounded-xl p-3 text-center transition" :class="workerType === 'subcontractor_worker' ? 'border-amber-500 bg-amber-500/10 text-amber-700 dark:text-white font-bold' : 'border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 text-slate-600 dark:text-slate-400'">
+                            <input type="radio" name="worker_type" value="subcontractor_worker" x-model="workerType" class="hidden">
+                            <div class="text-xs">{{ __('Subcontractor Worker') }}</div>
+                        </label>
+                    </div>
+                </div>
+
+                <div x-show="workerType === 'subcontractor_worker'" class="p-4 rounded-xl bg-purple-50 dark:bg-purple-950/40 border border-purple-200 dark:border-purple-800/60 space-y-2">
+                    <label for="subcontractor_id" class="block text-xs font-bold text-purple-700 dark:text-purple-300 uppercase tracking-wider">{{ __('Subcontractor Company') }} *</label>
+                    <select id="subcontractor_id" name="subcontractor_id" class="w-full rounded-xl bg-white dark:bg-slate-950 border border-purple-300 dark:border-purple-800/80 p-2.5 text-sm text-slate-900 dark:text-white">
+                        <option value="">{{ __('Select Subcontractor Firm...') }}</option>
+                        @foreach($subcontractors as $sub)
+                            <option value="{{ $sub->id }}" {{ old('subcontractor_id') == $sub->id ? 'selected' : '' }}>{{ $sub->code }} — {{ $sub->name }}</option>
+                        @endforeach
+                    </select>
+                </div>
+
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div>
+                        <label for="trade_designation" class="block text-xs font-bold text-slate-700 dark:text-slate-300 uppercase mb-1">{{ __('Trade / Skill Designation') }} *</label>
+                        <input id="trade_designation" type="text" name="trade_designation" required maxlength="100" placeholder="{{ __('e.g. Excavator Operator, Mason, Site Engineer') }}" value="{{ old('trade_designation') }}" class="w-full rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-slate-800 p-2.5 text-sm text-slate-900 dark:text-white placeholder-slate-400 dark:placeholder-slate-500 focus:border-amber-500 outline-none">
+                    </div>
+                    <div>
+                        <label for="department" class="block text-xs font-bold text-slate-700 dark:text-slate-300 uppercase mb-1">{{ __('Department / Work Category') }}</label>
+                        <input id="department" type="text" name="department" list="worker-departments-list" maxlength="100" placeholder="{{ __('e.g. Civil & Earthworks, Electrical & MEP') }}" value="{{ old('department') }}" class="w-full rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-slate-800 p-2.5 text-sm text-slate-900 dark:text-white placeholder-slate-400 dark:placeholder-slate-500 focus:border-amber-500 outline-none">
+                        <datalist id="worker-departments-list">
+                            @foreach($departments ?? \App\Models\Worker::DEPARTMENTS as $dept)
+                                <option value="{{ $dept }}">{{ __($dept) }}</option>
+                            @endforeach
+                        </datalist>
+                    </div>
+                </div>
+
+                <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                    <div>
+                        <label for="joining_date" class="block text-xs font-bold text-slate-700 dark:text-slate-300 uppercase mb-1">{{ __('Joining Date') }}</label>
+                        <input id="joining_date" type="date" name="joining_date" value="{{ old('joining_date', now()->format('Y-m-d')) }}" class="w-full rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-slate-800 p-2.5 text-sm text-slate-900 dark:text-white focus:border-amber-500 outline-none">
+                    </div>
+                    <div>
+                        <label for="status" class="block text-xs font-bold text-slate-700 dark:text-slate-300 uppercase mb-1">{{ __('Employment Status') }} *</label>
+                        <select id="status" name="status" required class="w-full rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-slate-800 p-2.5 text-sm text-slate-900 dark:text-white focus:border-amber-500 outline-none">
+                            <option value="active" {{ old('status', 'active') === 'active' ? 'selected' : '' }}>{{ __('Active') }}</option>
+                            <option value="inactive" {{ old('status') === 'inactive' ? 'selected' : '' }}>{{ __('Inactive') }}</option>
+                            <option value="terminated" {{ old('status') === 'terminated' ? 'selected' : '' }}>{{ __('Terminated') }}</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label for="daily_rate" class="block text-xs font-bold text-slate-700 dark:text-slate-300 uppercase mb-1">{{ __('Daily Base Rate') }} (₹) *</label>
+                        <input id="daily_rate" type="number" step="0.01" min="0" name="daily_rate" required value="{{ old('daily_rate', 700) }}" class="w-full rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-slate-800 p-2.5 text-sm font-mono text-slate-900 dark:text-white focus:border-amber-500 outline-none">
+                    </div>
+                </div>
+            </section>
+
+            <!-- SECTION 4: SITE ASSIGNMENT -->
+            <section class="space-y-4">
+                <div class="pb-2 border-b border-slate-200 dark:border-slate-800">
+                    <h2 class="text-sm font-extrabold text-slate-900 dark:text-white uppercase tracking-wider">{{ __('4. Site Assignment') }}</h2>
+                    <p class="text-xs text-slate-500 dark:text-slate-400">{{ __('Assign worker to an active company site within your authorized site scope.') }}</p>
+                </div>
+
+                <div>
+                    <label for="assigned_site_id" class="block text-xs font-bold text-slate-700 dark:text-slate-300 uppercase mb-1">{{ __('Assigned Primary Site') }}</label>
+                    <select id="assigned_site_id" name="assigned_site_id" class="w-full rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-slate-800 p-2.5 text-sm text-slate-900 dark:text-white focus:border-amber-500 outline-none">
                         <option value="">{{ __('Unassigned') }}</option>
                         @foreach($sites as $s)
                             <option value="{{ $s->id }}" {{ old('assigned_site_id') == $s->id ? 'selected' : '' }}>{{ $s->code }} — {{ $s->name }}</option>
                         @endforeach
                     </select>
                 </div>
-                <div>
-                    <label class="block text-xs font-bold text-slate-700 dark:text-slate-300 uppercase mb-1">{{ __('Daily Base Rate') }} (₹) *</label>
-                    <input type="number" step="0.01" name="daily_rate" required value="{{ old('daily_rate', 700) }}" class="w-full rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-slate-800 p-2.5 text-sm text-slate-900 dark:text-white focus:border-amber-500 outline-none">
-                </div>
-            </div>
+            </section>
 
-            <!-- Optional Worker Documents Section -->
-            <div class="pt-4 border-t border-slate-200 dark:border-slate-800 space-y-3">
-                <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+            <!-- SECTION 5: EMERGENCY CONTACT -->
+            <section class="space-y-4">
+                <div class="pb-2 border-b border-slate-200 dark:border-slate-800">
+                    <h2 class="text-sm font-extrabold text-slate-900 dark:text-white uppercase tracking-wider">{{ __('5. Emergency Contact') }}</h2>
+                    <p class="text-xs text-slate-500 dark:text-slate-400">{{ __('Next-of-kin or emergency responder details for site safety compliance.') }}</p>
+                </div>
+
+                <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
                     <div>
-                        <h2 class="text-xs font-bold text-slate-800 dark:text-slate-200 uppercase tracking-wider">{{ __('Worker Documents (Optional)') }}</h2>
-                        <p class="text-[11px] text-slate-500 dark:text-slate-400">{{ __('Attach identity proof, certificates, licences, or contracts (PDF, JPG, PNG, WEBP, DOC, DOCX — max 5 MB each).') }}</p>
+                        <label for="emergency_contact_name" class="block text-xs font-bold text-slate-700 dark:text-slate-300 uppercase mb-1">{{ __('Emergency Contact Name') }}</label>
+                        <input id="emergency_contact_name" type="text" name="emergency_contact_name" maxlength="150" placeholder="{{ __('Full Name') }}" value="{{ old('emergency_contact_name') }}" class="w-full rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-slate-800 p-2.5 text-sm text-slate-900 dark:text-white placeholder-slate-400 dark:placeholder-slate-500 focus:border-amber-500 outline-none">
+                    </div>
+                    <div>
+                        <label for="emergency_contact_relation" class="block text-xs font-bold text-slate-700 dark:text-slate-300 uppercase mb-1">{{ __('Relationship') }}</label>
+                        <input id="emergency_contact_relation" type="text" name="emergency_contact_relation" maxlength="60" placeholder="{{ __('e.g. Spouse, Father, Brother') }}" value="{{ old('emergency_contact_relation') }}" class="w-full rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-slate-800 p-2.5 text-sm text-slate-900 dark:text-white placeholder-slate-400 dark:placeholder-slate-500 focus:border-amber-500 outline-none">
+                    </div>
+                    <div>
+                        <label for="emergency_contact_phone" class="block text-xs font-bold text-slate-700 dark:text-slate-300 uppercase mb-1">{{ __('Emergency Contact Phone') }}</label>
+                        <input id="emergency_contact_phone" type="text" name="emergency_contact_phone" maxlength="30" placeholder="+91 ..." value="{{ old('emergency_contact_phone') }}" class="w-full rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-slate-800 p-2.5 text-sm text-slate-900 dark:text-white placeholder-slate-400 dark:placeholder-slate-500 focus:border-amber-500 outline-none">
+                    </div>
+                </div>
+            </section>
+
+            <!-- SECTION 6: WORKER DOCUMENTS (INTEGRATED POINT 3) -->
+            <section class="space-y-3">
+                <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-2 border-b border-slate-200 dark:border-slate-800">
+                    <div>
+                        <h2 class="text-sm font-extrabold text-slate-900 dark:text-white uppercase tracking-wider">{{ __('6. Worker Documents (Optional)') }}</h2>
+                        <p class="text-xs text-slate-500 dark:text-slate-400">{{ __('Attach identity proof, certificates, licences, or contracts (PDF, JPG, PNG, WEBP, DOC, DOCX — max 5 MB each).') }}</p>
                     </div>
                     <button type="button" @click="addDocRow()" class="self-start sm:self-auto inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-100 hover:bg-amber-500 hover:text-slate-950 text-slate-700 border border-slate-200 dark:bg-slate-800 dark:text-slate-300 dark:border-slate-700 dark:hover:bg-amber-500 dark:hover:text-slate-950 text-xs font-bold transition">
                         + {{ __('Add Document Row') }}
@@ -151,7 +270,7 @@
                         </div>
                     </template>
                 </div>
-            </div>
+            </section>
 
             <div class="flex items-center justify-end gap-3 pt-4 border-t border-slate-200 dark:border-slate-800">
                 <a href="{{ route('workforce.index') }}" class="px-4 py-2.5 text-xs font-bold rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-200 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700 dark:border-slate-700 transition">{{ __('Cancel') }}</a>

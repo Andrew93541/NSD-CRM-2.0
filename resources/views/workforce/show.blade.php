@@ -1,29 +1,40 @@
 @extends('layouts.app')
 
 @section('content')
+@php
+    $photoDoc = isset($documents) ? $documents->firstWhere('document_type', 'photograph') : null;
+@endphp
 <div class="space-y-6">
     <!-- Worker Profile Header -->
     <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-slate-200 dark:border-slate-800">
-        <div>
-            <div class="flex flex-wrap items-center gap-2">
-                <span class="font-mono text-xs font-bold px-2.5 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-amber-600 dark:text-amber-400 border border-slate-200 dark:border-slate-700">{{ $worker->code }}</span>
-                @if($worker->worker_type === 'employee')
-                    <span class="px-2 py-0.5 rounded text-[11px] font-bold bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30">{{ __('Direct Employee') }}</span>
-                @elseif($worker->worker_type === 'direct_labour')
-                    <span class="px-2 py-0.5 rounded text-[11px] font-bold bg-sky-500/10 text-sky-600 dark:text-sky-400 border border-sky-500/30">{{ __('Direct Labour') }}</span>
-                @else
-                    <span class="px-2 py-0.5 rounded text-[11px] font-bold bg-purple-500/10 text-purple-600 dark:text-purple-400 border border-purple-500/30">
-                        {{ __('Subcontractor Worker') }}: {{ $worker->subcontractor->name ?? __('External') }}
-                    </span>
-                @endif
-                <span class="px-2.5 py-0.5 rounded-full text-[11px] font-bold uppercase {{ $worker->status === 'active' ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30' : 'bg-rose-500/10 text-rose-600 dark:text-rose-400 border border-rose-500/30' }}">
-                    {{ __($worker->status === 'active' ? 'Active' : ($worker->status === 'inactive' ? 'Inactive' : 'Terminated')) }}
-                </span>
+        <div class="flex items-start gap-4">
+            <div class="w-14 h-14 rounded-2xl bg-amber-500/15 border border-amber-500/30 flex items-center justify-center text-lg font-extrabold text-amber-600 dark:text-amber-400 shrink-0">
+                {{ mb_strtoupper(mb_substr($worker->first_name, 0, 1) . mb_substr($worker->last_name ?? '', 0, 1)) }}
             </div>
-            <h1 class="text-2xl font-extrabold text-slate-900 dark:text-white mt-1.5">{{ $worker->full_name }}</h1>
-            <p class="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-                {{ __('Trade / Skill') }}: <span class="font-semibold text-slate-700 dark:text-slate-300">{{ $worker->trade_designation ?: __('Not specified') }}</span>
-            </p>
+            <div>
+                <div class="flex flex-wrap items-center gap-2">
+                    <span class="font-mono text-xs font-bold px-2.5 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-amber-600 dark:text-amber-400 border border-slate-200 dark:border-slate-700">{{ $worker->code }}</span>
+                    @if($worker->worker_type === 'employee')
+                        <span class="px-2 py-0.5 rounded text-[11px] font-bold bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30">{{ __('Direct Employee') }}</span>
+                    @elseif($worker->worker_type === 'direct_labour')
+                        <span class="px-2 py-0.5 rounded text-[11px] font-bold bg-sky-500/10 text-sky-600 dark:text-sky-400 border border-sky-500/30">{{ __('Direct Labour') }}</span>
+                    @else
+                        <span class="px-2 py-0.5 rounded text-[11px] font-bold bg-purple-500/10 text-purple-600 dark:text-purple-400 border border-purple-500/30">
+                            {{ __('Subcontractor Worker') }}: {{ $worker->subcontractor->name ?? __('External') }}
+                        </span>
+                    @endif
+                    <span class="px-2.5 py-0.5 rounded-full text-[11px] font-bold uppercase {{ $worker->status === 'active' ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30' : 'bg-rose-500/10 text-rose-600 dark:text-rose-400 border border-rose-500/30' }}">
+                        {{ __($worker->status === 'active' ? 'Active' : ($worker->status === 'inactive' ? 'Inactive' : 'Terminated')) }}
+                    </span>
+                </div>
+                <h1 class="text-2xl font-extrabold text-slate-900 dark:text-white mt-1">{{ $worker->full_name }}</h1>
+                <p class="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+                    {{ __('Trade / Skill') }}: <span class="font-semibold text-slate-700 dark:text-slate-300">{{ $worker->trade_designation ?: __('Not specified') }}</span>
+                    @if($worker->department)
+                        &bull; {{ __('Department') }}: <span class="font-semibold text-slate-700 dark:text-slate-300">{{ __($worker->department) }}</span>
+                    @endif
+                </p>
+            </div>
         </div>
 
         <div class="flex flex-wrap items-center gap-2">
@@ -49,7 +60,7 @@
         </div>
     @endif
 
-    <!-- Worker Details Summary Cards -->
+    <!-- Top KPI Strip -->
     <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         <div class="p-4 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-sm">
             <div class="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">{{ __('Assigned Primary Site') }}</div>
@@ -76,6 +87,8 @@
             <div class="text-sm font-bold font-mono text-slate-900 dark:text-white mt-1.5">{{ $worker->phone ?: __('No phone') }}</div>
             @if($worker->aadhaar_last_four)
                 <div class="text-[11px] text-slate-500 dark:text-slate-400 font-mono mt-1">Aadhaar: XXXX-XXXX-{{ $worker->aadhaar_last_four }}</div>
+            @else
+                <div class="text-[11px] text-slate-500 dark:text-slate-400 mt-1">{{ __('Aadhaar not recorded') }}</div>
             @endif
         </div>
 
@@ -86,7 +99,151 @@
         </div>
     </div>
 
-    <!-- Worker Documents Management Section -->
+    <!-- Structured Worker Profile Sections (1–5) -->
+    <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <!-- 1. Personal Information -->
+        <div class="p-6 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-sm space-y-4">
+            <div class="pb-3 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between">
+                <h2 class="text-sm font-extrabold text-slate-900 dark:text-white uppercase tracking-wider">{{ __('1. Personal Information') }}</h2>
+                @if($photoDoc && auth()->user()->can('downloadDocument', [$worker, $photoDoc]))
+                    <a href="{{ route('workforce.documents.download', [$worker, $photoDoc->id]) }}" class="text-xs font-bold text-amber-600 dark:text-amber-400 hover:underline">
+                        {{ __('Download Photo') }}
+                    </a>
+                @endif
+            </div>
+            <dl class="grid grid-cols-1 sm:grid-cols-2 gap-4 text-xs">
+                <div>
+                    <dt class="text-slate-500 dark:text-slate-400 font-semibold">{{ __('Full Name') }}</dt>
+                    <dd class="font-bold text-slate-900 dark:text-white mt-0.5">{{ $worker->full_name }}</dd>
+                </div>
+                <div>
+                    <dt class="text-slate-500 dark:text-slate-400 font-semibold">{{ __('Date of Birth') }}</dt>
+                    <dd class="font-bold font-mono text-slate-900 dark:text-white mt-0.5">
+                        {{ $worker->date_of_birth ? $worker->date_of_birth->format('Y-m-d') : __('Not specified') }}
+                    </dd>
+                </div>
+                <div>
+                    <dt class="text-slate-500 dark:text-slate-400 font-semibold">{{ __('Gender') }}</dt>
+                    <dd class="font-bold text-slate-900 dark:text-white mt-0.5">{{ $worker->genderLabel() ?? __('Not specified') }}</dd>
+                </div>
+                <div>
+                    <dt class="text-slate-500 dark:text-slate-400 font-semibold">{{ __('Aadhaar Identity (Last 4 Digits)') }}</dt>
+                    <dd class="font-bold font-mono text-slate-900 dark:text-white mt-0.5">
+                        {{ $worker->aadhaar_last_four ? ('XXXX-XXXX-' . $worker->aadhaar_last_four) : __('Not specified') }}
+                    </dd>
+                </div>
+            </dl>
+        </div>
+
+        <!-- 2. Contact Information -->
+        <div class="p-6 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-sm space-y-4">
+            <div class="pb-3 border-b border-slate-200 dark:border-slate-800">
+                <h2 class="text-sm font-extrabold text-slate-900 dark:text-white uppercase tracking-wider">{{ __('2. Contact Information') }}</h2>
+            </div>
+            <dl class="grid grid-cols-1 sm:grid-cols-2 gap-4 text-xs">
+                <div>
+                    <dt class="text-slate-500 dark:text-slate-400 font-semibold">{{ __('Mobile Number') }}</dt>
+                    <dd class="font-bold font-mono text-slate-900 dark:text-white mt-0.5">{{ $worker->phone ?: __('Not specified') }}</dd>
+                </div>
+                <div>
+                    <dt class="text-slate-500 dark:text-slate-400 font-semibold">{{ __('Alternate Number') }}</dt>
+                    <dd class="font-bold font-mono text-slate-900 dark:text-white mt-0.5">{{ $worker->alternate_phone ?: __('Not specified') }}</dd>
+                </div>
+                <div class="sm:col-span-2">
+                    <dt class="text-slate-500 dark:text-slate-400 font-semibold">{{ __('Email Address') }}</dt>
+                    <dd class="font-bold text-slate-900 dark:text-white mt-0.5 break-all">{{ $worker->email ?: __('Not specified') }}</dd>
+                </div>
+                <div class="sm:col-span-2">
+                    <dt class="text-slate-500 dark:text-slate-400 font-semibold">{{ __('Residential / Camp Address') }}</dt>
+                    <dd class="font-semibold text-slate-800 dark:text-slate-200 mt-0.5 whitespace-pre-line">{{ $worker->address ?: __('Not specified') }}</dd>
+                </div>
+            </dl>
+        </div>
+
+        <!-- 3. Employment Information -->
+        <div class="p-6 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-sm space-y-4">
+            <div class="pb-3 border-b border-slate-200 dark:border-slate-800">
+                <h2 class="text-sm font-extrabold text-slate-900 dark:text-white uppercase tracking-wider">{{ __('3. Employment Information') }}</h2>
+            </div>
+            <dl class="grid grid-cols-1 sm:grid-cols-2 gap-4 text-xs">
+                <div>
+                    <dt class="text-slate-500 dark:text-slate-400 font-semibold">{{ __('Worker Code') }}</dt>
+                    <dd class="font-bold font-mono text-amber-600 dark:text-amber-400 mt-0.5">{{ $worker->code }}</dd>
+                </div>
+                <div>
+                    <dt class="text-slate-500 dark:text-slate-400 font-semibold">{{ __('Worker Category') }}</dt>
+                    <dd class="font-bold text-slate-900 dark:text-white mt-0.5">
+                        @if($worker->worker_type === 'employee')
+                            {{ __('Direct Employee') }}
+                        @elseif($worker->worker_type === 'direct_labour')
+                            {{ __('Direct Labour') }}
+                        @else
+                            {{ __('Subcontractor Worker') }} ({{ $worker->subcontractor->name ?? __('External') }})
+                        @endif
+                    </dd>
+                </div>
+                <div>
+                    <dt class="text-slate-500 dark:text-slate-400 font-semibold">{{ __('Trade / Skill Designation') }}</dt>
+                    <dd class="font-bold text-slate-900 dark:text-white mt-0.5">{{ $worker->trade_designation ?: __('Not specified') }}</dd>
+                </div>
+                <div>
+                    <dt class="text-slate-500 dark:text-slate-400 font-semibold">{{ __('Department / Work Category') }}</dt>
+                    <dd class="font-bold text-slate-900 dark:text-white mt-0.5">{{ $worker->department ? __($worker->department) : __('Not specified') }}</dd>
+                </div>
+                <div>
+                    <dt class="text-slate-500 dark:text-slate-400 font-semibold">{{ __('Joining Date') }}</dt>
+                    <dd class="font-bold font-mono text-slate-900 dark:text-white mt-0.5">{{ $worker->joining_date?->format('Y-m-d') ?? __('Not specified') }}</dd>
+                </div>
+                <div>
+                    <dt class="text-slate-500 dark:text-slate-400 font-semibold">{{ __('Daily Base Rate') }}</dt>
+                    <dd class="font-bold font-mono text-slate-900 dark:text-white mt-0.5">₹{{ number_format($worker->daily_rate, 2) }}</dd>
+                </div>
+            </dl>
+        </div>
+
+        <!-- 4. Site Assignment & 5. Emergency Contact -->
+        <div class="space-y-6">
+            <div class="p-6 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-sm space-y-4">
+                <div class="pb-3 border-b border-slate-200 dark:border-slate-800">
+                    <h2 class="text-sm font-extrabold text-slate-900 dark:text-white uppercase tracking-wider">{{ __('4. Site Assignment') }}</h2>
+                </div>
+                <dl class="grid grid-cols-1 sm:grid-cols-2 gap-4 text-xs">
+                    <div class="sm:col-span-2">
+                        <dt class="text-slate-500 dark:text-slate-400 font-semibold">{{ __('Assigned Primary Site') }}</dt>
+                        <dd class="font-bold text-slate-900 dark:text-white mt-0.5">
+                            @if($worker->assignedSite)
+                                <span class="font-mono text-amber-600 dark:text-amber-400">{{ $worker->assignedSite->code }}</span> &mdash; {{ $worker->assignedSite->name }}
+                            @else
+                                {{ __('Unassigned') }}
+                            @endif
+                        </dd>
+                    </div>
+                </dl>
+            </div>
+
+            <div class="p-6 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-sm space-y-4">
+                <div class="pb-3 border-b border-slate-200 dark:border-slate-800">
+                    <h2 class="text-sm font-extrabold text-slate-900 dark:text-white uppercase tracking-wider">{{ __('5. Emergency Contact') }}</h2>
+                </div>
+                <dl class="grid grid-cols-1 sm:grid-cols-3 gap-4 text-xs">
+                    <div>
+                        <dt class="text-slate-500 dark:text-slate-400 font-semibold">{{ __('Emergency Contact Name') }}</dt>
+                        <dd class="font-bold text-slate-900 dark:text-white mt-0.5">{{ $worker->emergency_contact_name ?: __('Not specified') }}</dd>
+                    </div>
+                    <div>
+                        <dt class="text-slate-500 dark:text-slate-400 font-semibold">{{ __('Relationship') }}</dt>
+                        <dd class="font-bold text-slate-900 dark:text-white mt-0.5">{{ $worker->emergency_contact_relation ?: __('Not specified') }}</dd>
+                    </div>
+                    <div>
+                        <dt class="text-slate-500 dark:text-slate-400 font-semibold">{{ __('Emergency Contact Phone') }}</dt>
+                        <dd class="font-bold font-mono text-slate-900 dark:text-white mt-0.5">{{ $worker->emergency_contact_phone ?: __('Not specified') }}</dd>
+                    </div>
+                </dl>
+            </div>
+        </div>
+    </div>
+
+    <!-- 6. Worker Documents Management Section (Point 3 Integrated) -->
     <div id="worker-documents" class="p-6 sm:p-8 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-sm space-y-6 transition-colors duration-200">
         <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-4 border-b border-slate-200 dark:border-slate-800">
             <div>
@@ -204,4 +361,3 @@
     </div>
 </div>
 @endsection
-
