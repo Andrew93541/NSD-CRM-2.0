@@ -1,0 +1,179 @@
+<?php
+
+namespace App\Models;
+
+use App\Models\Traits\BelongsToCompany;
+use Carbon\Carbon;
+use Illuminate\Database\Eloquent\Factories\HasFactory;
+use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasMany;
+
+class DailyAttendance extends Model
+{
+    use HasFactory, BelongsToCompany;
+
+    protected $fillable = [
+        'company_id',
+        'site_id',
+        'project_id',
+        'worker_id',
+        'attendance_date',
+        'clock_in',
+        'clock_out',
+        'status',
+        'worked_hours',
+        'overtime_hours',
+        'has_conflict',
+        'conflict_reason',
+        'approval_status',
+        'submitted_by',
+        'submitted_at',
+        'approved_by',
+        'approved_at',
+        'rejection_reason',
+    ];
+
+    protected function casts(): array
+    {
+        return [
+            'attendance_date' => 'date',
+            'has_conflict' => 'boolean',
+            'worked_hours' => 'decimal:2',
+            'overtime_hours' => 'decimal:2',
+            'submitted_at' => 'datetime',
+            'approved_at' => 'datetime',
+        ];
+    }
+
+    protected static function booted(): void
+    {
+        static::saving(function (DailyAttendance $attendance) {
+            // Inherit project_id from site if empty
+            if (empty($attendance->project_id) && $attendance->site_id) {
+                $site = Site::find($attendance->site_id);
+                if ($site) {
+                    $attendance->project_id = $site->project_id;
+                }
+            }
+
+            // Calculate worked_hours if clock_in and clock_out are present
+            if ($attendance->clock_in && $attendance->clock_out) {
+                $in = Carbon::parse($attendance->clock_in);
+                $out = Carbon::parse($attendance->clock_out);
+                if ($out->greaterThanOrEqualTo($in)) {
+                    $attendance->worked_hours = round($in->diffInMinutes($out) / 60, 2);
+                } else {
+                    $attendance->worked_hours = 0.00;
+                }
+            }
+        });
+
+        static::saved(function (DailyAttendance $attendance) {
+            static::recalculateConflictsForWorkerDate(
+                $attendance->company_id,
+                $attendance->worker_id,
+                $attendance->attendance_date->format('Y-m-d')
+            );
+        });
+
+        static::deleted(function (DailyAttendance $attendance) {
+            static::recalculateConflictsForWorkerDate(
+                $attendance->company_id,
+                $attendance->worker_id,
+                $attendance->attendance_date->format('Y-m-d')
+            );
+        });
+    }
+
+    public static function recalculateConflictsForWorkerDate(int $companyId, int $workerId, string $dateString): void
+    {
+        $records = static::withoutGlobalScopes()
+            ->where('company_id', $companyId)
+            ->where('worker_id', $workerId)
+            ->whereDate('attendance_date', $dateString)
+            ->get();
+
+        $conflictMap = [];
+
+        foreach ($records as $recordA) {
+            if (!$recordA->clock_in || !$recordA->clock_out) {
+                continue;
+            }
+
+            $startA = Carbon::parse($recordA->clock_in);
+            $endA = Carbon::parse($recordA->clock_out);
+
+            foreach ($records as $recordB) {
+                if ($recordA->id === $recordB->id) {
+                    continue;
+                }
+
+                if (!$recordB->clock_in || !$recordB->clock_out) {
+                    continue;
+                }
+
+                $startB = Carbon::parse($recordB->clock_in);
+                $endB = Carbon::parse($recordB->clock_out);
+
+                // Overlap condition: startA < endB and endA > startB
+                if ($startA->lessThan($endB) && $endA->greaterThan($startB)) {
+                    $overlapWithSite = $recordB->site_id === $recordA->site_id ? 'Same Site' : 'Site #' . $recordB->site_id;
+                    $msg = 'Overlaps with record #' . $recordB->id . ' (' . $overlapWithSite . ': ' . $recordB->clock_in . ' - ' . $recordB->clock_out . ')';
+                    $conflictMap[$recordA->id] = isset($conflictMap[$recordA->id]) 
+                        ? $conflictMap[$recordA->id] . '; ' . $msg 
+                        : $msg;
+                }
+            }
+        }
+
+        foreach ($records as $record) {
+            $hasConflict = isset($conflictMap[$record->id]);
+            $reason = $conflictMap[$record->id] ?? null;
+
+            if ($record->has_conflict !== $hasConflict || $record->conflict_reason !== $reason) {
+                static::withoutEvents(function () use ($record, $hasConflict, $reason) {
+                    $record->update([
+                        'has_conflict' => $hasConflict,
+                        'conflict_reason' => $reason,
+                    ]);
+                });
+            }
+        }
+    }
+
+    public function company(): BelongsTo
+    {
+        return $this->belongsTo(Company::class);
+    }
+
+    public function site(): BelongsTo
+    {
+        return $this->belongsTo(Site::class);
+    }
+
+    public function project(): BelongsTo
+    {
+        return $this->belongsTo(Project::class);
+    }
+
+    public function worker(): BelongsTo
+    {
+        return $this->belongsTo(Worker::class);
+    }
+
+    public function submitter(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'submitted_by');
+    }
+
+    public function approver(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'approved_by');
+    }
+
+    public function corrections(): HasMany
+    {
+        return $this->hasMany(AttendanceCorrection::class);
+    }
+}

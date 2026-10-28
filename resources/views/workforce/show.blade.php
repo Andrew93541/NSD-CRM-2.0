@@ -1,0 +1,207 @@
+@extends('layouts.app')
+
+@section('content')
+<div class="space-y-6">
+    <!-- Worker Profile Header -->
+    <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-slate-200 dark:border-slate-800">
+        <div>
+            <div class="flex flex-wrap items-center gap-2">
+                <span class="font-mono text-xs font-bold px-2.5 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-amber-600 dark:text-amber-400 border border-slate-200 dark:border-slate-700">{{ $worker->code }}</span>
+                @if($worker->worker_type === 'employee')
+                    <span class="px-2 py-0.5 rounded text-[11px] font-bold bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30">{{ __('Direct Employee') }}</span>
+                @elseif($worker->worker_type === 'direct_labour')
+                    <span class="px-2 py-0.5 rounded text-[11px] font-bold bg-sky-500/10 text-sky-600 dark:text-sky-400 border border-sky-500/30">{{ __('Direct Labour') }}</span>
+                @else
+                    <span class="px-2 py-0.5 rounded text-[11px] font-bold bg-purple-500/10 text-purple-600 dark:text-purple-400 border border-purple-500/30">
+                        {{ __('Subcontractor Worker') }}: {{ $worker->subcontractor->name ?? __('External') }}
+                    </span>
+                @endif
+                <span class="px-2.5 py-0.5 rounded-full text-[11px] font-bold uppercase {{ $worker->status === 'active' ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30' : 'bg-rose-500/10 text-rose-600 dark:text-rose-400 border border-rose-500/30' }}">
+                    {{ __($worker->status === 'active' ? 'Active' : ($worker->status === 'inactive' ? 'Inactive' : 'Terminated')) }}
+                </span>
+            </div>
+            <h1 class="text-2xl font-extrabold text-slate-900 dark:text-white mt-1.5">{{ $worker->full_name }}</h1>
+            <p class="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+                {{ __('Trade / Skill') }}: <span class="font-semibold text-slate-700 dark:text-slate-300">{{ $worker->trade_designation ?: __('Not specified') }}</span>
+            </p>
+        </div>
+
+        <div class="flex flex-wrap items-center gap-2">
+            <a href="{{ route('workforce.index') }}" class="px-3.5 py-2 text-xs font-bold rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-800 border border-slate-200 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700 dark:border-slate-700 transition">
+                &larr; {{ __('Back to Workforce') }}
+            </a>
+            @can('update', $worker)
+                <a href="{{ route('workforce.edit', $worker) }}" class="px-4 py-2 text-xs font-extrabold rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 shadow-lg shadow-amber-500/20 transition">
+                    {{ __('Edit Worker Profile') }}
+                </a>
+            @endcan
+        </div>
+    </div>
+
+    @if ($errors->any())
+        <div class="p-4 rounded-xl bg-rose-500/10 border border-rose-500/30 text-rose-600 dark:text-rose-300 text-xs space-y-1">
+            <div class="font-bold">{{ __('Please resolve the following validation issues:') }}</div>
+            <ul class="list-disc list-inside space-y-0.5">
+                @foreach ($errors->all() as $error)
+                    <li>{{ $error }}</li>
+                @endforeach
+            </ul>
+        </div>
+    @endif
+
+    <!-- Worker Details Summary Cards -->
+    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        <div class="p-4 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-sm">
+            <div class="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">{{ __('Assigned Primary Site') }}</div>
+            <div class="text-sm font-bold text-slate-900 dark:text-white mt-1.5">
+                {{ $worker->assignedSite ? ($worker->assignedSite->code . ' — ' . $worker->assignedSite->name) : __('Unassigned') }}
+            </div>
+            @if($worker->assignedSite && auth()->user()->can('view', $worker->assignedSite))
+                <a href="{{ route('sites.show', $worker->assignedSite) }}" class="inline-block mt-2 text-xs font-bold text-amber-600 dark:text-amber-400 hover:underline">
+                    {{ __('Inspect Site') }} &rarr;
+                </a>
+            @endif
+        </div>
+
+        <div class="p-4 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-sm">
+            <div class="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">{{ __('Daily Base Rate') }}</div>
+            <div class="text-2xl font-extrabold font-mono text-slate-900 dark:text-white mt-1">
+                ₹{{ number_format($worker->daily_rate, 2) }}
+            </div>
+            <div class="text-[11px] text-slate-500 dark:text-slate-400 mt-1">{{ __('Joining Date') }}: {{ $worker->joining_date?->format('Y-m-d') ?? __('Not specified') }}</div>
+        </div>
+
+        <div class="p-4 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-sm">
+            <div class="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">{{ __('Contact & Identity') }}</div>
+            <div class="text-sm font-bold font-mono text-slate-900 dark:text-white mt-1.5">{{ $worker->phone ?: __('No phone') }}</div>
+            @if($worker->aadhaar_last_four)
+                <div class="text-[11px] text-slate-500 dark:text-slate-400 font-mono mt-1">Aadhaar: XXXX-XXXX-{{ $worker->aadhaar_last_four }}</div>
+            @endif
+        </div>
+
+        <div class="p-4 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-sm">
+            <div class="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">{{ __('Verified Documents') }}</div>
+            <div class="text-2xl font-extrabold text-amber-600 dark:text-amber-400 mt-1">{{ $documents->count() }}</div>
+            <div class="text-[11px] text-slate-500 dark:text-slate-400 mt-1">{{ __('Private compliance storage') }}</div>
+        </div>
+    </div>
+
+    <!-- Worker Documents Management Section -->
+    <div id="worker-documents" class="p-6 sm:p-8 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-sm space-y-6 transition-colors duration-200">
+        <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-4 border-b border-slate-200 dark:border-slate-800">
+            <div>
+                <h2 class="text-base font-extrabold text-slate-900 dark:text-white tracking-tight">{{ __('Worker Documents & Identity Records') }} ({{ $documents->count() }})</h2>
+                <p class="text-xs text-slate-500 dark:text-slate-400 mt-0.5">{{ __('Stored in encrypted/isolated private storage. Never exposed via public links.') }}</p>
+            </div>
+        </div>
+
+        @can('uploadDocument', $worker)
+            <form method="POST" action="{{ route('workforce.documents.store', $worker) }}" enctype="multipart/form-data"
+                  x-data="{
+                      rows: [{ id: 1, type: 'aadhaar_identity', title: '' }],
+                      uploading: false,
+                      addRow() {
+                          if (this.rows.length < 10) {
+                              this.rows.push({ id: Date.now() + Math.random(), type: 'aadhaar_identity', title: '' });
+                          }
+                      },
+                      removeRow(idx) {
+                          if (this.rows.length > 1) {
+                              this.rows.splice(idx, 1);
+                          }
+                      }
+                  }"
+                  @submit="uploading = true"
+                  class="p-4 rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 space-y-3">
+                @csrf
+                <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                    <div class="text-xs font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider">{{ __('Upload Worker Documents') }}</div>
+                    <button type="button" @click="addRow()" class="self-start sm:self-auto px-2.5 py-1 rounded-lg bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 text-xs font-bold text-slate-700 dark:text-slate-300 hover:border-amber-500 transition">
+                        + {{ __('Add Another File') }}
+                    </button>
+                </div>
+
+                <div class="space-y-3">
+                    <template x-for="(row, index) in rows" :key="row.id">
+                        <div class="grid grid-cols-1 sm:grid-cols-12 gap-3 items-end p-3 rounded-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800">
+                            <div class="sm:col-span-4">
+                                <label class="block text-[11px] font-bold text-slate-600 dark:text-slate-400 uppercase mb-1">{{ __('Document Category') }} *</label>
+                                <select name="document_types[]" x-model="row.type" required class="w-full rounded-lg bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-slate-700 px-2.5 py-2 text-xs text-slate-900 dark:text-white">
+                                    @foreach($documentTypes as $typeKey => $typeLabel)
+                                        <option value="{{ $typeKey }}">{{ __($typeLabel) }}</option>
+                                    @endforeach
+                                </select>
+                            </div>
+                            <div class="sm:col-span-3">
+                                <label class="block text-[11px] font-bold text-slate-600 dark:text-slate-400 uppercase mb-1">{{ __('Document Title / Reference') }}</label>
+                                <input type="text" name="document_titles[]" x-model="row.title" placeholder="{{ __('Optional note...') }}" class="w-full rounded-lg bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-slate-700 px-2.5 py-2 text-xs text-slate-900 dark:text-white">
+                            </div>
+                            <div class="sm:col-span-4">
+                                <label class="block text-[11px] font-bold text-slate-600 dark:text-slate-400 uppercase mb-1">{{ __('Select File') }} *</label>
+                                <input type="file" name="documents[]" required accept=".pdf,.jpg,.jpeg,.png,.webp,.doc,.docx" class="w-full text-xs text-slate-600 dark:text-slate-300 file:mr-2 file:py-1.5 file:px-2.5 file:rounded-lg file:border-0 file:text-xs file:font-bold file:bg-amber-500/15 file:text-amber-700 dark:file:text-amber-400 hover:file:bg-amber-500/25">
+                            </div>
+                            <div class="sm:col-span-1 flex justify-end">
+                                <button type="button" x-show="rows.length > 1" @click="removeRow(index)" class="px-2.5 py-2 rounded-lg bg-rose-500/10 hover:bg-rose-500 text-rose-600 hover:text-white text-xs font-bold transition">
+                                    &times;
+                                </button>
+                            </div>
+                        </div>
+                    </template>
+                </div>
+
+                <div class="flex items-center justify-between pt-2">
+                    <span class="text-[11px] text-slate-500 dark:text-slate-400">{{ __('Allowed: PDF, JPG, PNG, WEBP, DOC, DOCX (Max 5 MB each)') }}</span>
+                    <button type="submit" :disabled="uploading" class="px-4 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 disabled:opacity-60 text-slate-950 text-xs font-extrabold shadow-sm transition">
+                        <span x-show="!uploading">{{ __('Upload Documents') }}</span>
+                        <span x-show="uploading" x-cloak>{{ __('Uploading...') }}</span>
+                    </button>
+                </div>
+            </form>
+        @endcan
+
+        <!-- Existing Documents List -->
+        <div class="divide-y divide-slate-200 dark:divide-slate-800 text-xs">
+            @forelse($documents as $doc)
+                <div class="py-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                    <div class="space-y-1 min-w-0">
+                        <div class="flex flex-wrap items-center gap-2">
+                            <span class="px-2 py-0.5 rounded text-[11px] font-bold bg-amber-500/10 text-amber-700 dark:text-amber-400 border border-amber-500/30">
+                                {{ $doc->typeLabel() }}
+                            </span>
+                            <span class="font-bold text-slate-900 dark:text-white break-all">{{ $doc->original_name }}</span>
+                            @if($doc->title)
+                                <span class="text-slate-500 dark:text-slate-400">&mdash; {{ $doc->title }}</span>
+                            @endif
+                        </div>
+                        <div class="text-[11px] text-slate-500 dark:text-slate-400 font-mono">
+                            {{ $doc->formattedSize() }} &bull; {{ $doc->mime_type }} &bull; {{ __('Uploaded by') }} {{ $doc->uploader->name ?? __('System') }} ({{ $doc->created_at?->format('Y-m-d H:i') }})
+                        </div>
+                    </div>
+
+                    <div class="flex items-center gap-2 shrink-0">
+                        @can('downloadDocument', [$worker, $doc])
+                            <a href="{{ route('workforce.documents.download', [$worker, $doc->id]) }}" class="px-3 py-1.5 rounded-lg bg-slate-100 hover:bg-amber-500 hover:text-slate-950 text-slate-700 border border-slate-200 dark:bg-slate-800 dark:text-slate-300 dark:border-slate-700 dark:hover:bg-amber-500 dark:hover:text-slate-950 font-bold transition">
+                                {{ __('Download') }}
+                            </a>
+                        @endcan
+                        @can('deleteDocument', [$worker, $doc])
+                            <form method="POST" action="{{ route('workforce.documents.destroy', [$worker, $doc->id]) }}" onsubmit="return confirm('{{ __('Delete this worker document permanently?') }}')">
+                                @csrf
+                                @method('DELETE')
+                                <button type="submit" class="px-3 py-1.5 rounded-lg bg-rose-500/10 hover:bg-rose-500 text-rose-600 hover:text-white border border-rose-500/30 font-bold transition">
+                                    {{ __('Delete') }}
+                                </button>
+                            </form>
+                        @endcan
+                    </div>
+                </div>
+            @empty
+                <div class="py-6 text-center text-slate-500 dark:text-slate-400">
+                    {{ __('No documents uploaded for this worker yet.') }}
+                </div>
+            @endforelse
+        </div>
+    </div>
+</div>
+@endsection
+

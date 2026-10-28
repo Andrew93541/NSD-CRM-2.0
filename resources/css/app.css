@@ -1,0 +1,43 @@
+@import 'tailwindcss';
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+@source '../views/**/*.blade.php';
+@source '../../vendor/laravel/framework/src/Illuminate/Pagination/resources/views/*.blade.php';
+@source '../../storage/framework/views/*.php';
+
+@theme {
+    --font-sans: 'Plus Jakarta Sans', 'Noto Sans Devanagari', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    --font-mono: 'JetBrains Mono', monospace;
+
+    /* NSD Industrial Palette Tokens */
+    --color-nsd-orange-50: #fff7ed;
+    --color-nsd-orange-100: #ffedd5;
+    --color-nsd-orange-200: #fed7aa;
+    --color-nsd-orange-300: #fdba74;
+    --color-nsd-orange-400: #fb923c;
+    --color-nsd-orange-500: #f97316;
+    --color-nsd-orange-600: #ea580c;
+    --color-nsd-orange-700: #c2410c;
+    --color-nsd-orange-800: #9a3412;
+    --color-nsd-orange-900: #7c2d12;
+}
+
+/* Base Industrial Styling */
+html {
+    color-scheme: light;
+}
+
+html.dark {
+    color-scheme: dark;
+}
+
+body {
+    transition: background-color 0.2s cubic-bezier(0.4, 0, 0.2, 1), color 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* Custom focus ring for accessibility */
+*:focus-visible {
+    outline: 2px solid #f97316;
+    outline-offset: 2px;
+}
