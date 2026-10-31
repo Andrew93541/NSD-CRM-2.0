@@ -31,6 +31,14 @@ class Worker extends Model
         'General Labour',
     ];
 
+    public const SKILL_LEVELS = [
+        'unskilled' => 'Unskilled',
+        'semi_skilled' => 'Semi-Skilled',
+        'skilled' => 'Skilled',
+        'highly_skilled' => 'Highly Skilled',
+        'supervisor' => 'Supervisor / Foreman',
+    ];
+
     protected $fillable = [
         'company_id',
         'worker_type',
@@ -47,22 +55,58 @@ class Worker extends Model
         'aadhaar_last_four',
         'trade_designation',
         'department',
+        'skill_level',
         'assigned_site_id',
         'daily_rate',
+        'overtime_rate',
         'status',
         'joining_date',
+        'exit_date',
         'emergency_contact_name',
         'emergency_contact_relation',
         'emergency_contact_phone',
+        'bank_account_name',
+        'bank_account_number',
+        'bank_ifsc',
+        'upi_id',
+        'pin',
+        'must_change_pin',
+        'qr_token',
     ];
+
+    protected $hidden = [
+        'pin',
+    ];
+
+    protected static function booted(): void
+    {
+        static::creating(function (Worker $worker) {
+            if (empty($worker->qr_token)) {
+                $worker->qr_token = \Illuminate\Support\Str::random(40);
+            }
+        });
+    }
 
     protected function casts(): array
     {
         return [
             'daily_rate' => 'decimal:2',
+            'overtime_rate' => 'decimal:2',
             'date_of_birth' => 'date',
             'joining_date' => 'date',
+            'exit_date' => 'date',
+            'must_change_pin' => 'boolean',
         ];
+    }
+
+    public function ensureQrToken(): string
+    {
+        if (empty($this->qr_token)) {
+            $this->qr_token = \Illuminate\Support\Str::random(40);
+            $this->saveQuietly();
+        }
+
+        return $this->qr_token;
     }
 
     public function getFullNameAttribute(): string
@@ -77,6 +121,15 @@ class Worker extends Model
         }
 
         return __(self::GENDERS[$this->gender] ?? ucfirst(str_replace('_', ' ', $this->gender)));
+    }
+
+    public function skillLevelLabel(): ?string
+    {
+        if (!$this->skill_level) {
+            return null;
+        }
+
+        return __(self::SKILL_LEVELS[$this->skill_level] ?? ucfirst(str_replace('_', ' ', $this->skill_level)));
     }
 
     public function company(): BelongsTo
@@ -94,9 +147,34 @@ class Worker extends Model
         return $this->belongsTo(Site::class, 'assigned_site_id');
     }
 
+    public function shift(): BelongsTo
+    {
+        return $this->belongsTo(Shift::class, 'shift_id');
+    }
+
+    public function siteAssignments(): HasMany
+    {
+        return $this->hasMany(SiteAssignment::class)->latest('start_date')->latest('id');
+    }
+
     public function attendances(): HasMany
     {
         return $this->hasMany(DailyAttendance::class);
+    }
+
+    public function punches(): HasMany
+    {
+        return $this->hasMany(AttendancePunch::class)->latest('punched_at');
+    }
+
+    public function flags(): HasMany
+    {
+        return $this->hasMany(AttendanceFlag::class)->latest('attendance_date');
+    }
+
+    public function leaveRequests(): HasMany
+    {
+        return $this->hasMany(LeaveRequest::class)->latest('start_date');
     }
 
     public function documents(): HasMany

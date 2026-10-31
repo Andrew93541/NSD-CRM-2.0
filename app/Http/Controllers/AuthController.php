@@ -2,12 +2,14 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\AuditLog;
 use App\Models\Company;
 use App\Services\Security\TenantContext;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\View\View;
 
 class AuthController extends Controller
@@ -28,9 +30,18 @@ class AuthController extends Controller
             'password' => ['required'],
         ]);
 
+        $throttleKey = 'staff-login:' . strtolower(trim($credentials['email'])) . '|' . $request->ip();
+        if (RateLimiter::tooManyAttempts($throttleKey, 5)) {
+            $seconds = RateLimiter::availableIn($throttleKey);
+            return back()->withErrors([
+                'email' => "Too many login attempts. Please try again in {$seconds} seconds.",
+            ])->onlyInput('email');
+        }
+
         $credentials['is_active'] = true;
 
         if (Auth::attempt($credentials, $request->boolean('remember'))) {
+            RateLimiter::clear($throttleKey);
             $request->session()->regenerate();
             $user = Auth::user();
 
@@ -48,8 +59,26 @@ class AuthController extends Controller
                 TenantContext::setCompanyId(null);
             }
 
+            AuditLog::record(
+                'auth.login_succeeded',
+                $user,
+                null,
+                ['email' => $user->email],
+                null,
+                $user->id,
+                $company?->id
+            );
+
             return redirect()->intended(route('dashboard'));
         }
+
+        RateLimiter::hit($throttleKey, 60);
+        AuditLog::record(
+            'auth.login_failed',
+            null,
+            null,
+            ['email' => $credentials['email'], 'ip' => $request->ip()]
+        );
 
         return back()->withErrors([
             'email' => 'The provided credentials do not match our records.',
@@ -94,9 +123,32 @@ class AuthController extends Controller
         }
 
         $request->session()->put('current_company_id', $company->id);
+        $request->session()->forget('active_site_id');
         TenantContext::setCompanyId($company->id);
 
         return back()->with('success', 'Switched organization to ' . $company->name);
+    }
+
+    public function switchSite(Request $request): RedirectResponse
+    {
+        $validated = $request->validate([
+            'site_id' => ['nullable', 'integer'],
+        ]);
+
+        $siteId = $validated['site_id'] ?? null;
+        if (empty($siteId)) {
+            $request->session()->forget('active_site_id');
+            return back()->with('success', __('Viewing all accessible sites.'));
+        }
+
+        $user = Auth::user();
+        if (!$user || !$user->isAssignedToSite((int) $siteId)) {
+            abort(403, 'Unauthorized site selection.');
+        }
+
+        $request->session()->put('active_site_id', (int) $siteId);
+
+        return back()->with('success', __('Active site filter updated.'));
     }
 
     public function switchLocale(Request $request): RedirectResponse

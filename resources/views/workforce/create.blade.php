@@ -26,11 +26,12 @@
     <div class="p-6 sm:p-8 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-xl transition-colors duration-200"
          x-data="{
             workerType: '{{ old('worker_type', 'employee') }}',
+            previewCodes: {{ Js::from($previewCodes ?? ['employee' => 'EMP-' . date('Y') . '-0001', 'subcontractor_worker' => 'SUB-' . date('Y') . '-0001', 'direct_labour' => 'SUB-' . date('Y') . '-0001']) }},
             docRows: [],
             submitting: false,
             addDocRow(defaultType = 'aadhaar_identity', defaultTitle = '') {
                 if (this.docRows.length < 10) {
-                    this.docRows.push({ id: Date.now() + Math.random(), type: defaultType, title: defaultTitle });
+                    this.docRows.push({ id: Date.now() + Math.random(), type: defaultType, title: defaultTitle, expiry: '' });
                 }
             },
             removeDocRow(idx) {
@@ -39,6 +40,15 @@
          }">
         <form method="POST" action="{{ route('workforce.store') }}" enctype="multipart/form-data" class="space-y-8" @submit="submitting = true">
             @csrf
+
+            <!-- Dynamic Worker ID Preview Banner -->
+            <div class="p-4 rounded-xl bg-amber-500/10 border border-amber-500/30 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                <div>
+                    <div class="text-xs font-extrabold text-slate-900 dark:text-white uppercase tracking-wider">{{ __('Auto-Generated Dynamic Worker ID') }}</div>
+                    <p class="text-[11px] text-slate-600 dark:text-slate-400">{{ __('Assigned atomically upon save based on worker category and joining year.') }}</p>
+                </div>
+                <span class="px-3 py-1.5 rounded-lg bg-white dark:bg-slate-950 border border-amber-500/40 font-mono text-sm font-extrabold text-amber-600 dark:text-amber-400" x-text="previewCodes[workerType] || 'EMP-{{ date('Y') }}-0001'"></span>
+            </div>
 
             <!-- SECTION 1: PERSONAL INFORMATION -->
             <section class="space-y-4">
@@ -148,10 +158,19 @@
                     </select>
                 </div>
 
-                <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
                     <div>
                         <label for="trade_designation" class="block text-xs font-bold text-slate-700 dark:text-slate-300 uppercase mb-1">{{ __('Trade / Skill Designation') }} *</label>
                         <input id="trade_designation" type="text" name="trade_designation" required maxlength="100" placeholder="{{ __('e.g. Excavator Operator, Mason, Site Engineer') }}" value="{{ old('trade_designation') }}" class="w-full rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-slate-800 p-2.5 text-sm text-slate-900 dark:text-white placeholder-slate-400 dark:placeholder-slate-500 focus:border-amber-500 outline-none">
+                    </div>
+                    <div>
+                        <label for="skill_level" class="block text-xs font-bold text-slate-700 dark:text-slate-300 uppercase mb-1">{{ __('Skill Level') }}</label>
+                        <select id="skill_level" name="skill_level" class="w-full rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-slate-800 p-2.5 text-sm text-slate-900 dark:text-white focus:border-amber-500 outline-none">
+                            <option value="">{{ __('Select Skill Level...') }}</option>
+                            @foreach($skillLevels ?? \App\Models\Worker::SKILL_LEVELS as $skKey => $skLabel)
+                                <option value="{{ $skKey }}" {{ old('skill_level') === $skKey ? 'selected' : '' }}>{{ __($skLabel) }}</option>
+                            @endforeach
+                        </select>
                     </div>
                     <div>
                         <label for="department" class="block text-xs font-bold text-slate-700 dark:text-slate-300 uppercase mb-1">{{ __('Department / Work Category') }}</label>
@@ -164,7 +183,7 @@
                     </div>
                 </div>
 
-                <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                <div class="grid grid-cols-1 sm:grid-cols-4 gap-4">
                     <div>
                         <label for="joining_date" class="block text-xs font-bold text-slate-700 dark:text-slate-300 uppercase mb-1">{{ __('Joining Date') }}</label>
                         <input id="joining_date" type="date" name="joining_date" value="{{ old('joining_date', now()->format('Y-m-d')) }}" class="w-full rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-slate-800 p-2.5 text-sm text-slate-900 dark:text-white focus:border-amber-500 outline-none">
@@ -180,6 +199,10 @@
                     <div>
                         <label for="daily_rate" class="block text-xs font-bold text-slate-700 dark:text-slate-300 uppercase mb-1">{{ __('Daily Base Rate') }} (₹) *</label>
                         <input id="daily_rate" type="number" step="0.01" min="0" name="daily_rate" required value="{{ old('daily_rate', 700) }}" class="w-full rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-slate-800 p-2.5 text-sm font-mono text-slate-900 dark:text-white focus:border-amber-500 outline-none">
+                    </div>
+                    <div>
+                        <label for="overtime_rate" class="block text-xs font-bold text-slate-700 dark:text-slate-300 uppercase mb-1">{{ __('Overtime Rate / Hr') }} (₹)</label>
+                        <input id="overtime_rate" type="number" step="0.01" min="0" name="overtime_rate" value="{{ old('overtime_rate', 0) }}" class="w-full rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-slate-800 p-2.5 text-sm font-mono text-slate-900 dark:text-white focus:border-amber-500 outline-none">
                     </div>
                 </div>
             </section>
@@ -246,7 +269,7 @@
                 <div class="space-y-3">
                     <template x-for="(row, index) in docRows" :key="row.id">
                         <div class="p-3.5 rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 grid grid-cols-1 sm:grid-cols-12 gap-3 items-end">
-                            <div class="sm:col-span-4">
+                            <div class="sm:col-span-3">
                                 <label class="block text-[11px] font-bold text-slate-600 dark:text-slate-400 uppercase mb-1">{{ __('Document Category') }} *</label>
                                 <select name="document_types[]" x-model="row.type" required class="w-full rounded-lg bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 px-2.5 py-2 text-xs text-slate-900 dark:text-white">
                                     @foreach($documentTypes ?? \App\Models\WorkerDocument::documentTypes() as $typeKey => $typeLabel)
@@ -258,7 +281,11 @@
                                 <label class="block text-[11px] font-bold text-slate-600 dark:text-slate-400 uppercase mb-1">{{ __('Document Title / Reference') }}</label>
                                 <input type="text" name="document_titles[]" x-model="row.title" placeholder="{{ __('Optional note...') }}" class="w-full rounded-lg bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 px-2.5 py-2 text-xs text-slate-900 dark:text-white">
                             </div>
-                            <div class="sm:col-span-4">
+                            <div class="sm:col-span-2">
+                                <label class="block text-[11px] font-bold text-slate-600 dark:text-slate-400 uppercase mb-1">{{ __('Expiry Date') }}</label>
+                                <input type="date" name="document_expiry_dates[]" x-model="row.expiry" class="w-full rounded-lg bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 px-2 py-2 text-xs font-mono text-slate-900 dark:text-white">
+                            </div>
+                            <div class="sm:col-span-3">
                                 <label class="block text-[11px] font-bold text-slate-600 dark:text-slate-400 uppercase mb-1">{{ __('Select File') }} *</label>
                                 <input type="file" name="documents[]" required accept=".pdf,.jpg,.jpeg,.png,.webp,.doc,.docx" class="w-full text-xs text-slate-600 dark:text-slate-300 file:mr-2 file:py-1.5 file:px-2.5 file:rounded-lg file:border-0 file:text-xs file:font-bold file:bg-amber-500/15 file:text-amber-700 dark:file:text-amber-400 hover:file:bg-amber-500/25">
                             </div>

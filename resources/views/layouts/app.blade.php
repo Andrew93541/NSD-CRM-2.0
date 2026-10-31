@@ -117,12 +117,41 @@
                     </form>
                 </div>
 
+                @if(!request()->routeIs('sites.index') && isset($accessibleSites) && $accessibleSites->count() > 0)
+                    <form method="POST" action="{{ route('switch_site') }}" class="hidden md:flex items-center">
+                        @csrf
+                        <label for="topbar-site-switcher" class="sr-only">{{ __('Switch Site') }}</label>
+                        <select id="topbar-site-switcher" name="site_id" onchange="this.form.submit()" class="rounded-xl bg-slate-100 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700/60 px-2.5 py-1.5 text-xs font-bold text-slate-700 dark:text-slate-200 focus:border-amber-500 outline-none max-w-[190px] truncate">
+                            <option value="">{{ __('All Accessible Sites') }} ({{ $accessibleSites->count() }})</option>
+                            @foreach($accessibleSites as $navSite)
+                                <option value="{{ $navSite->id }}" {{ (int) ($activeSiteId ?? 0) === (int) $navSite->id ? 'selected' : '' }}>
+                                    {{ $navSite->code }} — {{ $navSite->name }}
+                                </option>
+                            @endforeach
+                        </select>
+                    </form>
+                @endif
+
                 @if(isset($currentCompany))
                     <div class="hidden xl:flex items-center gap-2 px-3 py-1.5 rounded-xl bg-slate-100 border border-slate-200 text-slate-700 dark:bg-slate-800/80 dark:border-slate-700/60 dark:text-slate-300">
                         <span class="w-2 h-2 rounded-full bg-emerald-500 dark:bg-emerald-400 animate-pulse"></span>
                         <span class="text-xs font-semibold truncate max-w-[180px]">{{ $currentCompany->name }}</span>
                     </div>
                 @endif
+
+                @php
+                    $unreadNotifCount = \Illuminate\Support\Facades\Schema::hasTable('crm_notifications')
+                        ? \App\Models\CrmNotification::where('user_id', Auth::id())->whereNull('read_at')->count()
+                        : 0;
+                @endphp
+                <a href="{{ route('tasks.notifications') }}" class="relative p-1.5 sm:p-2 rounded-xl border transition flex items-center justify-center bg-slate-100 hover:bg-slate-200 text-slate-700 border-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 dark:text-slate-200 dark:border-slate-700" title="{{ __('Notifications') }}">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9"/></svg>
+                    @if($unreadNotifCount > 0)
+                        <span class="absolute -top-1 -right-1 px-1.5 py-0.2 rounded-full bg-rose-500 text-white text-[10px] font-black leading-tight">
+                            {{ $unreadNotifCount }}
+                        </span>
+                    @endif
+                </a>
 
                 <div class="flex items-center gap-1.5 sm:gap-3">
                     <div class="text-right hidden md:block">
@@ -159,7 +188,18 @@
                     </div>
                 </a>
 
-                <!-- 2. Sites -->
+                <!-- 2. Projects -->
+                @can('viewAny', \App\Models\Project::class)
+                <a href="{{ route('projects.index') }}" class="group flex items-start gap-3.5 px-3 py-2.5 rounded-xl transition {{ request()->routeIs('projects.*') ? 'bg-amber-500/10 text-amber-600 border border-amber-500/30 font-bold dark:bg-amber-500/10 dark:text-amber-400 dark:border-amber-500/30' : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900 font-medium dark:text-slate-300 dark:hover:bg-slate-800/60 dark:hover:text-white' }}">
+                    <svg class="w-5 h-5 flex-shrink-0 mt-0.5 text-sky-600 dark:text-sky-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4"/></svg>
+                    <div>
+                        <div class="text-sm leading-tight">{{ __('Projects') }}</div>
+                        <div class="text-[11px] text-slate-500 dark:text-slate-400 font-normal mt-0.5">{{ __('Milestones & docs') }}</div>
+                    </div>
+                </a>
+                @endcan
+
+                <!-- 3. Sites -->
                 @can('viewAny', \App\Models\Site::class)
                 <a href="{{ route('sites.index') }}" class="group flex items-start gap-3.5 px-3 py-2.5 rounded-xl transition {{ request()->routeIs('sites.*') ? 'bg-amber-500/10 text-amber-600 border border-amber-500/30 font-bold dark:bg-amber-500/10 dark:text-amber-400 dark:border-amber-500/30' : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900 font-medium dark:text-slate-300 dark:hover:bg-slate-800/60 dark:hover:text-white' }}">
                     <svg class="w-5 h-5 flex-shrink-0 mt-0.5 text-orange-600 dark:text-orange-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 11a3 3 0 11-6 0 3 3 0 016 0z"/></svg>
@@ -197,6 +237,17 @@
                     </div>
                 </a>
 
+                <!-- 4b. Site Tasks & Notes -->
+                @can('viewAny', \App\Models\Task::class)
+                <a href="{{ route('tasks.index') }}" class="group flex items-start gap-3.5 px-3 py-2.5 rounded-xl transition {{ request()->routeIs('tasks.*') ? 'bg-amber-500/10 text-amber-600 border border-amber-500/30 font-bold dark:bg-amber-500/10 dark:text-amber-400 dark:border-amber-500/30' : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900 font-medium dark:text-slate-300 dark:hover:bg-slate-800/60 dark:hover:text-white' }}">
+                    <svg class="w-5 h-5 flex-shrink-0 mt-0.5 text-rose-600 dark:text-rose-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01"/></svg>
+                    <div>
+                        <div class="text-sm leading-tight">{{ __('Site Tasks & Notes') }}</div>
+                        <div class="text-[11px] text-slate-500 dark:text-slate-400 font-normal mt-0.5">{{ __('Kanban board & logs') }}</div>
+                    </div>
+                </a>
+                @endcan
+
                 <!-- 5. Materials & Deliveries -->
                 <a href="{{ route('procurement.requests') }}" class="group flex items-start gap-3.5 px-3 py-2.5 rounded-xl transition {{ request()->routeIs('procurement.*') || request()->routeIs('inventory.*') ? 'bg-amber-500/10 text-amber-600 border border-amber-500/30 font-bold dark:bg-amber-500/10 dark:text-amber-400 dark:border-amber-500/30' : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900 font-medium dark:text-slate-300 dark:hover:bg-slate-800/60 dark:hover:text-white' }}">
                     <svg class="w-5 h-5 flex-shrink-0 mt-0.5 text-cyan-600 dark:text-cyan-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4"/></svg>
@@ -207,11 +258,11 @@
                 </a>
 
                 <!-- 6. Reports -->
-                <a href="{{ route('reports.workforce') }}" class="group flex items-start gap-3.5 px-3 py-2.5 rounded-xl transition {{ request()->routeIs('reports.*') ? 'bg-amber-500/10 text-amber-600 border border-amber-500/30 font-bold dark:bg-amber-500/10 dark:text-amber-400 dark:border-amber-500/30' : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900 font-medium dark:text-slate-300 dark:hover:bg-slate-800/60 dark:hover:text-white' }}">
+                <a href="{{ route('reports.workforce') }}" class="group flex items-start gap-3.5 px-3 py-2.5 rounded-xl transition {{ request()->routeIs('reports.*') || request()->routeIs('attendance.register') ? 'bg-amber-500/10 text-amber-600 border border-amber-500/30 font-bold dark:bg-amber-500/10 dark:text-amber-400 dark:border-amber-500/30' : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900 font-medium dark:text-slate-300 dark:hover:bg-slate-800/60 dark:hover:text-white' }}">
                     <svg class="w-5 h-5 flex-shrink-0 mt-0.5 text-violet-600 dark:text-violet-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/></svg>
                     <div>
-                        <div class="text-sm leading-tight">{{ __('Reports') }}</div>
-                        <div class="text-[11px] text-slate-500 dark:text-slate-400 font-normal mt-0.5">{{ __('Daily site summaries') }}</div>
+                        <div class="text-sm leading-tight">{{ __('Attendance Register') }}</div>
+                        <div class="text-[11px] text-slate-500 dark:text-slate-400 font-normal mt-0.5">{{ __('Date & month present view') }}</div>
                     </div>
                 </a>
             </nav>
@@ -249,6 +300,11 @@
                         <a href="{{ route('dashboard') }}" class="flex items-center gap-3 px-3 py-3 rounded-xl font-bold {{ request()->routeIs('dashboard') ? 'bg-amber-500 text-slate-950 shadow' : 'text-slate-700 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800' }}">
                             <span>{{ __('Home') }}</span>
                         </a>
+                        @can('viewAny', \App\Models\Project::class)
+                        <a href="{{ route('projects.index') }}" class="flex items-center gap-3 px-3 py-3 rounded-xl font-bold {{ request()->routeIs('projects.*') ? 'bg-amber-500 text-slate-950 shadow' : 'text-slate-700 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800' }}">
+                            <span>{{ __('Projects') }}</span>
+                        </a>
+                        @endcan
                         @can('viewAny', \App\Models\Site::class)
                         <a href="{{ route('sites.index') }}" class="flex items-center gap-3 px-3 py-3 rounded-xl font-bold {{ request()->routeIs('sites.*') ? 'bg-amber-500 text-slate-950 shadow' : 'text-slate-700 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800' }}">
                             <span>{{ __('Sites') }}</span>

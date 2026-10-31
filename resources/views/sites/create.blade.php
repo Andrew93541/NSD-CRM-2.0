@@ -48,6 +48,18 @@
 
             <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
+                    <label class="block text-xs font-bold text-slate-700 dark:text-slate-300 uppercase mb-1">{{ __('Site Manager') }}</label>
+                    <select name="site_manager_id" class="w-full rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-slate-800 p-2.5 text-sm text-slate-900 dark:text-white focus:border-amber-500 outline-none">
+                        <option value="">{{ __('Unassigned') }}</option>
+                        @foreach($supervisors as $u)
+                            <option value="{{ $u->id }}" {{ (string) old('site_manager_id') === (string) $u->id ? 'selected' : '' }}>
+                                {{ $u->name }} ({{ $u->email }})
+                            </option>
+                        @endforeach
+                    </select>
+                </div>
+
+                <div>
                     <label class="block text-xs font-bold text-slate-700 dark:text-slate-300 uppercase mb-1">{{ __('Site Supervisor / Manager') }}</label>
                     <select name="supervisor_id" class="w-full rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-slate-800 p-2.5 text-sm text-slate-900 dark:text-white focus:border-amber-500 outline-none">
                         <option value="">{{ __('Unassigned') }}</option>
@@ -58,11 +70,11 @@
                         @endforeach
                     </select>
                 </div>
+            </div>
 
-                <div>
-                    <label class="block text-xs font-bold text-slate-700 dark:text-slate-300 uppercase mb-1">{{ __('Corridor / Location Landmark') }}</label>
-                    <input type="text" name="location" placeholder="e.g. Sector 3 km 45-58 Corridor" value="{{ old('location') }}" class="w-full rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-slate-800 p-2.5 text-sm text-slate-900 dark:text-white placeholder-slate-400 dark:placeholder-slate-500 focus:border-amber-500 outline-none">
-                </div>
+            <div>
+                <label class="block text-xs font-bold text-slate-700 dark:text-slate-300 uppercase mb-1">{{ __('Corridor / Location Landmark') }}</label>
+                <input type="text" name="location" placeholder="e.g. Sector 3 km 45-58 Corridor" value="{{ old('location') }}" class="w-full rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-slate-800 p-2.5 text-sm text-slate-900 dark:text-white placeholder-slate-400 dark:placeholder-slate-500 focus:border-amber-500 outline-none">
             </div>
 
             <div>
@@ -96,6 +108,23 @@
                 <div>
                     <label class="block text-xs font-bold text-slate-700 dark:text-slate-300 uppercase mb-1">{{ __('Longitude') }} (-180 to 180)</label>
                     <input type="text" name="longitude" placeholder="e.g. 73.856743" value="{{ old('longitude') }}" class="w-full rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-slate-800 p-2.5 text-sm font-mono text-slate-900 dark:text-white placeholder-slate-400 dark:placeholder-slate-500 focus:border-amber-500 outline-none">
+                </div>
+            </div>
+
+            <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                <div>
+                    <label class="block text-xs font-bold text-slate-700 dark:text-slate-300 uppercase mb-1">{{ __('Geofence Radius (m)') }}</label>
+                    <input type="number" name="geofence_radius_m" min="25" max="10000" value="{{ old('geofence_radius_m', 200) }}" class="w-full rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-slate-800 p-2.5 text-sm font-mono text-slate-900 dark:text-white focus:border-amber-500 outline-none">
+                </div>
+
+                <div>
+                    <label class="block text-xs font-bold text-slate-700 dark:text-slate-300 uppercase mb-1">{{ __('Shift Start Time') }}</label>
+                    <input type="time" name="shift_start" value="{{ old('shift_start', '09:00') }}" class="w-full rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-slate-800 p-2.5 text-sm font-mono text-slate-900 dark:text-white focus:border-amber-500 outline-none">
+                </div>
+
+                <div>
+                    <label class="block text-xs font-bold text-slate-700 dark:text-slate-300 uppercase mb-1">{{ __('Shift End Time') }}</label>
+                    <input type="time" name="shift_end" value="{{ old('shift_end', '18:00') }}" class="w-full rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-slate-800 p-2.5 text-sm font-mono text-slate-900 dark:text-white focus:border-amber-500 outline-none">
                 </div>
             </div>
 

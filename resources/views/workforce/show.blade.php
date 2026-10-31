@@ -198,6 +198,14 @@
                     <dt class="text-slate-500 dark:text-slate-400 font-semibold">{{ __('Daily Base Rate') }}</dt>
                     <dd class="font-bold font-mono text-slate-900 dark:text-white mt-0.5">₹{{ number_format($worker->daily_rate, 2) }}</dd>
                 </div>
+                <div>
+                    <dt class="text-slate-500 dark:text-slate-400 font-semibold">{{ __('Skill Level') }}</dt>
+                    <dd class="font-bold text-slate-900 dark:text-white mt-0.5">{{ $worker->skillLevelLabel() ?? __('Not specified') }}</dd>
+                </div>
+                <div>
+                    <dt class="text-slate-500 dark:text-slate-400 font-semibold">{{ __('Overtime Rate / Hr') }}</dt>
+                    <dd class="font-bold font-mono text-slate-900 dark:text-white mt-0.5">₹{{ number_format((float) ($worker->overtime_rate ?? 0), 2) }}</dd>
+                </div>
             </dl>
         </div>
 
@@ -240,6 +248,38 @@
                     </div>
                 </dl>
             </div>
+
+            <!-- QR Attendance Badge & Worker Portal PIN -->
+            <div class="p-6 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-sm space-y-4">
+                <div class="pb-3 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between">
+                    <h2 class="text-sm font-extrabold text-slate-900 dark:text-white uppercase tracking-wider">{{ __('QR Attendance Badge & Portal Credentials') }}</h2>
+                    <span class="px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 text-[10px] font-bold uppercase">{{ __('Verified Token') }}</span>
+                </div>
+                <div class="text-xs space-y-3">
+                    <div>
+                        <div class="text-slate-500 dark:text-slate-400 font-semibold mb-1">{{ __('Cryptographic QR Badge Token') }}</div>
+                        <div class="p-2.5 rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 font-mono text-xs text-amber-600 dark:text-amber-400 break-all">
+                            {{ $worker->qr_token ?? $worker->code }}
+                        </div>
+                    </div>
+
+                    @can('update', $worker)
+                        @if($worker->worker_type === 'employee')
+                            <form method="POST" action="{{ route('workforce.reset_pin', $worker) }}" class="pt-2 border-t border-slate-200 dark:border-slate-800 flex flex-col sm:flex-row items-stretch sm:items-end gap-2">
+                                @csrf
+                                <div class="flex-1">
+                                    <label class="block text-[10px] font-bold text-slate-500 uppercase mb-1">{{ __('Issue / Reset 6-Digit Worker Portal PIN') }}</label>
+                                    <input type="text" name="pin" inputmode="numeric" maxlength="6" pattern="\d{6}" required placeholder="e.g. 123456"
+                                        class="w-full rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-slate-800 px-3 py-2 text-xs font-mono text-slate-900 dark:text-white">
+                                </div>
+                                <button type="submit" class="px-4 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-xs transition">
+                                    {{ __('Set Temporary PIN') }}
+                                </button>
+                            </form>
+                        @endif
+                    @endcan
+                </div>
+            </div>
         </div>
     </div>
 
@@ -281,7 +321,7 @@
                 <div class="space-y-3">
                     <template x-for="(row, index) in rows" :key="row.id">
                         <div class="grid grid-cols-1 sm:grid-cols-12 gap-3 items-end p-3 rounded-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800">
-                            <div class="sm:col-span-4">
+                            <div class="sm:col-span-3">
                                 <label class="block text-[11px] font-bold text-slate-600 dark:text-slate-400 uppercase mb-1">{{ __('Document Category') }} *</label>
                                 <select name="document_types[]" x-model="row.type" required class="w-full rounded-lg bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-slate-700 px-2.5 py-2 text-xs text-slate-900 dark:text-white">
                                     @foreach($documentTypes as $typeKey => $typeLabel)
@@ -293,7 +333,11 @@
                                 <label class="block text-[11px] font-bold text-slate-600 dark:text-slate-400 uppercase mb-1">{{ __('Document Title / Reference') }}</label>
                                 <input type="text" name="document_titles[]" x-model="row.title" placeholder="{{ __('Optional note...') }}" class="w-full rounded-lg bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-slate-700 px-2.5 py-2 text-xs text-slate-900 dark:text-white">
                             </div>
-                            <div class="sm:col-span-4">
+                            <div class="sm:col-span-2">
+                                <label class="block text-[11px] font-bold text-slate-600 dark:text-slate-400 uppercase mb-1">{{ __('Expiry Date') }}</label>
+                                <input type="date" name="document_expiry_dates[]" class="w-full rounded-lg bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-slate-700 px-2 py-2 text-xs font-mono text-slate-900 dark:text-white">
+                            </div>
+                            <div class="sm:col-span-3">
                                 <label class="block text-[11px] font-bold text-slate-600 dark:text-slate-400 uppercase mb-1">{{ __('Select File') }} *</label>
                                 <input type="file" name="documents[]" required accept=".pdf,.jpg,.jpeg,.png,.webp,.doc,.docx" class="w-full text-xs text-slate-600 dark:text-slate-300 file:mr-2 file:py-1.5 file:px-2.5 file:rounded-lg file:border-0 file:text-xs file:font-bold file:bg-amber-500/15 file:text-amber-700 dark:file:text-amber-400 hover:file:bg-amber-500/25">
                             </div>
@@ -329,6 +373,13 @@
                             @if($doc->title)
                                 <span class="text-slate-500 dark:text-slate-400">&mdash; {{ $doc->title }}</span>
                             @endif
+                            @if($doc->expiryStatus() === 'expired')
+                                <span class="px-2 py-0.5 rounded text-[10px] font-bold uppercase bg-rose-500/15 text-rose-600 dark:text-rose-400 border border-rose-500/30">{{ __('Expired') }} ({{ $doc->expiry_date?->format('Y-m-d') }})</span>
+                            @elseif($doc->expiryStatus() === 'expiring_soon')
+                                <span class="px-2 py-0.5 rounded text-[10px] font-bold uppercase bg-amber-500/15 text-amber-700 dark:text-amber-300 border border-amber-500/30">{{ __('Expiring Soon') }} ({{ $doc->expiry_date?->format('Y-m-d') }})</span>
+                            @elseif($doc->expiry_date)
+                                <span class="px-2 py-0.5 rounded text-[10px] font-bold uppercase bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30">{{ __('Valid until') }} {{ $doc->expiry_date->format('Y-m-d') }}</span>
+                            @endif
                         </div>
                         <div class="text-[11px] text-slate-500 dark:text-slate-400 font-mono">
                             {{ $doc->formattedSize() }} &bull; {{ $doc->mime_type }} &bull; {{ __('Uploaded by') }} {{ $doc->uploader->name ?? __('System') }} ({{ $doc->created_at?->format('Y-m-d H:i') }})
@@ -357,6 +408,91 @@
                     {{ __('No documents uploaded for this worker yet.') }}
                 </div>
             @endforelse
+        </div>
+    </div>
+
+    <!-- 7. Dated Site Assignment & Transfer History -->
+    <div id="worker-site-assignments" class="p-6 sm:p-8 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-sm space-y-5 transition-colors duration-200">
+        <div>
+            <h2 class="text-base font-extrabold text-slate-900 dark:text-white tracking-tight">{{ __('Dated Site Assignments & Transfer History') }}</h2>
+            <p class="text-xs text-slate-500 dark:text-slate-400 mt-0.5">{{ __('Full historical ledger of every site this worker has been deployed to. Transferring to a new site automatically closes the previous active assignment.') }}</p>
+        </div>
+
+        @can('update', $worker)
+            <form method="POST" action="{{ route('workforce.transfer', $worker) }}" class="p-4 rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 space-y-3">
+                @csrf
+                <div class="text-xs font-bold text-slate-800 dark:text-slate-200 uppercase">{{ __('Transfer Worker to Another Site') }}</div>
+                <div class="grid grid-cols-1 sm:grid-cols-4 gap-3">
+                    <div>
+                        <label class="block text-[11px] font-bold text-slate-600 dark:text-slate-400 uppercase mb-1">{{ __('Destination Site') }} *</label>
+                        <select name="site_id" required class="w-full rounded-lg bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 px-2.5 py-2 text-xs text-slate-900 dark:text-white">
+                            <option value="">{{ __('Select Site...') }}</option>
+                            @foreach($sites ?? [] as $s)
+                                <option value="{{ $s->id }}">{{ $s->code }} — {{ $s->name }}</option>
+                            @endforeach
+                        </select>
+                    </div>
+                    <div>
+                        <label class="block text-[11px] font-bold text-slate-600 dark:text-slate-400 uppercase mb-1">{{ __('Role on Site') }}</label>
+                        <input type="text" name="role_on_site" value="{{ $worker->trade_designation }}" maxlength="80" class="w-full rounded-lg bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 px-2.5 py-2 text-xs text-slate-900 dark:text-white">
+                    </div>
+                    <div>
+                        <label class="block text-[11px] font-bold text-slate-600 dark:text-slate-400 uppercase mb-1">{{ __('Effective Start Date') }} *</label>
+                        <input type="date" name="start_date" value="{{ now()->toDateString() }}" required class="w-full rounded-lg bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 px-2.5 py-2 text-xs font-mono text-slate-900 dark:text-white">
+                    </div>
+                    <div class="flex items-end">
+                        <button type="submit" class="w-full px-4 py-2 rounded-lg bg-amber-500 hover:bg-amber-400 text-slate-950 font-extrabold text-xs transition">
+                            {{ __('Transfer Worker') }}
+                        </button>
+                    </div>
+                </div>
+                <div>
+                    <input type="text" name="notes" placeholder="{{ __('Optional transfer reason or deployment note...') }}" maxlength="255" class="w-full rounded-lg bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 px-3 py-2 text-xs text-slate-900 dark:text-white">
+                </div>
+            </form>
+        @endcan
+
+        <div class="overflow-x-auto">
+            <table class="w-full text-left text-xs">
+                <thead>
+                    <tr class="border-b border-slate-200 dark:border-slate-800 text-slate-500 dark:text-slate-400 uppercase text-[11px]">
+                        <th class="py-2.5 pr-4">{{ __('Site') }}</th>
+                        <th class="py-2.5 px-4">{{ __('Role on Site') }}</th>
+                        <th class="py-2.5 px-4">{{ __('Start Date') }}</th>
+                        <th class="py-2.5 px-4">{{ __('End Date') }}</th>
+                        <th class="py-2.5 px-4">{{ __('Status') }}</th>
+                        <th class="py-2.5 pl-4">{{ __('Notes') }}</th>
+                    </tr>
+                </thead>
+                <tbody class="divide-y divide-slate-200 dark:divide-slate-800">
+                    @forelse($siteAssignments ?? [] as $sa)
+                        <tr>
+                            <td class="py-2.5 pr-4 font-bold text-slate-900 dark:text-white">
+                                @if($sa->site)
+                                    <span class="font-mono text-amber-600 dark:text-amber-400 mr-1">{{ $sa->site->code }}</span> {{ $sa->site->name }}
+                                @else
+                                    {{ __('Unknown Site') }}
+                                @endif
+                            </td>
+                            <td class="py-2.5 px-4 text-slate-700 dark:text-slate-300">{{ $sa->role_on_site }}</td>
+                            <td class="py-2.5 px-4 font-mono text-slate-700 dark:text-slate-300">{{ $sa->start_date?->format('Y-m-d') }}</td>
+                            <td class="py-2.5 px-4 font-mono text-slate-500 dark:text-slate-400">{{ $sa->end_date ? $sa->end_date->format('Y-m-d') : '—' }}</td>
+                            <td class="py-2.5 px-4">
+                                @if($sa->is_active)
+                                    <span class="px-2 py-0.5 rounded text-[10px] font-bold uppercase bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30">{{ __('Active') }}</span>
+                                @else
+                                    <span class="px-2 py-0.5 rounded text-[10px] font-bold uppercase bg-slate-500/10 text-slate-600 dark:text-slate-400 border border-slate-500/30">{{ __('Historical') }}</span>
+                                @endif
+                            </td>
+                            <td class="py-2.5 pl-4 text-slate-500 dark:text-slate-400">{{ $sa->notes ?: '—' }}</td>
+                        </tr>
+                    @empty
+                        <tr>
+                            <td colspan="6" class="py-4 text-slate-500 dark:text-slate-400">{{ __('No dated site assignment records logged yet.') }}</td>
+                        </tr>
+                    @endforelse
+                </tbody>
+            </table>
         </div>
     </div>
 </div>

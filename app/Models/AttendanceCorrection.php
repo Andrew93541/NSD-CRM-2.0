@@ -55,6 +55,11 @@ class AttendanceCorrection extends Model
         return $this->belongsTo(DailyAttendance::class, 'daily_attendance_id');
     }
 
+    public function dailyAttendance(): BelongsTo
+    {
+        return $this->belongsTo(DailyAttendance::class, 'daily_attendance_id');
+    }
+
     public function requester(): BelongsTo
     {
         return $this->belongsTo(User::class, 'requested_by');

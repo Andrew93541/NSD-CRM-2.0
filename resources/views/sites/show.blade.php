@@ -133,6 +133,18 @@
                         <span class="text-slate-500 dark:text-slate-400 italic">{{ __('Coordinates not recorded') }}</span>
                     @endif
                 </div>
+
+                <div class="pt-3 border-t border-slate-200 dark:border-slate-800">
+                    <span class="text-slate-500 dark:text-slate-400 block mb-0.5">{{ __('Geofence Radius') }}</span>
+                    <span class="font-mono font-bold text-slate-900 dark:text-white">{{ $site->geofence_radius_m ?? 200 }} m</span>
+                </div>
+
+                <div class="pt-3 border-t border-slate-200 dark:border-slate-800">
+                    <span class="text-slate-500 dark:text-slate-400 block mb-0.5">{{ __('Shift Hours') }}</span>
+                    <span class="font-mono font-bold text-slate-900 dark:text-white">
+                        {{ $site->shift_start ? substr($site->shift_start, 0, 5) : '09:00' }} — {{ $site->shift_end ? substr($site->shift_end, 0, 5) : '18:00' }}
+                    </span>
+                </div>
             </div>
         </div>
 
@@ -141,6 +153,14 @@
             <h2 class="text-sm font-bold text-slate-900 dark:text-white uppercase tracking-wider">{{ __('Management & Project Details') }}</h2>
 
             <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 text-xs">
+                <div>
+                    <span class="text-slate-500 dark:text-slate-400 block mb-0.5">{{ __('Site Manager') }}</span>
+                    <span class="font-bold text-slate-900 dark:text-white">{{ $site->siteManager->name ?? __('Unassigned') }}</span>
+                    @if($site->siteManager?->email)
+                        <div class="text-[11px] text-slate-500 font-mono">{{ $site->siteManager->email }}</div>
+                    @endif
+                </div>
+
                 <div>
                     <span class="text-slate-500 dark:text-slate-400 block mb-0.5">{{ __('Site Supervisor / Manager') }}</span>
                     <span class="font-bold text-slate-900 dark:text-white">{{ $site->supervisor->name ?? __('Unassigned') }}</span>
@@ -153,6 +173,15 @@
                     <span class="text-slate-500 dark:text-slate-400 block mb-0.5">{{ __('Project Manager') }}</span>
                     <span class="font-bold text-slate-900 dark:text-white">{{ $site->project?->manager?->name ?? __('Unassigned') }}</span>
                 </div>
+
+                @if($site->project)
+                <div>
+                    <span class="text-slate-500 dark:text-slate-400 block mb-0.5">{{ __('Linked Project') }}</span>
+                    <a href="{{ route('projects.show', $site->project) }}" class="font-bold text-amber-600 dark:text-amber-400 hover:underline">
+                        {{ $site->project->code }} — {{ $site->project->name }} &rarr;
+                    </a>
+                </div>
+                @endif
 
                 @if($site->description)
                     <div class="sm:col-span-2 pt-3 border-t border-slate-200 dark:border-slate-800">
@@ -304,6 +333,113 @@
                     <div class="py-4 text-slate-500 dark:text-slate-400">{{ __('No material purchase requests for this site.') }}</div>
                 @endforelse
             </div>
+        </div>
+    </div>
+
+    <!-- Dated Site Assignment & Transfer History -->
+    <div class="p-5 sm:p-6 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 space-y-5 shadow-sm">
+        <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+            <div>
+                <h2 class="text-sm font-bold text-slate-900 dark:text-white uppercase tracking-wider">{{ __('Dated Site Assignments & Transfer History') }}</h2>
+                <p class="text-xs text-slate-500 dark:text-slate-400 mt-0.5">{{ __('Tracks staff and worker assignments to this site with start and end dates. Transfers automatically close prior site assignments.') }}</p>
+            </div>
+        </div>
+
+        @can('update', $site)
+            <form method="POST" action="{{ route('sites.assignments.store', $site) }}" class="p-4 rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 space-y-4">
+                @csrf
+                <div class="text-xs font-bold text-slate-800 dark:text-slate-200 uppercase">{{ __('Assign or Transfer Staff / Worker to This Site') }}</div>
+                <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
+                    <div>
+                        <label class="block text-[11px] font-bold text-slate-600 dark:text-slate-400 uppercase mb-1">{{ __('Assignment Type') }}</label>
+                        <select name="assignment_type" class="w-full rounded-lg bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 px-2.5 py-2 text-xs text-slate-900 dark:text-white">
+                            <option value="worker">{{ __('Worker') }}</option>
+                            <option value="user">{{ __('Staff / User') }}</option>
+                        </select>
+                    </div>
+
+                    <div>
+                        <label class="block text-[11px] font-bold text-slate-600 dark:text-slate-400 uppercase mb-1">{{ __('Select Worker') }}</label>
+                        <select name="worker_id" class="w-full rounded-lg bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 px-2.5 py-2 text-xs text-slate-900 dark:text-white">
+                            <option value="">{{ __('— Select Worker —') }}</option>
+                            @foreach($companyWorkers ?? [] as $cw)
+                                <option value="{{ $cw->id }}">{{ $cw->code }} — {{ $cw->full_name }}</option>
+                            @endforeach
+                        </select>
+                    </div>
+
+                    <div>
+                        <label class="block text-[11px] font-bold text-slate-600 dark:text-slate-400 uppercase mb-1">{{ __('Or Select Staff User') }}</label>
+                        <select name="user_id" class="w-full rounded-lg bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 px-2.5 py-2 text-xs text-slate-900 dark:text-white">
+                            <option value="">{{ __('— Select Staff —') }}</option>
+                            @foreach($companyUsers ?? [] as $cu)
+                                <option value="{{ $cu->id }}">{{ $cu->name }} ({{ $cu->email }})</option>
+                            @endforeach
+                        </select>
+                    </div>
+
+                    <div>
+                        <label class="block text-[11px] font-bold text-slate-600 dark:text-slate-400 uppercase mb-1">{{ __('Role on Site') }}</label>
+                        <input type="text" name="role_on_site" value="worker" required maxlength="60" class="w-full rounded-lg bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 px-2.5 py-2 text-xs text-slate-900 dark:text-white">
+                    </div>
+
+                    <div>
+                        <label class="block text-[11px] font-bold text-slate-600 dark:text-slate-400 uppercase mb-1">{{ __('Start Date') }}</label>
+                        <input type="date" name="start_date" value="{{ now()->toDateString() }}" required class="w-full rounded-lg bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 px-2.5 py-2 text-xs font-mono text-slate-900 dark:text-white">
+                    </div>
+                </div>
+                <div class="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
+                    <input type="text" name="notes" placeholder="{{ __('Optional transfer reason or deployment note...') }}" maxlength="255" class="flex-1 rounded-lg bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 px-3 py-2 text-xs text-slate-900 dark:text-white">
+                    <button type="submit" class="px-4 py-2 rounded-lg bg-amber-500 hover:bg-amber-400 text-slate-950 font-extrabold text-xs transition whitespace-nowrap">
+                        {{ __('Record Site Assignment') }}
+                    </button>
+                </div>
+            </form>
+        @endcan
+
+        <div class="overflow-x-auto">
+            <table class="w-full text-left text-xs">
+                <thead>
+                    <tr class="border-b border-slate-200 dark:border-slate-800 text-slate-500 dark:text-slate-400 uppercase text-[11px]">
+                        <th class="py-2.5 pr-4">{{ __('Person') }}</th>
+                        <th class="py-2.5 px-4">{{ __('Role on Site') }}</th>
+                        <th class="py-2.5 px-4">{{ __('Start Date') }}</th>
+                        <th class="py-2.5 px-4">{{ __('End Date') }}</th>
+                        <th class="py-2.5 px-4">{{ __('Status') }}</th>
+                        <th class="py-2.5 pl-4">{{ __('Notes') }}</th>
+                    </tr>
+                </thead>
+                <tbody class="divide-y divide-slate-200 dark:divide-slate-800">
+                    @forelse($siteAssignments ?? [] as $sa)
+                        <tr>
+                            <td class="py-2.5 pr-4 font-bold text-slate-900 dark:text-white">
+                                @if($sa->worker)
+                                    <span class="font-mono text-amber-600 dark:text-amber-400 mr-1">{{ $sa->worker->code }}</span> {{ $sa->worker->full_name }}
+                                @elseif($sa->user)
+                                    {{ $sa->user->name }} <span class="text-slate-400 font-normal">({{ $sa->user->email }})</span>
+                                @else
+                                    {{ __('Unknown') }}
+                                @endif
+                            </td>
+                            <td class="py-2.5 px-4 text-slate-700 dark:text-slate-300">{{ $sa->role_on_site }}</td>
+                            <td class="py-2.5 px-4 font-mono text-slate-700 dark:text-slate-300">{{ $sa->start_date?->format('Y-m-d') }}</td>
+                            <td class="py-2.5 px-4 font-mono text-slate-500 dark:text-slate-400">{{ $sa->end_date ? $sa->end_date->format('Y-m-d') : '—' }}</td>
+                            <td class="py-2.5 px-4">
+                                @if($sa->is_active)
+                                    <span class="px-2 py-0.5 rounded text-[10px] font-bold uppercase bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30">{{ __('Active') }}</span>
+                                @else
+                                    <span class="px-2 py-0.5 rounded text-[10px] font-bold uppercase bg-slate-500/10 text-slate-600 dark:text-slate-400 border border-slate-500/30">{{ __('Historical') }}</span>
+                                @endif
+                            </td>
+                            <td class="py-2.5 pl-4 text-slate-500 dark:text-slate-400">{{ $sa->notes ?: '—' }}</td>
+                        </tr>
+                    @empty
+                        <tr>
+                            <td colspan="6" class="py-4 text-slate-500 dark:text-slate-400">{{ __('No dated assignment records logged for this site yet.') }}</td>
+                        </tr>
+                    @endforelse
+                </tbody>
+            </table>
         </div>
     </div>
 </div>

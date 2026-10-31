@@ -67,6 +67,24 @@
                 </p>
             </div>
             <div class="flex flex-wrap items-center gap-2">
+                <a href="{{ route('attendance.register', ['mode' => 'date', 'date' => $date, 'site_id' => $selectedSiteId]) }}" class="px-3.5 py-2 text-xs font-extrabold rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 shadow-sm transition flex items-center gap-1.5">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg>
+                    <span>{{ __('Date & Month View') }}</span>
+                </a>
+                <a href="{{ route('attendance.approvals') }}" class="px-3.5 py-2 text-xs font-bold rounded-xl bg-amber-500/10 hover:bg-amber-500/20 text-amber-600 dark:text-amber-400 border border-amber-500/30 transition flex items-center gap-1.5">
+                    <span>{{ __('Approvals Inbox') }}</span>
+                    @if(($openFlagsCount ?? 0) + ($pendingCorrectionsCount ?? 0) + ($pendingLeavesCount ?? 0) > 0)
+                        <span class="px-1.5 py-0.5 rounded-full bg-amber-500 text-slate-950 text-[10px] font-black">
+                            {{ ($openFlagsCount ?? 0) + ($pendingCorrectionsCount ?? 0) + ($pendingLeavesCount ?? 0) }}
+                        </span>
+                    @endif
+                </a>
+                <a href="{{ route('attendance.shifts_leaves') }}" class="px-3.5 py-2 text-xs font-bold rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 dark:text-slate-300 dark:border-slate-700 transition">
+                    {{ __('Shifts, Leave & Holidays') }}
+                </a>
+                <a href="{{ route('attendance.export_payroll', ['site_id' => $selectedSiteId]) }}" class="px-3.5 py-2 text-xs font-bold rounded-xl bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30 transition">
+                    {{ __('Export Payroll CSV') }}
+                </a>
                 <a href="{{ route('attendance.conflicts') }}" class="px-3.5 py-2 text-xs font-bold rounded-xl bg-slate-100 hover:bg-slate-200 text-rose-600 border border-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 dark:text-rose-400 dark:border-slate-700 transition flex items-center gap-2">
                     <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/></svg>
                     {{ __('Attendance Conflicts') }}
@@ -104,6 +122,93 @@
 
     <!-- Muster Roll Table / Form -->
     @if($site)
+        @if(!empty($holiday))
+            <div class="p-4 rounded-2xl bg-sky-500/10 border border-sky-500/30 text-sky-700 dark:text-sky-300 text-xs font-bold flex items-center justify-between">
+                <span>{{ __('Holiday Calendar') }}: {{ $holiday->name }} ({{ $holiday->is_paid ? __('Paid Holiday') : __('Unpaid Holiday') }})</span>
+                <span class="font-mono">{{ $holiday->holiday_date->format('d M Y') }}</span>
+            </div>
+        @endif
+
+        <!-- Three-Stage Attendance Lock & Supervisor QR Badge Scan Bar -->
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+            <!-- Three-Stage Lock Control -->
+            <div class="p-5 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 space-y-3 shadow-sm">
+                <div class="flex items-center justify-between">
+                    <div>
+                        <h3 class="text-xs font-extrabold uppercase tracking-wider text-slate-900 dark:text-white">{{ __('Three-Stage Attendance Lock') }}</h3>
+                        <p class="text-[11px] text-slate-500">{{ __('1. Supervisor Submit → 2. Site Manager Lock → 3. Payroll Lock') }}</p>
+                    </div>
+                    @php
+                        $currentStage = $lock?->stage ?? 'open';
+                    @endphp
+                    <span class="px-2.5 py-1 rounded-full text-xs font-bold uppercase {{ in_array($currentStage, ['site_locked', 'payroll_locked']) ? 'bg-rose-500/10 text-rose-600 dark:text-rose-400 border border-rose-500/30' : ($currentStage === 'submitted' ? 'bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/30' : 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30') }}">
+                        {{ __(\App\Models\AttendanceLock::STAGES[$currentStage] ?? 'Open') }}
+                    </span>
+                </div>
+
+                <div class="flex flex-wrap items-center gap-2 pt-2 border-t border-slate-200 dark:border-slate-800">
+                    @if(auth()->user()->hasRole(['super_admin', 'company_admin', 'senior_manager', 'site_manager']) && $currentStage !== 'site_locked' && $currentStage !== 'payroll_locked')
+                        <form method="POST" action="{{ route('attendance.lock') }}">
+                            @csrf
+                            <input type="hidden" name="site_id" value="{{ $site->id }}">
+                            <input type="hidden" name="attendance_date" value="{{ $date }}">
+                            <input type="hidden" name="stage" value="site_locked">
+                            <button type="submit" class="px-3.5 py-1.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-xs transition">
+                                {{ __('Approve & Lock Day (Site Manager)') }}
+                            </button>
+                        </form>
+                    @endif
+
+                    @if(auth()->user()->hasRole(['super_admin', 'company_admin', 'senior_manager']) && $currentStage !== 'payroll_locked')
+                        <form method="POST" action="{{ route('attendance.lock') }}">
+                            @csrf
+                            <input type="hidden" name="site_id" value="{{ $site->id }}">
+                            <input type="hidden" name="attendance_date" value="{{ $date }}">
+                            <input type="hidden" name="stage" value="payroll_locked">
+                            <button type="submit" class="px-3.5 py-1.5 rounded-xl bg-rose-600 hover:bg-rose-500 text-white font-bold text-xs transition">
+                                {{ __('Apply Payroll Lock') }}
+                            </button>
+                        </form>
+                    @endif
+
+                    @if(auth()->user()->hasRole(['super_admin', 'company_admin']) && in_array($currentStage, ['site_locked', 'payroll_locked']))
+                        <form method="POST" action="{{ route('attendance.lock') }}" class="flex items-center gap-2 w-full sm:w-auto mt-2 sm:mt-0">
+                            @csrf
+                            <input type="hidden" name="site_id" value="{{ $site->id }}">
+                            <input type="hidden" name="attendance_date" value="{{ $date }}">
+                            <input type="hidden" name="stage" value="open">
+                            <input type="text" name="unlock_reason" required placeholder="{{ __('Mandatory admin unlock reason...') }}" class="rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-slate-800 px-3 py-1.5 text-xs text-slate-900 dark:text-white">
+                            <button type="submit" class="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-amber-400 font-bold text-xs transition">
+                                {{ __('Admin Unlock') }}
+                            </button>
+                        </form>
+                    @endif
+                </div>
+            </div>
+
+            <!-- Supervisor QR Badge Scan Form -->
+            <div class="p-5 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 space-y-3 shadow-sm">
+                <div>
+                    <h3 class="text-xs font-extrabold uppercase tracking-wider text-slate-900 dark:text-white">{{ __('Supervisor QR Badge Scan (Server Time)') }}</h3>
+                    <p class="text-[11px] text-slate-500">{{ __('Scan worker QR token or enter Dynamic Worker ID (EMP/SUB) to record an append-only punch.') }}</p>
+                </div>
+                <form method="POST" action="{{ route('attendance.qr_scan') }}" class="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 pt-1">
+                    @csrf
+                    <input type="hidden" name="site_id" value="{{ $site->id }}">
+                    <input type="text" name="badge_token" required placeholder="{{ __('Scan QR token or enter Worker Code...') }}"
+                        class="flex-1 rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-slate-800 px-3.5 py-2 text-xs font-mono text-slate-900 dark:text-white focus:border-amber-500 outline-none">
+                    <select name="punch_type" class="rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-slate-800 px-3 py-2 text-xs text-slate-900 dark:text-white">
+                        <option value="toggle">{{ __('Auto In/Out') }}</option>
+                        <option value="in">{{ __('Punch In') }}</option>
+                        <option value="out">{{ __('Punch Out') }}</option>
+                    </select>
+                    <button type="submit" class="px-4 py-2 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-extrabold text-xs transition">
+                        {{ __('Record QR Punch') }}
+                    </button>
+                </form>
+            </div>
+        </div>
+
         <form method="POST" action="{{ route('attendance.store_muster') }}">
             @csrf
             <input type="hidden" name="site_id" value="{{ $site->id }}">
@@ -213,10 +318,17 @@
                 </div>
 
                 @if($assignedWorkers->isNotEmpty())
-                    <div class="p-5 bg-slate-50 dark:bg-slate-950 border-t border-slate-200 dark:border-slate-800 flex justify-end">
-                        <button type="submit" class="w-full sm:w-auto px-6 py-3 rounded-xl bg-gradient-to-r from-amber-400 to-amber-500 hover:from-amber-300 hover:to-amber-400 text-slate-950 font-extrabold text-sm shadow-xl shadow-amber-500/20 transition active:scale-[0.99]">
-                            {{ __('Save Site Muster Roll') }}
-                        </button>
+                    <div class="p-5 bg-slate-50 dark:bg-slate-950 border-t border-slate-200 dark:border-slate-800 flex flex-col sm:flex-row items-center justify-between gap-3">
+                        @if($lock && $lock->isLocked())
+                            <div class="text-xs font-bold text-rose-600 dark:text-rose-400">
+                                {{ __('This attendance period is locked (:stage). Direct edits are disabled; submit an Attendance Correction Request if needed.', ['stage' => \App\Models\AttendanceLock::STAGES[$lock->stage] ?? $lock->stage]) }}
+                            </div>
+                        @else
+                            <div></div>
+                            <button type="submit" class="w-full sm:w-auto px-6 py-3 rounded-xl bg-gradient-to-r from-amber-400 to-amber-500 hover:from-amber-300 hover:to-amber-400 text-slate-950 font-extrabold text-sm shadow-xl shadow-amber-500/20 transition active:scale-[0.99]">
+                                {{ __('Save Site Muster Roll') }}
+                            </button>
+                        @endif
                     </div>
                 @endif
             </div>

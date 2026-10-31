@@ -154,10 +154,19 @@
                     </select>
                 </div>
 
-                <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
                     <div>
                         <label for="trade_designation" class="block text-xs font-bold text-slate-700 dark:text-slate-300 uppercase mb-1">{{ __('Trade / Skill Designation') }} *</label>
                         <input id="trade_designation" type="text" name="trade_designation" required maxlength="100" value="{{ old('trade_designation', $worker->trade_designation) }}" class="w-full rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-slate-800 p-2.5 text-sm text-slate-900 dark:text-white focus:border-amber-500 outline-none">
+                    </div>
+                    <div>
+                        <label for="skill_level" class="block text-xs font-bold text-slate-700 dark:text-slate-300 uppercase mb-1">{{ __('Skill Level') }}</label>
+                        <select id="skill_level" name="skill_level" class="w-full rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-slate-800 p-2.5 text-sm text-slate-900 dark:text-white focus:border-amber-500 outline-none">
+                            <option value="">{{ __('Select Skill Level...') }}</option>
+                            @foreach($skillLevels ?? \App\Models\Worker::SKILL_LEVELS as $skKey => $skLabel)
+                                <option value="{{ $skKey }}" {{ old('skill_level', $worker->skill_level) === $skKey ? 'selected' : '' }}>{{ __($skLabel) }}</option>
+                            @endforeach
+                        </select>
                     </div>
                     <div>
                         <label for="department" class="block text-xs font-bold text-slate-700 dark:text-slate-300 uppercase mb-1">{{ __('Department / Work Category') }}</label>
@@ -170,7 +179,7 @@
                     </div>
                 </div>
 
-                <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                <div class="grid grid-cols-1 sm:grid-cols-4 gap-4">
                     <div>
                         <label for="joining_date" class="block text-xs font-bold text-slate-700 dark:text-slate-300 uppercase mb-1">{{ __('Joining Date') }}</label>
                         <input id="joining_date" type="date" name="joining_date" value="{{ old('joining_date', $worker->joining_date?->format('Y-m-d')) }}" class="w-full rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-slate-800 p-2.5 text-sm text-slate-900 dark:text-white focus:border-amber-500 outline-none">
@@ -186,6 +195,10 @@
                     <div>
                         <label for="daily_rate" class="block text-xs font-bold text-slate-700 dark:text-slate-300 uppercase mb-1">{{ __('Daily Base Rate') }} (₹) *</label>
                         <input id="daily_rate" type="number" step="0.01" min="0" name="daily_rate" required value="{{ old('daily_rate', $worker->daily_rate) }}" class="w-full rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-slate-800 p-2.5 text-sm font-mono text-slate-900 dark:text-white focus:border-amber-500 outline-none">
+                    </div>
+                    <div>
+                        <label for="overtime_rate" class="block text-xs font-bold text-slate-700 dark:text-slate-300 uppercase mb-1">{{ __('Overtime Rate / Hr') }} (₹)</label>
+                        <input id="overtime_rate" type="number" step="0.01" min="0" name="overtime_rate" value="{{ old('overtime_rate', $worker->overtime_rate ?? 0) }}" class="w-full rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-slate-800 p-2.5 text-sm font-mono text-slate-900 dark:text-white focus:border-amber-500 outline-none">
                     </div>
                 </div>
             </section>

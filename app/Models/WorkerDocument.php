@@ -49,11 +49,14 @@ class WorkerDocument extends Model
         'worker_id',
         'document_type',
         'title',
+        'document_number',
         'original_name',
         'storage_disk',
         'file_path',
         'mime_type',
         'file_size',
+        'issue_date',
+        'expiry_date',
         'uploaded_by',
     ];
 
@@ -61,7 +64,38 @@ class WorkerDocument extends Model
     {
         return [
             'file_size' => 'integer',
+            'issue_date' => 'date',
+            'expiry_date' => 'date',
         ];
+    }
+
+    public function isExpired(): bool
+    {
+        return $this->expiry_date !== null
+            && $this->expiry_date->isPast()
+            && !$this->expiry_date->isToday();
+    }
+
+    public function isExpiringSoon(int $days = 30): bool
+    {
+        return $this->expiry_date !== null
+            && !$this->isExpired()
+            && $this->expiry_date->lte(now()->addDays($days)->endOfDay());
+    }
+
+    public function expiryStatus(int $days = 30): string
+    {
+        if ($this->expiry_date === null) {
+            return 'no_expiry';
+        }
+        if ($this->isExpired()) {
+            return 'expired';
+        }
+        if ($this->isExpiringSoon($days)) {
+            return 'expiring_soon';
+        }
+
+        return 'valid';
     }
 
     public static function documentTypes(): array

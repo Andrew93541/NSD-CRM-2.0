@@ -125,6 +125,12 @@
                 </div>
             </form>
 
+            <div class="mt-6 pt-5 border-t border-slate-200 dark:border-slate-800 text-center">
+                <a href="{{ route('worker.login') }}" class="inline-flex items-center justify-center gap-2 w-full py-2.5 px-4 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-200 border border-slate-200 dark:border-slate-700 text-xs font-bold transition">
+                    <span>{{ __('Direct Employee Worker Portal (Code + PIN)') }}</span> &rarr;
+                </a>
+            </div>
+
             @if(app()->isLocal())
             <!-- Quick Demo Role Switcher (Development Only) -->
             <div class="mt-8 pt-6 border-t border-slate-200 dark:border-slate-800 text-center" x-data>

@@ -8,16 +8,39 @@
             <p class="text-sm text-slate-600 dark:text-slate-400 mt-1">{{ __('Direct employees, company labourers, and named subcontractor workers.') }}</p>
         </div>
         @can('create', \App\Models\Worker::class)
-            <a href="{{ route('workforce.create') }}" class="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-sm shadow-lg shadow-amber-500/20 transition">
-                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
-                {{ __('Add New Worker') }}
-            </a>
+            <div class="flex flex-wrap items-center gap-2">
+                <a href="{{ route('workforce.import') }}" class="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-emerald-500/15 hover:bg-emerald-500/25 text-emerald-700 dark:text-emerald-300 border border-emerald-500/30 font-extrabold text-sm transition">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"/></svg>
+                    {{ __('Bulk CSV Upload') }}
+                </a>
+                <a href="{{ route('workforce.create') }}" class="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-sm shadow-lg shadow-amber-500/20 transition">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
+                    {{ __('Add New Worker') }}
+                </a>
+            </div>
         @endcan
     </div>
 
+    <!-- Compliance Alert Strip -->
+    @if(($expiredDocsCount ?? 0) > 0 || ($expiringSoonDocsCount ?? 0) > 0)
+        <div class="flex flex-wrap items-center gap-3 p-3.5 rounded-xl bg-amber-500/10 border border-amber-500/30 text-xs">
+            <span class="font-bold text-slate-900 dark:text-white">{{ __('Document Compliance Alerts') }}:</span>
+            @if(($expiredDocsCount ?? 0) > 0)
+                <a href="{{ route('workforce.index', ['compliance_filter' => 'expired']) }}" class="px-2.5 py-1 rounded-lg bg-rose-500/15 text-rose-600 dark:text-rose-400 border border-rose-500/30 font-bold hover:underline">
+                    {{ $expiredDocsCount }} {{ __('Expired Document(s)') }}
+                </a>
+            @endif
+            @if(($expiringSoonDocsCount ?? 0) > 0)
+                <a href="{{ route('workforce.index', ['compliance_filter' => 'expiring_soon']) }}" class="px-2.5 py-1 rounded-lg bg-amber-500/15 text-amber-700 dark:text-amber-300 border border-amber-500/30 font-bold hover:underline">
+                    {{ $expiringSoonDocsCount }} {{ __('Expiring Within 30 Days') }}
+                </a>
+            @endif
+        </div>
+    @endif
+
     <!-- Filters -->
     <div class="p-4 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-sm transition-colors duration-200">
-        <form method="GET" action="{{ route('workforce.index') }}" class="grid grid-cols-1 sm:grid-cols-4 gap-3">
+        <form method="GET" action="{{ route('workforce.index') }}" class="grid grid-cols-1 sm:grid-cols-5 gap-3">
             <div>
                 <input type="text" name="search" value="{{ request('search') }}" placeholder="{{ __('Search name or code...') }}" class="w-full rounded-lg bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-slate-800 px-3 py-2 text-xs text-slate-900 dark:text-white placeholder-slate-400 dark:placeholder-slate-500 focus:border-amber-500 outline-none">
             </div>
@@ -30,11 +53,21 @@
                 </select>
             </div>
             <div>
+                @php
+                    $selectedSiteFilter = request()->has('site_id') ? request('site_id') : session('active_site_id');
+                @endphp
                 <select name="site_id" class="w-full rounded-lg bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-slate-800 px-3 py-2 text-xs text-slate-900 dark:text-white focus:border-amber-500 outline-none">
                     <option value="">{{ __('All Sites') }}</option>
                     @foreach($sites as $s)
-                        <option value="{{ $s->id }}" {{ request('site_id') == $s->id ? 'selected' : '' }}>{{ $s->code }} - {{ $s->name }}</option>
+                        <option value="{{ $s->id }}" {{ (string) $selectedSiteFilter === (string) $s->id ? 'selected' : '' }}>{{ $s->code }} - {{ $s->name }}</option>
                     @endforeach
+                </select>
+            </div>
+            <div>
+                <select name="compliance_filter" class="w-full rounded-lg bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-slate-800 px-3 py-2 text-xs text-slate-900 dark:text-white focus:border-amber-500 outline-none">
+                    <option value="">{{ __('All Document Statuses') }}</option>
+                    <option value="expiring_soon" {{ request('compliance_filter') === 'expiring_soon' ? 'selected' : '' }}>{{ __('Expiring Soon (30d)') }}</option>
+                    <option value="expired" {{ request('compliance_filter') === 'expired' ? 'selected' : '' }}>{{ __('Expired Documents') }}</option>
                 </select>
             </div>
             <div class="flex items-center gap-2">

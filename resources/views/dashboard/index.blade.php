@@ -9,6 +9,10 @@
             <p class="text-xs sm:text-sm text-slate-600 dark:text-slate-400 mt-1">{{ __('Live tracking for active projects, muster roll, and 2-tier approval workflows.') }}</p>
         </div>
         <div class="flex flex-wrap items-center gap-2 sm:gap-3">
+            <a href="{{ route('attendance.register') }}" class="inline-flex items-center gap-2 px-3.5 sm:px-4 py-2 sm:py-2.5 rounded-xl bg-emerald-500/15 hover:bg-emerald-500/25 text-emerald-700 dark:text-emerald-300 border border-emerald-500/30 font-bold text-xs sm:text-sm transition">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg>
+                {{ __('Date & Month Attendance') }}
+            </a>
             <a href="{{ route('attendance.muster') }}" class="inline-flex items-center gap-2 px-3.5 sm:px-4 py-2 sm:py-2.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-xs sm:text-sm shadow-lg shadow-amber-500/20 transition">
                 <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4"/></svg>
                 {{ __('Take Muster Roll') }}
@@ -348,6 +352,91 @@
                     {{ __('No work orders recorded yet.') }}
                 </div>
             @endforelse
+        </div>
+    </div>
+
+    <!-- Phase 5: Field Tasks, Compliance Alerts & Append-Only Audit Activity Grid -->
+    <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        <!-- Compliance & Field Alerts Card -->
+        <div class="p-5 sm:p-6 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 space-y-4 shadow-sm">
+            <div class="flex items-center justify-between">
+                <h2 class="text-base font-extrabold text-slate-900 dark:text-white flex items-center gap-2">
+                    <svg class="w-5 h-5 text-rose-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/></svg>
+                    <span>{{ __('Compliance & Field Alerts') }}</span>
+                </h2>
+            </div>
+
+            <div class="space-y-3 text-xs">
+                <a href="{{ route('tasks.index') }}" class="p-3.5 rounded-xl bg-slate-50 dark:bg-slate-950/70 border border-slate-200 dark:border-slate-800 hover:border-amber-500/40 flex items-center justify-between transition">
+                    <div>
+                        <div class="font-bold text-slate-900 dark:text-white">{{ __('Active Site Tasks') }}</div>
+                        <div class="text-[11px] {{ ($overdueTasksCount ?? 0) > 0 ? 'text-rose-600 dark:text-rose-400 font-bold' : 'text-slate-500 dark:text-slate-400' }}">
+                            {{ $overdueTasksCount ?? 0 }} {{ __('Overdue Tasks') }}
+                        </div>
+                    </div>
+                    <span class="px-2.5 py-1 rounded-lg bg-amber-500/15 text-amber-700 dark:text-amber-300 font-extrabold text-sm">
+                        {{ $activeTasksCount ?? 0 }}
+                    </span>
+                </a>
+
+                <a href="{{ route('attendance.approvals') }}" class="p-3.5 rounded-xl bg-slate-50 dark:bg-slate-950/70 border border-slate-200 dark:border-slate-800 hover:border-amber-500/40 flex items-center justify-between transition">
+                    <div>
+                        <div class="font-bold text-slate-900 dark:text-white">{{ __('Attendance Anomaly Flags & Queue') }}</div>
+                        <div class="text-[11px] text-slate-500 dark:text-slate-400">
+                            {{ $openAttendanceFlagsCount ?? 0 }} {{ __('Flags') }} &bull; {{ $pendingAttendanceCorrectionsCount ?? 0 }} {{ __('Corrections') }} &bull; {{ $pendingLeavesCount ?? 0 }} {{ __('Leaves') }}
+                        </div>
+                    </div>
+                    <span class="px-2.5 py-1 rounded-lg bg-rose-500/15 text-rose-700 dark:text-rose-300 font-extrabold text-sm">
+                        {{ ($openAttendanceFlagsCount ?? 0) + ($pendingAttendanceCorrectionsCount ?? 0) + ($pendingLeavesCount ?? 0) }}
+                    </span>
+                </a>
+
+                <a href="{{ route('workforce.index', ['expiry_filter' => 'expiring']) }}" class="p-3.5 rounded-xl bg-slate-50 dark:bg-slate-950/70 border border-slate-200 dark:border-slate-800 hover:border-amber-500/40 flex items-center justify-between transition">
+                    <div>
+                        <div class="font-bold text-slate-900 dark:text-white">{{ __('Expiring Worker ID Documents') }}</div>
+                        <div class="text-[11px] text-slate-500 dark:text-slate-400">{{ __('Expiring within 30 days or expired') }}</div>
+                    </div>
+                    <span class="px-2.5 py-1 rounded-lg {{ ($expiringDocumentsCount ?? 0) > 0 ? 'bg-rose-500/15 text-rose-700 dark:text-rose-300' : 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300' }} font-extrabold text-sm">
+                        {{ $expiringDocumentsCount ?? 0 }}
+                    </span>
+                </a>
+            </div>
+        </div>
+
+        <!-- Append-Only Activity & Audit Feed -->
+        <div class="lg:col-span-2 p-5 sm:p-6 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 space-y-4 shadow-sm">
+            <div class="flex items-center justify-between">
+                <h2 class="text-base font-extrabold text-slate-900 dark:text-white flex items-center gap-2">
+                    <svg class="w-5 h-5 text-indigo-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
+                    <span>{{ __('Recent Append-Only Audit Activity') }}</span>
+                </h2>
+                <a href="{{ route('reports.audit_logs') }}" class="text-xs font-bold text-amber-600 dark:text-amber-400 hover:underline">
+                    {{ __('Full Audit Log & Export') }} &rarr;
+                </a>
+            </div>
+
+            <div class="divide-y divide-slate-200 dark:divide-slate-800 text-xs">
+                @forelse($recentActivityLogs ?? [] as $log)
+                    <div class="py-2.5 flex items-center justify-between gap-3">
+                        <div class="min-w-0">
+                            <span class="font-mono font-bold text-amber-600 dark:text-amber-400">{{ $log->event }}</span>
+                            <span class="text-slate-500 dark:text-slate-400 ml-1.5">
+                                {{ __('by') }} <strong class="text-slate-800 dark:text-slate-200">{{ $log->actor?->name ?? 'System' }}</strong>
+                                @if($log->site)
+                                    &bull; {{ $log->site->code }}
+                                @endif
+                            </span>
+                        </div>
+                        <span class="text-[11px] font-mono text-slate-400 shrink-0">
+                            {{ $log->created_at?->format('d M H:i') }}
+                        </span>
+                    </div>
+                @empty
+                    <div class="py-6 text-center text-slate-500">
+                        {{ __('No audit events recorded yet.') }}
+                    </div>
+                @endforelse
+            </div>
         </div>
     </div>
 </div>

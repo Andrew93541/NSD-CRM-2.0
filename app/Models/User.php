@@ -5,8 +5,10 @@ namespace App\Models;
 use App\Services\Security\TenantContext;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
+use Illuminate\Support\Facades\Schema;
 
 class User extends Authenticatable
 {
@@ -45,6 +47,11 @@ class User extends Authenticatable
         return $this->belongsToMany(Site::class, 'user_site')
             ->withPivot('role_in_site')
             ->withTimestamps();
+    }
+
+    public function siteAssignments(): HasMany
+    {
+        return $this->hasMany(SiteAssignment::class);
     }
 
     public function currentCompany(): ?Company
@@ -94,6 +101,14 @@ class User extends Authenticatable
         }
 
         $slugs = is_array($roleSlugs) ? $roleSlugs : [$roleSlugs];
+
+        // Normalize supervisor / site_supervisor synonyms
+        if (in_array('supervisor', $slugs, true) || in_array('site_supervisor', $slugs, true)) {
+            $slugs[] = 'supervisor';
+            $slugs[] = 'site_supervisor';
+            $slugs = array_unique($slugs);
+        }
+
         if (in_array('super_admin', $slugs, true) && $role->slug === 'super_admin') {
             return true;
         }
@@ -128,12 +143,52 @@ class User extends Authenticatable
             return true;
         }
 
-        // Direct supervisor assignment on site within the current company
+        // Direct supervisor or site manager assignment on site within the current company
         if ((int) $targetSite->supervisor_id === (int) $this->id) {
             return true;
         }
 
+        if (isset($targetSite->attributes['site_manager_id']) && (int) $targetSite->attributes['site_manager_id'] === (int) $this->id) {
+            return true;
+        }
+
         // Explicit user_site assignment within the current company
-        return $this->sites()->where('sites.id', $targetSite->id)->where('sites.company_id', $currentCompanyId)->exists();
+        if ($this->sites()->where('sites.id', $targetSite->id)->where('sites.company_id', $currentCompanyId)->exists()) {
+            return true;
+        }
+
+        // Active dated site_assignments entry
+        if (Schema::hasTable('site_assignments')) {
+            return SiteAssignment::withoutGlobalScopes()
+                ->where('company_id', $currentCompanyId)
+                ->where('site_id', $targetSite->id)
+                ->where('user_id', $this->id)
+                ->where('is_active', true)
+                ->exists();
+        }
+
+        return false;
+    }
+
+    /**
+     * Return all site IDs in the current company that this user is authorized to access.
+     */
+    public function accessibleSiteIds(): array
+    {
+        $companyId = TenantContext::getCompanyId();
+        if (!$companyId) {
+            return [];
+        }
+
+        $sites = Site::where('company_id', $companyId)->get();
+        if ($this->hasRole(['super_admin', 'company_admin', 'senior_manager'])) {
+            return $sites->pluck('id')->all();
+        }
+
+        return $sites
+            ->filter(fn (Site $site) => $this->isAssignedToSite($site))
+            ->pluck('id')
+            ->values()
+            ->all();
     }
 }

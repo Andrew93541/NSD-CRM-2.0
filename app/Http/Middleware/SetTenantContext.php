@@ -68,14 +68,21 @@ class SetTenantContext
                 $currentRole = $user->currentRole($company->id);
 
                 $accessibleSites = $user->hasRole(['company_admin', 'super_admin', 'senior_manager'])
-                    ? $company->sites()->where('status', 'active')->get()
-                    : $user->sites()->where('sites.company_id', $company->id)->where('sites.status', 'active')->get();
+                    ? $company->sites()->where('status', 'active')->orderBy('code')->get()
+                    : \App\Models\Site::whereIn('id', $user->accessibleSiteIds())->where('status', 'active')->orderBy('code')->get();
+
+                $activeSiteId = $request->session()->get('active_site_id');
+                if ($activeSiteId && !$user->isAssignedToSite((int) $activeSiteId)) {
+                    $request->session()->forget('active_site_id');
+                    $activeSiteId = null;
+                }
 
                 View::share([
                     'currentCompany' => $company,
                     'currentUser' => $user,
                     'currentRole' => $currentRole,
                     'accessibleSites' => $accessibleSites,
+                    'activeSiteId' => $activeSiteId,
                 ]);
             }
         }

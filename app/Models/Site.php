@@ -25,9 +25,13 @@ class Site extends Model
         'postal_code',
         'latitude',
         'longitude',
+        'geofence_radius_m',
+        'shift_start',
+        'shift_end',
         'description',
         'status',
         'supervisor_id',
+        'site_manager_id',
     ];
 
     protected function casts(): array
@@ -35,6 +39,7 @@ class Site extends Model
         return [
             'latitude' => 'decimal:7',
             'longitude' => 'decimal:7',
+            'geofence_radius_m' => 'integer',
         ];
     }
 
@@ -48,9 +53,25 @@ class Site extends Model
         return $this->belongsTo(Project::class);
     }
 
+    public function linkedProjects(): BelongsToMany
+    {
+        return $this->belongsToMany(Project::class, 'project_sites')
+            ->withPivot(['company_id', 'start_date', 'end_date', 'is_primary'])
+            ->withTimestamps();
+    }
+
     public function supervisor(): BelongsTo
     {
         return $this->belongsTo(User::class, 'supervisor_id');
+    }
+
+    public function siteManager(): BelongsTo
+    {
+        if (!empty($this->attributes['site_manager_id'])) {
+            return $this->belongsTo(User::class, 'site_manager_id');
+        }
+
+        return $this->supervisor();
     }
 
     public function assignedUsers(): BelongsToMany
@@ -58,6 +79,21 @@ class Site extends Model
         return $this->belongsToMany(User::class, 'user_site')
             ->withPivot('role_in_site')
             ->withTimestamps();
+    }
+
+    public function siteAssignments(): HasMany
+    {
+        return $this->hasMany(SiteAssignment::class)->orderByDesc('is_active')->orderByDesc('start_date');
+    }
+
+    public function milestones(): HasMany
+    {
+        return $this->hasMany(ProjectMilestone::class);
+    }
+
+    public function projectDocuments(): HasMany
+    {
+        return $this->hasMany(ProjectDocument::class);
     }
 
     public function workers(): HasMany
@@ -111,6 +147,43 @@ class Site extends Model
         return $lat >= -90.0 && $lat <= 90.0 && $lng >= -180.0 && $lng <= 180.0;
     }
 
+    /**
+     * Calculate Haversine distance in meters from this site's coordinates to a given GPS point.
+     */
+    public function distanceMetersFrom(float $lat, float $lng): ?float
+    {
+        if (!$this->hasValidCoordinates()) {
+            return null;
+        }
+
+        $earthRadiusMeters = 6371000.0;
+        $latFrom = deg2rad((float) $this->latitude);
+        $lonFrom = deg2rad((float) $this->longitude);
+        $latTo = deg2rad($lat);
+        $lonTo = deg2rad($lng);
+
+        $latDelta = $latTo - $latFrom;
+        $lonDelta = $lonTo - $lonFrom;
+
+        $angle = 2 * asin(sqrt(
+            pow(sin($latDelta / 2), 2) +
+            cos($latFrom) * cos($latTo) * pow(sin($lonDelta / 2), 2)
+        ));
+
+        return round($angle * $earthRadiusMeters, 2);
+    }
+
+    public function isWithinGeofence(float $lat, float $lng): bool
+    {
+        $distance = $this->distanceMetersFrom($lat, $lng);
+        if ($distance === null) {
+            return true;
+        }
+
+        $radius = (int) ($this->geofence_radius_m ?: 200);
+        return $distance <= $radius;
+    }
+
     public function mapUrl(): ?string
     {
         if (!$this->hasValidCoordinates()) {
@@ -136,19 +209,8 @@ class Site extends Model
         return implode(', ', array_unique($parts));
     }
 
-    // Compatibility aliases for supervisor_id / site_manager_id
-    public function getSiteManagerIdAttribute(): ?int
+    public function getSiteManagerIdAttribute(?int $value = null): ?int
     {
-        return $this->supervisor_id;
-    }
-
-    public function setSiteManagerIdAttribute(?int $value): void
-    {
-        $this->attributes['supervisor_id'] = $value;
-    }
-
-    public function siteManager(): BelongsTo
-    {
-        return $this->supervisor();
+        return $value ?? ($this->attributes['site_manager_id'] ?? ($this->attributes['supervisor_id'] ?? null));
     }
 }

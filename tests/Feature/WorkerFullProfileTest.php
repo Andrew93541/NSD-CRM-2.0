@@ -184,8 +184,8 @@ class WorkerFullProfileTest extends TestCase
 
         $worker = Worker::where('first_name', 'Vikram')->firstOrFail();
 
-        // Existing worker ID behavior preserved (W-EMP-002 since W-EMP-001 exists)
-        $this->assertEquals('W-EMP-002', $worker->code);
+        // Dynamic worker ID generated atomically in EMP-YYYY-#### format
+        $this->assertEquals('EMP-2026-0001', $worker->code);
         $this->assertEquals('Deshmukh', $worker->last_name);
         $this->assertEquals('1991-08-14', $worker->date_of_birth?->format('Y-m-d'));
         $this->assertEquals('male', $worker->gender);

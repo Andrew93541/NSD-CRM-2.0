@@ -6,6 +6,7 @@ use App\Models\DailyAttendance;
 use App\Models\Project;
 use App\Models\PurchaseRequest;
 use App\Models\Site;
+use App\Models\SiteAssignment;
 use App\Models\User;
 use App\Models\WorkOrder;
 use App\Models\Worker;
@@ -14,6 +15,7 @@ use Carbon\Carbon;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Validation\Rule;
@@ -33,12 +35,8 @@ class SiteController extends Controller
 
         // Enforce server-side site-level visibility for non-executive roles
         if (!$user->hasRole(['super_admin', 'company_admin', 'senior_manager'])) {
-            $query->where(function ($q) use ($user) {
-                $q->where('sites.supervisor_id', $user->id)
-                    ->orWhereHas('assignedUsers', function ($uq) use ($user) {
-                        $uq->where('users.id', $user->id);
-                    });
-            });
+            $accessibleIds = $user->accessibleSiteIds();
+            $query->whereIn('sites.id', $accessibleIds);
         }
 
         if ($request->filled('search')) {
@@ -94,9 +92,7 @@ class SiteController extends Controller
 
         $site = Site::create($payload);
 
-        if (!empty($site->supervisor_id)) {
-            $site->assignedUsers()->syncWithoutDetaching([$site->supervisor_id]);
-        }
+        $this->syncSiteRelations($site);
 
         return redirect()
             ->route('sites.show', $site)
@@ -143,6 +139,13 @@ class SiteController extends Controller
             ->take(6)
             ->get();
 
+        $siteAssignments = Schema::hasTable('site_assignments')
+            ? $site->siteAssignments()->with(['user', 'worker', 'assigner'])->limit(25)->get()
+            : collect();
+
+        $companyUsers = $this->getCompanySupervisors();
+        $companyWorkers = Worker::orderBy('first_name')->get();
+
         return view('sites.show', compact(
             'site',
             'assignedWorkers',
@@ -150,7 +153,10 @@ class SiteController extends Controller
             'uniqueWorkersPresentToday',
             'hoursToday',
             'recentWorkOrders',
-            'recentPurchaseRequests'
+            'recentPurchaseRequests',
+            'siteAssignments',
+            'companyUsers',
+            'companyWorkers'
         ));
     }
 
@@ -175,13 +181,96 @@ class SiteController extends Controller
         $site->fill($payload);
         $site->save();
 
-        if (!empty($site->supervisor_id)) {
-            $site->assignedUsers()->syncWithoutDetaching([$site->supervisor_id]);
-        }
+        $this->syncSiteRelations($site);
 
         return redirect()
             ->route('sites.show', $site)
             ->with('success', "Site {$site->name} ({$site->code}) updated successfully.");
+    }
+
+    public function storeAssignment(Request $request, Site $site): RedirectResponse
+    {
+        Gate::authorize('update', $site);
+
+        $companyId = TenantContext::getCompanyId();
+
+        $validated = $request->validate([
+            'user_id' => [
+                'nullable',
+                'integer',
+                'required_without:worker_id',
+                Rule::exists('company_user', 'user_id')->where(fn ($q) => $q->where('company_id', $companyId)->where('status', 'active')),
+            ],
+            'worker_id' => [
+                'nullable',
+                'integer',
+                'required_without:user_id',
+                Rule::exists('workers', 'id')->where(fn ($q) => $q->where('company_id', $companyId)),
+            ],
+            'role_on_site' => ['required', 'string', 'max:50'],
+            'start_date' => ['required', 'date'],
+            'notes' => ['nullable', 'string', 'max:500'],
+            'transfer_exclusive' => ['nullable', 'boolean'],
+        ]);
+
+        if (!empty($validated['user_id'])) {
+            $staffUser = User::findOrFail($validated['user_id']);
+            SiteAssignment::recordUserAssignment(
+                $site,
+                $staffUser,
+                $validated['role_on_site'],
+                $validated['start_date'],
+                Auth::id(),
+                $validated['notes'] ?? null,
+                (bool) ($validated['transfer_exclusive'] ?? false)
+            );
+        }
+
+        if (!empty($validated['worker_id'])) {
+            $worker = Worker::findOrFail($validated['worker_id']);
+            $worker->assigned_site_id = $site->id;
+            $worker->save();
+
+            SiteAssignment::recordWorkerAssignment(
+                $worker,
+                $site->id,
+                $validated['start_date'],
+                Auth::id(),
+                $validated['notes'] ?? 'Transferred to ' . $site->code
+            );
+        }
+
+        return back()->with('success', 'Dated site assignment recorded successfully.');
+    }
+
+    protected function syncSiteRelations(Site $site): void
+    {
+        if (!empty($site->supervisor_id)) {
+            $supervisor = User::find($site->supervisor_id);
+            if ($supervisor) {
+                SiteAssignment::recordUserAssignment($site, $supervisor, 'supervisor', null, Auth::id(), 'Site supervisor assignment');
+            }
+        }
+
+        if (Schema::hasColumn('sites', 'site_manager_id') && !empty($site->attributes['site_manager_id'])) {
+            $manager = User::find($site->attributes['site_manager_id']);
+            if ($manager) {
+                SiteAssignment::recordUserAssignment($site, $manager, 'site_manager', null, Auth::id(), 'Site manager assignment');
+            }
+        }
+
+        if (Schema::hasTable('project_sites') && $site->project_id) {
+            DB::table('project_sites')->updateOrInsert(
+                ['project_id' => $site->project_id, 'site_id' => $site->id],
+                [
+                    'company_id' => $site->company_id,
+                    'is_primary' => true,
+                    'start_date' => Carbon::today()->format('Y-m-d'),
+                    'updated_at' => Carbon::now(),
+                    'created_at' => Carbon::now(),
+                ]
+            );
+        }
     }
 
     protected function validateSite(Request $request, ?int $companyId, ?int $ignoreSiteId = null): array
@@ -210,6 +299,11 @@ class SiteController extends Controller
                 'integer',
                 Rule::exists('company_user', 'user_id')->where(fn ($q) => $q->where('company_id', $companyId)->where('status', 'active')),
             ],
+            'site_manager_id' => [
+                'nullable',
+                'integer',
+                Rule::exists('company_user', 'user_id')->where(fn ($q) => $q->where('company_id', $companyId)->where('status', 'active')),
+            ],
             'location' => ['nullable', 'string', 'max:255'],
             'address' => ['nullable', 'string', 'max:500'],
             'city' => ['nullable', 'string', 'max:100'],
@@ -217,24 +311,21 @@ class SiteController extends Controller
             'postal_code' => ['nullable', 'string', 'max:20'],
             'latitude' => ['nullable', 'numeric', 'between:-90,90', 'required_with:longitude'],
             'longitude' => ['nullable', 'numeric', 'between:-180,180', 'required_with:latitude'],
+            'geofence_radius_m' => ['nullable', 'integer', 'min:20', 'max:10000'],
+            'shift_start' => ['nullable', 'string', 'max:8'],
+            'shift_end' => ['nullable', 'string', 'max:8'],
             'description' => ['nullable', 'string', 'max:2000'],
         ]);
     }
 
     protected function filterPersistableColumns(array $validated): array
     {
-        if (Schema::hasColumn('sites', 'address')) {
-            return $validated;
+        $columns = Schema::getColumnListing('sites');
+        if (isset($validated['geofence_radius_m']) && $validated['geofence_radius_m'] === null) {
+            $validated['geofence_radius_m'] = 200;
         }
 
-        return collect($validated)->only([
-            'project_id',
-            'code',
-            'name',
-            'location',
-            'status',
-            'supervisor_id',
-        ])->all();
+        return collect($validated)->only($columns)->all();
     }
 
     protected function getCompanySupervisors()
@@ -253,4 +344,3 @@ class SiteController extends Controller
             ->get();
     }
 }
-
