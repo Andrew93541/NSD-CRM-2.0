@@ -33,6 +33,14 @@ class AttendanceController extends Controller
     public function muster(Request $request): View
     {
         $user = Auth::user();
+        if (!$user->hasRole(['super_admin', 'company_admin', 'senior_manager', 'site_manager', 'site_supervisor', 'office_staff'])
+            && !$user->hasPermission('attendance.view')
+            && !$user->hasPermission('attendance.record')
+            && !$user->hasPermission('attendance.muster')
+        ) {
+            abort(403, 'Unauthorized to access attendance muster roll.');
+        }
+
         $accessibleSites = $user->hasRole(['super_admin', 'company_admin', 'senior_manager'])
             ? Site::where('status', 'active')->get()
             : $user->sites()->where('status', 'active')->get();
@@ -729,13 +737,17 @@ class AttendanceController extends Controller
 
         $byWorker = $records->groupBy('worker_id');
         $filename = "nsd_payroll_export_{$startDate}_to_{$endDate}.csv";
+        $payrollService = app(\App\Services\Workforce\PayrollCalculationService::class);
+        $periodStart = Carbon::parse($startDate);
+        $periodEnd = Carbon::parse($endDate);
 
-        return response()->streamDownload(function () use ($byWorker, $startDate, $endDate) {
+        return response()->streamDownload(function () use ($byWorker, $startDate, $endDate, $payrollService, $periodStart, $periodEnd) {
             $out = fopen('php://output', 'w');
             fputcsv($out, [
                 'Worker Code',
                 'Worker Name',
                 'Worker Type',
+                'Pay Type',
                 'Trade Designation',
                 'Period Start',
                 'Period End',
@@ -744,9 +756,11 @@ class AttendanceController extends Controller
                 'Paid Leave Days',
                 'Total Worked Hours',
                 'Overtime Hours',
-                'Daily Base Rate (INR)',
+                'Base Rate (INR)',
                 'Overtime Rate / Hr (INR)',
                 'Estimated Gross Pay (INR)',
+                'Advance Deductions (INR)',
+                'Estimated Net Pay (INR)',
             ]);
 
             foreach ($byWorker as $workerId => $attList) {
@@ -755,32 +769,28 @@ class AttendanceController extends Controller
                     continue;
                 }
 
-                $presentDays = $attList->where('status', 'present')->pluck('attendance_date')->unique()->count();
-                $halfDays = $attList->where('status', 'half_day')->pluck('attendance_date')->unique()->count();
-                $paidLeaves = $attList->where('status', 'paid_leave')->pluck('attendance_date')->unique()->count();
-                $workedHours = round((float) $attList->sum('worked_hours'), 2);
-                $overtimeHours = round((float) $attList->sum('overtime_hours'), 2);
-
-                $dailyRate = (float) $worker->daily_rate;
-                $otRate = (float) ($worker->overtime_rate ?: round($dailyRate / 8, 2));
-                $effectiveDays = $presentDays + ($halfDays * 0.5) + $paidLeaves;
-                $grossPay = round(($effectiveDays * $dailyRate) + ($overtimeHours * $otRate), 2);
+                // Deduplicate by date for present/half_day/paid_leave counts
+                $dedupedAttList = $attList->unique(fn ($item) => $item->attendance_date->format('Y-m-d'));
+                $metrics = $payrollService->calculateWorkerMetrics($worker, $dedupedAttList, $periodStart, $periodEnd);
 
                 fputcsv($out, [
                     $worker->code,
                     $worker->full_name,
                     $worker->worker_type,
+                    $metrics['pay_type'],
                     $worker->trade_designation,
                     $startDate,
                     $endDate,
-                    $presentDays,
-                    $halfDays,
-                    $paidLeaves,
-                    number_format($workedHours, 2, '.', ''),
-                    number_format($overtimeHours, 2, '.', ''),
-                    number_format($dailyRate, 2, '.', ''),
-                    number_format($otRate, 2, '.', ''),
-                    number_format($grossPay, 2, '.', ''),
+                    $metrics['present_days'],
+                    $metrics['half_days'],
+                    $metrics['paid_leave_days'],
+                    number_format((float) $attList->sum('worked_hours'), 2, '.', ''),
+                    number_format((float) $attList->sum('overtime_hours'), 2, '.', ''),
+                    number_format((float) $metrics['base_rate'], 2, '.', ''),
+                    number_format((float) $metrics['overtime_rate'], 2, '.', ''),
+                    number_format((float) $metrics['gross_pay'], 2, '.', ''),
+                    number_format((float) $metrics['advance_deduction'], 2, '.', ''),
+                    number_format((float) $metrics['net_pay'], 2, '.', ''),
                 ]);
             }
 
@@ -796,6 +806,14 @@ class AttendanceController extends Controller
     public function register(Request $request): View
     {
         $user = Auth::user();
+        if (!$user->hasRole(['super_admin', 'company_admin', 'senior_manager', 'site_manager', 'site_supervisor', 'office_staff'])
+            && !$user->hasPermission('attendance.view')
+            && !$user->hasPermission('attendance.record')
+            && !$user->hasPermission('reports.view')
+        ) {
+            abort(403, 'Unauthorized to view attendance register.');
+        }
+
         $hasAllSiteAccess = $user->hasRole(['super_admin', 'company_admin', 'senior_manager', 'office_staff']);
 
         $accessibleSites = $hasAllSiteAccess

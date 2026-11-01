@@ -39,6 +39,13 @@ class Worker extends Model
         'supervisor' => 'Supervisor / Foreman',
     ];
 
+    public const PAY_TYPES = [
+        'daily' => 'Daily Wage',
+        'monthly' => 'Monthly Salary',
+        'hourly' => 'Hourly Rate',
+        'contract' => 'Fixed / Contract',
+    ];
+
     protected $fillable = [
         'company_id',
         'worker_type',
@@ -57,7 +64,11 @@ class Worker extends Model
         'department',
         'skill_level',
         'assigned_site_id',
+        'pay_type',
         'daily_rate',
+        'monthly_salary',
+        'hourly_rate',
+        'contract_rate',
         'overtime_rate',
         'status',
         'joining_date',
@@ -91,12 +102,42 @@ class Worker extends Model
     {
         return [
             'daily_rate' => 'decimal:2',
+            'monthly_salary' => 'decimal:2',
+            'hourly_rate' => 'decimal:2',
+            'contract_rate' => 'decimal:2',
             'overtime_rate' => 'decimal:2',
             'date_of_birth' => 'date',
             'joining_date' => 'date',
             'exit_date' => 'date',
             'must_change_pin' => 'boolean',
         ];
+    }
+
+    public function payTypeLabel(): string
+    {
+        $type = $this->pay_type ?: 'daily';
+
+        return __(self::PAY_TYPES[$type] ?? ucfirst($type));
+    }
+
+    public function primaryCompensationRate(): float
+    {
+        return match ($this->pay_type ?: 'daily') {
+            'monthly' => (float) ($this->monthly_salary ?: $this->daily_rate * 30),
+            'hourly' => (float) ($this->hourly_rate ?: ($this->daily_rate / 8)),
+            'contract' => (float) ($this->contract_rate ?: $this->daily_rate),
+            default => (float) $this->daily_rate,
+        };
+    }
+
+    public function primaryCompensationUnit(): string
+    {
+        return match ($this->pay_type ?: 'daily') {
+            'monthly' => '/ month',
+            'hourly' => '/ hr',
+            'contract' => '/ contract',
+            default => '/ day',
+        };
     }
 
     public function ensureQrToken(): string
@@ -180,6 +221,16 @@ class Worker extends Model
     public function documents(): HasMany
     {
         return $this->hasMany(WorkerDocument::class)->latest();
+    }
+
+    public function payrollEntries(): HasMany
+    {
+        return $this->hasMany(PayrollEntry::class)->latest();
+    }
+
+    public function salaryAdvances(): HasMany
+    {
+        return $this->hasMany(SalaryAdvance::class)->latest('advance_date');
     }
 
     // Compatibility aliases

@@ -1,0 +1,62 @@
+# NSD CRM 2.0 — Apache Root Fallback & Security Hardening (cPanel / XAMPP)
+# When DocumentRoot cannot be pointed directly to /public, this file protects
+# all internal directories and dotfiles while routing web traffic through /public.
+
+<IfModule mod_negotiation.c>
+    Options -MultiViews -Indexes
+</IfModule>
+
+# 1. Block access to sensitive dotfiles (.env, .git, .htaccess, .phpunit.result.cache, etc.)
+<FilesMatch "^\.">
+    <IfModule mod_authz_core.c>
+        Require all denied
+    </IfModule>
+    <IfModule !mod_authz_core.c>
+        Order allow,deny
+        Deny from all
+    </IfModule>
+</FilesMatch>
+
+# 2. Block direct access to sensitive project metadata, scripts, SQL dumps, logs, and sqlite files
+<FilesMatch "(?i)^(\.env.*|artisan|composer\.(json|lock)|package(-lock)?\.json|phpunit\.xml.*|vite\.config\.js|README\.md|CHANGELOG\.md|CLAUDE\.md|AGENTS\.md|.*\.(sql|sqlite|sqlite3|log|bak|old|swp|dist|yml|yaml|sh))$">
+    <IfModule mod_authz_core.c>
+        Require all denied
+    </IfModule>
+    <IfModule !mod_authz_core.c>
+        Order allow,deny
+        Deny from all
+    </IfModule>
+</FilesMatch>
+
+<IfModule mod_rewrite.c>
+    RewriteEngine On
+
+    # 3. Preserve Authorization and X-XSRF-Token headers for Apache / FastCGI / cPanel CGI
+    RewriteCond %{HTTP:Authorization} .
+    RewriteRule .* - [E=HTTP_AUTHORIZATION:%{HTTP:Authorization}]
+
+    RewriteCond %{HTTP:x-xsrf-token} .
+    RewriteRule .* - [E=HTTP_X_XSRF_TOKEN:%{HTTP:X-XSRF-Token}]
+
+    # 4. Strictly forbid direct HTTP access to internal application, storage, database, and test directories
+    RewriteRule ^(?:app|bootstrap|config|database|docs|lang|node_modules|resources|routes|storage|tests|vendor)(?:/.*)?$ - [F,L,NC]
+    RewriteRule ^(?:public/)?storage/(?:app|framework|logs)(?:/.*)?$ - [F,L,NC]
+    RewriteRule /(?:^|/)\.(?!well-known(?:/|$)) - [F,L]
+
+    # 5. Serve static files that exist inside /public (e.g., build/assets/*, favicon.ico, robots.txt)
+    RewriteCond %{REQUEST_URI} !^/public/
+    RewriteCond %{DOCUMENT_ROOT}/public/%{REQUEST_URI} -f
+    RewriteRule ^(.*)$ public/$1 [L]
+
+    # When deployed in a subdirectory (e.g. XAMPP /NSD-CRM-2.0/), map existing static files inside public/
+    RewriteCond %{REQUEST_FILENAME} !-f
+    RewriteCond %{REQUEST_FILENAME} !-d
+    RewriteCond %{REQUEST_URI} ^(.+?)/(build/.*|favicon\.ico|robots\.txt)$
+    RewriteRule ^(.+?)/(build/.*|favicon\.ico|robots\.txt)$ public/$2 [L]
+
+    # 6. Route all other requests through the root front controller (index.php)
+    RewriteCond %{REQUEST_FILENAME} !-f
+    RewriteCond %{REQUEST_FILENAME} !-d
+    RewriteRule ^ index.php [L]
+</IfModule>
+

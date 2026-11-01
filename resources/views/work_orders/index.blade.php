@@ -53,18 +53,37 @@
             <table class="w-full text-left text-sm text-slate-700 dark:text-slate-300">
                 <thead class="text-xs uppercase text-slate-500 dark:text-slate-400 bg-slate-50 dark:bg-slate-950 border-b border-slate-200 dark:border-slate-800">
                     <tr>
-                        <th class="py-3 px-4 font-semibold">{{ __('Order #') }}</th>
+                        <th class="py-3 px-4 font-semibold">{{ __('Order # / PO #') }}</th>
                         <th class="py-3 px-4 font-semibold">{{ __('Type') }}</th>
                         <th class="py-3 px-4 font-semibold">{{ __('Title & Site') }}</th>
-                        <th class="py-3 px-4 font-semibold">{{ __('Estimated') }}</th>
+                        <th class="py-3 px-4 font-semibold">{{ __('Order Value (A)') }}</th>
+                        <th class="py-3 px-4 font-semibold">{{ __('Order Consumption') }}</th>
                         <th class="py-3 px-4 font-semibold">{{ __('Workflow Stage') }}</th>
                         <th class="py-3 px-4 font-semibold text-right">{{ __('Actions') }}</th>
                     </tr>
                 </thead>
                 <tbody class="divide-y divide-slate-200 dark:divide-slate-800/60">
                     @forelse($workOrders as $wo)
+                        @php
+                            $pct = $wo->consumptionPercent();
+                            $warn = $wo->consumptionWarningLevel();
+                            $barColor = match($warn) {
+                                'cap_100' => 'bg-rose-500',
+                                'warning_90' => 'bg-orange-500',
+                                'warning_80' => 'bg-amber-500',
+                                default => 'bg-emerald-500',
+                            };
+                        @endphp
                         <tr class="hover:bg-slate-50 dark:hover:bg-slate-800/40 transition">
-                            <td class="py-3 px-4 font-mono font-bold text-slate-900 dark:text-white">{{ $wo->order_number }}</td>
+                            <td class="py-3 px-4">
+                                <div class="font-mono font-bold text-slate-900 dark:text-white">{{ $wo->order_number }}</div>
+                                <div class="text-[11px] font-mono text-slate-500">
+                                    @if($wo->po_number)
+                                        PO #{{ $wo->po_number }} &bull;
+                                    @endif
+                                    Rev {{ $wo->current_revision ?? 0 }}
+                                </div>
+                            </td>
                             <td class="py-3 px-4">
                                 <span class="px-2 py-0.5 rounded text-[11px] font-bold uppercase {{ $wo->order_type === 'client_issued' ? 'bg-sky-500/10 text-sky-600 dark:text-sky-400 border border-sky-500/30' : 'bg-purple-500/10 text-purple-600 dark:text-purple-400 border border-purple-500/30' }}">
                                     {{ $wo->order_type === 'client_issued' ? __('Client Issued') : __('Internal Work') }}
@@ -72,10 +91,26 @@
                             </td>
                             <td class="py-3 px-4">
                                 <div class="font-semibold text-slate-900 dark:text-white">{{ $wo->title }}</div>
-                                <div class="text-xs text-slate-500 dark:text-slate-400">{{ $wo->site->name ?? __('Project Wide') }}</div>
+                                <div class="text-xs text-slate-500 dark:text-slate-400">
+                                    {{ $wo->site->name ?? __('Project Wide') }}
+                                    @if($wo->client)
+                                        &bull; {{ $wo->client->name }}
+                                    @endif
+                                </div>
                             </td>
                             <td class="py-3 px-4 font-mono text-slate-700 dark:text-slate-200">
-                                ₹{{ number_format($wo->estimated_amount, 2) }}
+                                ₹{{ number_format((float) ($wo->base_order_value ?: $wo->estimated_amount), 2) }}
+                            </td>
+                            <td class="py-3 px-4">
+                                <div class="w-32 space-y-1">
+                                    <div class="flex items-center justify-between text-[11px] font-mono">
+                                        <span class="font-bold">{{ number_format($pct, 1) }}%</span>
+                                        <span class="text-slate-400">₹{{ number_format($wo->totalBilledAmount(), 0) }}</span>
+                                    </div>
+                                    <div class="w-full h-1.5 rounded-full bg-slate-200 dark:bg-slate-800 overflow-hidden">
+                                        <div class="h-full {{ $barColor }}" style="width: {{ $pct }}%"></div>
+                                    </div>
+                                </div>
                             </td>
                             <td class="py-3 px-4">
                                 @if($wo->status === 'submitted')

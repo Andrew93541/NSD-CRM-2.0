@@ -24,9 +24,31 @@ class Task extends Model
         'todo' => 'To Do',
         'in_progress' => 'In Progress',
         'review' => 'In Review',
-        'completed' => 'Completed',
         'blocked' => 'Blocked',
+        'completed' => 'Completed',
     ];
+
+    public const ALLOWED_TRANSITIONS = [
+        'todo' => ['in_progress'],
+        'in_progress' => ['review', 'blocked'],
+        'blocked' => ['in_progress'],
+        'review' => ['completed', 'in_progress'],
+        'completed' => [],
+    ];
+
+    public function canTransitionTo(string $targetStatus): bool
+    {
+        if ($targetStatus === $this->status) {
+            return true;
+        }
+
+        return in_array($targetStatus, self::ALLOWED_TRANSITIONS[$this->status] ?? [], true);
+    }
+
+    public function allowedNextStatuses(): array
+    {
+        return self::ALLOWED_TRANSITIONS[$this->status] ?? [];
+    }
 
     protected $fillable = [
         'company_id',

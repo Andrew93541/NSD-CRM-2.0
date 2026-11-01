@@ -183,7 +183,7 @@
                     </div>
                 </div>
 
-                <div class="grid grid-cols-1 sm:grid-cols-4 gap-4">
+                <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
                     <div>
                         <label for="joining_date" class="block text-xs font-bold text-slate-700 dark:text-slate-300 uppercase mb-1">{{ __('Joining Date') }}</label>
                         <input id="joining_date" type="date" name="joining_date" value="{{ old('joining_date', now()->format('Y-m-d')) }}" class="w-full rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-slate-800 p-2.5 text-sm text-slate-900 dark:text-white focus:border-amber-500 outline-none">
@@ -197,8 +197,31 @@
                         </select>
                     </div>
                     <div>
+                        <label for="pay_type" class="block text-xs font-bold text-slate-700 dark:text-slate-300 uppercase mb-1">{{ __('Compensation / Pay Type') }} *</label>
+                        <select id="pay_type" name="pay_type" class="w-full rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-slate-800 p-2.5 text-sm text-slate-900 dark:text-white focus:border-amber-500 outline-none">
+                            @foreach($payTypes ?? \App\Models\Worker::PAY_TYPES as $ptKey => $ptLabel)
+                                <option value="{{ $ptKey }}" {{ old('pay_type', 'daily') === $ptKey ? 'selected' : '' }}>{{ __($ptLabel) }}</option>
+                            @endforeach
+                        </select>
+                    </div>
+                </div>
+
+                <div class="grid grid-cols-1 sm:grid-cols-5 gap-4">
+                    <div>
                         <label for="daily_rate" class="block text-xs font-bold text-slate-700 dark:text-slate-300 uppercase mb-1">{{ __('Daily Base Rate') }} (₹) *</label>
                         <input id="daily_rate" type="number" step="0.01" min="0" name="daily_rate" required value="{{ old('daily_rate', 700) }}" class="w-full rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-slate-800 p-2.5 text-sm font-mono text-slate-900 dark:text-white focus:border-amber-500 outline-none">
+                    </div>
+                    <div>
+                        <label for="monthly_salary" class="block text-xs font-bold text-slate-700 dark:text-slate-300 uppercase mb-1">{{ __('Monthly Salary') }} (₹)</label>
+                        <input id="monthly_salary" type="number" step="0.01" min="0" name="monthly_salary" value="{{ old('monthly_salary', 0) }}" class="w-full rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-slate-800 p-2.5 text-sm font-mono text-slate-900 dark:text-white focus:border-amber-500 outline-none">
+                    </div>
+                    <div>
+                        <label for="hourly_rate" class="block text-xs font-bold text-slate-700 dark:text-slate-300 uppercase mb-1">{{ __('Hourly Rate') }} (₹)</label>
+                        <input id="hourly_rate" type="number" step="0.01" min="0" name="hourly_rate" value="{{ old('hourly_rate', 0) }}" class="w-full rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-slate-800 p-2.5 text-sm font-mono text-slate-900 dark:text-white focus:border-amber-500 outline-none">
+                    </div>
+                    <div>
+                        <label for="contract_rate" class="block text-xs font-bold text-slate-700 dark:text-slate-300 uppercase mb-1">{{ __('Contract / Fixed') }} (₹)</label>
+                        <input id="contract_rate" type="number" step="0.01" min="0" name="contract_rate" value="{{ old('contract_rate', 0) }}" class="w-full rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-slate-800 p-2.5 text-sm font-mono text-slate-900 dark:text-white focus:border-amber-500 outline-none">
                     </div>
                     <div>
                         <label for="overtime_rate" class="block text-xs font-bold text-slate-700 dark:text-slate-300 uppercase mb-1">{{ __('Overtime Rate / Hr') }} (₹)</label>

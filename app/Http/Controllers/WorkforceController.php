@@ -128,6 +128,7 @@ class WorkforceController extends Controller
         $genders = Worker::GENDERS;
         $departments = Worker::DEPARTMENTS;
         $skillLevels = Worker::SKILL_LEVELS;
+        $payTypes = Worker::PAY_TYPES;
         $previewCodes = [
             'employee' => WorkerCodeGenerator::previewNext($companyId, 'employee'),
             'subcontractor_worker' => WorkerCodeGenerator::previewNext($companyId, 'subcontractor_worker'),
@@ -141,6 +142,7 @@ class WorkforceController extends Controller
             'genders',
             'departments',
             'skillLevels',
+            'payTypes',
             'previewCodes'
         ));
     }
@@ -189,7 +191,11 @@ class WorkforceController extends Controller
                 'trade_designation' => $validated['trade_designation'],
                 'assigned_site_id' => $validated['assigned_site_id'] ?? null,
                 'subcontractor_id' => $validated['worker_type'] === 'subcontractor_worker' ? ($validated['subcontractor_id'] ?? null) : null,
-                'daily_rate' => $validated['daily_rate'],
+                'pay_type' => $validated['pay_type'] ?? 'daily',
+                'daily_rate' => $validated['daily_rate'] ?? 0.00,
+                'monthly_salary' => $validated['monthly_salary'] ?? 0.00,
+                'hourly_rate' => $validated['hourly_rate'] ?? 0.00,
+                'contract_rate' => $validated['contract_rate'] ?? 0.00,
             ];
 
             if ($hasExtendedColumns) {
@@ -365,6 +371,7 @@ class WorkforceController extends Controller
         $genders = Worker::GENDERS;
         $departments = Worker::DEPARTMENTS;
         $skillLevels = Worker::SKILL_LEVELS;
+        $payTypes = Worker::PAY_TYPES;
 
         return view('workforce.edit', compact(
             'worker',
@@ -374,7 +381,8 @@ class WorkforceController extends Controller
             'documentTypes',
             'genders',
             'departments',
-            'skillLevels'
+            'skillLevels',
+            'payTypes'
         ));
     }
 
@@ -421,7 +429,11 @@ class WorkforceController extends Controller
                 'trade_designation' => $validated['trade_designation'],
                 'assigned_site_id' => array_key_exists('assigned_site_id', $rawInput) ? ($validated['assigned_site_id'] ?? null) : $worker->assigned_site_id,
                 'subcontractor_id' => $validated['subcontractor_id'] ?? null,
-                'daily_rate' => $validated['daily_rate'],
+                'pay_type' => array_key_exists('pay_type', $rawInput) ? ($validated['pay_type'] ?? 'daily') : ($worker->pay_type ?? 'daily'),
+                'daily_rate' => $validated['daily_rate'] ?? $worker->daily_rate ?? 0.00,
+                'monthly_salary' => array_key_exists('monthly_salary', $rawInput) ? ($validated['monthly_salary'] ?? 0.00) : ($worker->monthly_salary ?? 0.00),
+                'hourly_rate' => array_key_exists('hourly_rate', $rawInput) ? ($validated['hourly_rate'] ?? 0.00) : ($worker->hourly_rate ?? 0.00),
+                'contract_rate' => array_key_exists('contract_rate', $rawInput) ? ($validated['contract_rate'] ?? 0.00) : ($worker->contract_rate ?? 0.00),
                 'status' => $validated['status'],
                 'joining_date' => array_key_exists('joining_date', $rawInput)
                     ? (!empty($validated['joining_date']) ? Carbon::parse($validated['joining_date']) : null)
@@ -606,7 +618,11 @@ class WorkforceController extends Controller
             'status' => $isUpdate
                 ? ['required', 'in:active,inactive,terminated']
                 : ['nullable', 'in:active,inactive,terminated'],
+            'pay_type' => ['nullable', 'string', Rule::in(array_keys(Worker::PAY_TYPES))],
             'daily_rate' => ['required', 'numeric', 'min:0', 'max:999999.99'],
+            'monthly_salary' => ['nullable', 'numeric', 'min:0', 'max:9999999.99'],
+            'hourly_rate' => ['nullable', 'numeric', 'min:0', 'max:99999.99'],
+            'contract_rate' => ['nullable', 'numeric', 'min:0', 'max:9999999.99'],
             'overtime_rate' => ['nullable', 'numeric', 'min:0', 'max:99999.99'],
 
             // Site Assignment
@@ -1369,6 +1385,12 @@ class WorkforceController extends Controller
                 continue;
             }
 
+            // Validate optional pay_type
+            $payType = strtolower(trim($data['pay_type'] ?? 'daily')) ?: 'daily';
+            if (!array_key_exists($payType, Worker::PAY_TYPES)) {
+                $payType = 'daily';
+            }
+
             // Validate optional status
             $status = strtolower($data['status'] ?? 'active') ?: 'active';
             if (!in_array($status, ['active', 'inactive', 'on_leave'], true)) {
@@ -1385,7 +1407,17 @@ class WorkforceController extends Controller
                 'trade_designation' => mb_substr($data['trade_designation'], 0, 100),
                 'skill_level' => $skillLevel ?: null,
                 'department' => !empty($data['department']) ? mb_substr($data['department'], 0, 100) : null,
+                'pay_type' => $payType,
                 'daily_rate' => round((float) $data['daily_rate'], 2),
+                'monthly_salary' => isset($data['monthly_salary']) && is_numeric($data['monthly_salary'])
+                    ? round((float) $data['monthly_salary'], 2)
+                    : 0.00,
+                'hourly_rate' => isset($data['hourly_rate']) && is_numeric($data['hourly_rate'])
+                    ? round((float) $data['hourly_rate'], 2)
+                    : 0.00,
+                'contract_rate' => isset($data['contract_rate']) && is_numeric($data['contract_rate'])
+                    ? round((float) $data['contract_rate'], 2)
+                    : 0.00,
                 'overtime_rate' => isset($data['overtime_rate']) && is_numeric($data['overtime_rate'])
                     ? round((float) $data['overtime_rate'], 2)
                     : 0.00,
@@ -1437,7 +1469,11 @@ class WorkforceController extends Controller
                     'trade_designation' => $item['trade_designation'],
                     'skill_level' => $item['skill_level'],
                     'department' => $item['department'],
+                    'pay_type' => $item['pay_type'],
                     'daily_rate' => $item['daily_rate'],
+                    'monthly_salary' => $item['monthly_salary'],
+                    'hourly_rate' => $item['hourly_rate'],
+                    'contract_rate' => $item['contract_rate'],
                     'overtime_rate' => $item['overtime_rate'],
                     'phone' => $item['phone'],
                     'alternate_phone' => $item['alternate_phone'],

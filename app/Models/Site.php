@@ -30,9 +30,41 @@ class Site extends Model
         'shift_end',
         'description',
         'status',
+        'kiosk_token',
         'supervisor_id',
         'site_manager_id',
     ];
+
+    protected static function booted(): void
+    {
+        static::creating(function (Site $site) {
+            if (empty($site->kiosk_token) && \Illuminate\Support\Facades\Schema::hasColumn('sites', 'kiosk_token')) {
+                $site->kiosk_token = \Illuminate\Support\Str::random(48);
+            }
+        });
+    }
+
+    public function ensureKioskToken(): string
+    {
+        if (empty($this->kiosk_token)) {
+            $this->kiosk_token = \Illuminate\Support\Str::random(48);
+            if (\Illuminate\Support\Facades\Schema::hasColumn('sites', 'kiosk_token')) {
+                $this->saveQuietly();
+            }
+        }
+
+        return (string) $this->kiosk_token;
+    }
+
+    public function rotateKioskToken(): string
+    {
+        $this->kiosk_token = \Illuminate\Support\Str::random(48);
+        if (\Illuminate\Support\Facades\Schema::hasColumn('sites', 'kiosk_token')) {
+            $this->saveQuietly();
+        }
+
+        return (string) $this->kiosk_token;
+    }
 
     protected function casts(): array
     {

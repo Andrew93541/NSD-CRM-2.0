@@ -75,11 +75,14 @@
         </div>
 
         <div class="p-4 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-sm">
-            <div class="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">{{ __('Daily Base Rate') }}</div>
-            <div class="text-2xl font-extrabold font-mono text-slate-900 dark:text-white mt-1">
-                ₹{{ number_format($worker->daily_rate, 2) }}
+            <div class="flex items-center justify-between">
+                <div class="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">{{ __('Compensation') }}</div>
+                <span class="px-2 py-0.5 rounded bg-amber-500/15 text-amber-700 dark:text-amber-400 text-[10px] font-bold uppercase">{{ $worker->payTypeLabel() }}</span>
             </div>
-            <div class="text-[11px] text-slate-500 dark:text-slate-400 mt-1">{{ __('Joining Date') }}: {{ $worker->joining_date?->format('Y-m-d') ?? __('Not specified') }}</div>
+            <div class="text-2xl font-extrabold font-mono text-slate-900 dark:text-white mt-1">
+                ₹{{ number_format($worker->primaryCompensationRate(), 2) }} <span class="text-xs font-normal text-slate-400">{{ $worker->primaryCompensationUnit() }}</span>
+            </div>
+            <div class="text-[11px] text-slate-500 dark:text-slate-400 mt-1">{{ __('Daily Base') }}: ₹{{ number_format($worker->daily_rate, 2) }} &bull; {{ __('Joining') }}: {{ $worker->joining_date?->format('Y-m-d') ?? __('Not specified') }}</div>
         </div>
 
         <div class="p-4 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-sm">

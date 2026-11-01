@@ -15,7 +15,13 @@ class Company extends Model
 
     protected $casts = [
         "is_active" => "boolean",
+        "invoice_starting_number" => "integer",
     ];
+
+    public function clients(): HasMany
+    {
+        return $this->hasMany(Client::class);
+    }
 
     public function users(): BelongsToMany
     {

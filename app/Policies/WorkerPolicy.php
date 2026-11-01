@@ -41,7 +41,16 @@ class WorkerPolicy
 
     public function viewAny(User $user): bool
     {
-        return $user->currentCompany() !== null;
+        if (!$user->currentCompany()) {
+            return false;
+        }
+
+        return $user->hasRole(['super_admin', 'company_admin', 'senior_manager', 'site_manager', 'site_supervisor', 'office_staff'])
+            || $user->hasPermission('workforce.view')
+            || $user->hasPermission('workforce.manage')
+            || $user->hasPermission('attendance.view')
+            || $user->hasPermission('attendance.record')
+            || $user->hasPermission('attendance.muster');
     }
 
     public function view(User $user, Worker $worker): bool

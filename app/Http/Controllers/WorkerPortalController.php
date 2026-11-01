@@ -197,7 +197,7 @@ class WorkerPortalController extends Controller
 
         return redirect()->route('worker.punch')->with(
             'success',
-            sprintf('Punch %s recorded at %s Server Time%s.', strtoupper($punch->punch_type), $punch->punched_at->format('H:i:s'), $fenceNote)
+            sprintf('Punch %s recorded at %s IST%s.', strtoupper($punch->punch_type), $punch->punched_at->format('h:i:s A (H:i)'), $fenceNote)
         );
     }
 

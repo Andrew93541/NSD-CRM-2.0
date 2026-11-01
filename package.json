@@ -3,7 +3,7 @@
     "private": true,
     "type": "module",
     "scripts": {
-        "build": "vite build",
+        "build": "vite build && php -r \"foreach (glob('public/build/assets/*.css') as \\$f) file_put_contents(\\$f, str_replace('url(\\\"/build/assets/', 'url(\\\"./', file_get_contents(\\$f)));\"",
         "dev": "vite"
     },
     "devDependencies": {

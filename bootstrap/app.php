@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Middleware\BlockSensitivePaths;
 use App\Http\Middleware\SetTenantContext;
 use App\Http\Middleware\SetUserLocale;
 use App\Http\Middleware\SetUserTheme;
@@ -15,6 +16,8 @@ return Application::configure(basePath: dirname(__DIR__))
         health: '/up',
     )
     ->withMiddleware(function (Middleware $middleware): void {
+        $middleware->prepend(BlockSensitivePaths::class);
+
         $middleware->web(append: [
             SetUserLocale::class,
             SetUserTheme::class,

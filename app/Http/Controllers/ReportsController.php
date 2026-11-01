@@ -15,6 +15,7 @@ use App\Services\Workforce\AttendanceService;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\View\View;
 use Symfony\Component\HttpFoundation\StreamedResponse;
@@ -27,6 +28,8 @@ class ReportsController extends Controller
 
     public function workforce(Request $request): View
     {
+        Gate::authorize('viewAny', Worker::class);
+
         $user = Auth::user();
         $hasAllSiteAccess = $user->hasRole(['super_admin', 'company_admin', 'senior_manager', 'office_staff']);
 
@@ -36,7 +39,7 @@ class ReportsController extends Controller
 
         $accessibleSiteIds = $hasAllSiteAccess
             ? null
-            : $sites->pluck('id')->all();
+            : $user->accessibleSiteIds();
 
         $mode = $request->query('mode', 'date');
         if (!in_array($mode, ['date', 'month'], true)) {
@@ -97,17 +100,50 @@ class ReportsController extends Controller
 
     public function workOrders(): View
     {
-        $totalOrders = WorkOrder::count();
-        $byStatus = WorkOrder::selectRaw('status, count(*) as count')->groupBy('status')->pluck('count', 'status')->toArray();
-        $byType = WorkOrder::selectRaw('order_type, count(*) as count')->groupBy('order_type')->pluck('count', 'order_type')->toArray();
-        $orders = WorkOrder::with(['site', 'project', 'siteManager', 'seniorManager'])->latest()->get();
+        Gate::authorize('viewAny', WorkOrder::class);
+
+        $user = Auth::user();
+        $hasAllSiteAccess = $user->hasRole(['super_admin', 'company_admin', 'senior_manager', 'office_staff']);
+
+        $baseQuery = WorkOrder::query();
+        if (!$hasAllSiteAccess) {
+            $accessibleSiteIds = $user->accessibleSiteIds();
+            $baseQuery->where(function ($q) use ($accessibleSiteIds) {
+                $q->whereNull('site_id')
+                  ->orWhereIn('site_id', $accessibleSiteIds);
+            });
+        }
+
+        $totalOrders = (clone $baseQuery)->count();
+        $byStatus = (clone $baseQuery)->selectRaw('status, count(*) as count')->groupBy('status')->pluck('count', 'status')->toArray();
+        $byType = (clone $baseQuery)->selectRaw('order_type, count(*) as count')->groupBy('order_type')->pluck('count', 'order_type')->toArray();
+        $orders = (clone $baseQuery)->with(['site', 'project', 'siteManager', 'seniorManager'])->latest()->get();
 
         return view('reports.work_orders', compact('totalOrders', 'byStatus', 'byType', 'orders'));
     }
 
     public function inventory(): View
     {
-        $stocks = InventoryStock::with(['material.category', 'warehouse'])->get();
+        $user = Auth::user();
+        if (!$user->hasRole(['super_admin', 'company_admin', 'senior_manager', 'site_manager', 'site_supervisor', 'warehouse_manager', 'office_staff'])
+            && !$user->hasPermission('inventory.view')
+            && !$user->hasPermission('reports.view')
+        ) {
+            abort(403, 'Unauthorized to view inventory reports.');
+        }
+
+        $hasAllSiteAccess = $user->hasRole(['super_admin', 'company_admin', 'senior_manager', 'warehouse_manager', 'office_staff']);
+        $accessibleSiteIds = $hasAllSiteAccess ? null : $user->accessibleSiteIds();
+
+        $stocks = InventoryStock::with(['material.category', 'warehouse'])
+            ->when($accessibleSiteIds !== null, function ($q) use ($accessibleSiteIds) {
+                $q->whereHas('warehouse', function ($wq) use ($accessibleSiteIds) {
+                    $wq->whereNull('site_id')
+                       ->orWhereIn('site_id', $accessibleSiteIds);
+                });
+            })
+            ->get();
+
         $totalValuation = $stocks->sum(function ($s) {
             return $s->quantity * ($s->material->standard_unit_cost ?? 0);
         });

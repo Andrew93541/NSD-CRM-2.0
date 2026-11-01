@@ -58,7 +58,7 @@
         <!-- Big Punch In / Out Card -->
         <div class="p-6 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-center space-y-4 shadow-lg">
             <div class="text-xs font-bold uppercase tracking-wider text-slate-500">
-                {{ __('Server Time Authority') }} &bull; {{ now()->format('d M Y, H:i') }}
+                {{ __('Server Time Authority (IST)') }} &bull; {{ now()->format('d M Y, h:i:s A (H:i)') }}
             </div>
 
             @if($site)
@@ -80,7 +80,7 @@
 
                 @if($openAttendance)
                     <button type="submit" class="w-full py-6 rounded-2xl bg-gradient-to-r from-rose-500 to-rose-600 hover:from-rose-400 hover:to-rose-500 text-white font-black text-xl shadow-xl shadow-rose-500/25 transition active:scale-[0.99]">
-                        {{ __('PUNCH OUT') }} ({{ __('Clocked in at') }} {{ \Carbon\Carbon::parse($openAttendance->clock_in)->format('H:i') }})
+                        {{ __('PUNCH OUT') }} ({{ __('Clocked in at') }} {{ \Carbon\Carbon::parse($openAttendance->clock_in)->format('h:i A') }})
                     </button>
                 @else
                     <button type="submit" class="w-full py-6 rounded-2xl bg-gradient-to-r from-emerald-400 to-emerald-500 hover:from-emerald-300 hover:to-emerald-400 text-slate-950 font-black text-xl shadow-xl shadow-emerald-500/25 transition active:scale-[0.99]">
@@ -139,7 +139,7 @@
                                 <span class="ml-1 px-1.5 py-0.5 rounded bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 text-[10px]">{{ __('In Geofence') }}</span>
                             @endif
                         </div>
-                        <div class="font-mono text-slate-500">{{ $p->punched_at->format('d M H:i:s') }}</div>
+                        <div class="font-mono text-slate-500">{{ $p->punched_at->format('d M, h:i:s A') }}</div>
                     </div>
                 @empty
                     <div class="py-4 text-center text-slate-500">{{ __('No punches recorded yet.') }}</div>

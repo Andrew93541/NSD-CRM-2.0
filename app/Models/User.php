@@ -19,11 +19,18 @@ class User extends Authenticatable
         'email',
         'password',
         'is_active',
+        'two_factor_enabled',
+        'two_factor_secret',
+        'two_factor_code',
+        'two_factor_expires_at',
+        'two_factor_verified_at',
     ];
 
     protected $hidden = [
         'password',
         'remember_token',
+        'two_factor_secret',
+        'two_factor_code',
     ];
 
     protected function casts(): array
@@ -32,6 +39,9 @@ class User extends Authenticatable
             'email_verified_at' => 'datetime',
             'password' => 'hashed',
             'is_active' => 'boolean',
+            'two_factor_enabled' => 'boolean',
+            'two_factor_expires_at' => 'datetime',
+            'two_factor_verified_at' => 'datetime',
         ];
     }
 
@@ -190,5 +200,97 @@ class User extends Authenticatable
             ->pluck('id')
             ->values()
             ->all();
+    }
+
+    /**
+     * Manager roles and above that support/require Two-Factor Authentication.
+     */
+    public function isManagerOrAbove(?int $companyId = null): bool
+    {
+        $managerSlugs = [
+            'super_admin',
+            'company_admin',
+            'senior_manager',
+            'site_manager',
+            'warehouse_manager',
+        ];
+
+        $role = $this->currentRole($companyId);
+        if ($role) {
+            return in_array($role->slug, $managerSlugs, true);
+        }
+
+        // Fallback: inspect primary active company membership
+        $membership = $this->companies()
+            ->wherePivot('status', 'active')
+            ->where('companies.is_active', true)
+            ->orderByDesc('company_user.is_primary')
+            ->first();
+
+        if (!$membership || !($membership->pivot->role_id ?? null)) {
+            return false;
+        }
+
+        $fallbackRole = Role::find($membership->pivot->role_id);
+
+        return $fallbackRole && in_array($fallbackRole->slug, $managerSlugs, true);
+    }
+
+    /**
+     * Determine whether an interactive login for this user requires a 2FA OTP challenge.
+     */
+    public function requiresTwoFactorChallenge(?int $companyId = null): bool
+    {
+        if ((bool) $this->two_factor_enabled) {
+            return true;
+        }
+
+        if ((bool) config('auth.enforce_manager_2fa', false) && $this->isManagerOrAbove($companyId)) {
+            return true;
+        }
+
+        return false;
+    }
+
+    /**
+     * Generate, hash, and store a 6-digit Two-Factor Authentication OTP valid for 10 minutes.
+     */
+    public function issueTwoFactorCode(): string
+    {
+        $code = str_pad((string) random_int(100000, 999999), 6, '0', STR_PAD_LEFT);
+
+        $this->forceFill([
+            'two_factor_code' => \Illuminate\Support\Facades\Hash::make($code),
+            'two_factor_expires_at' => now()->addMinutes(10),
+            'two_factor_verified_at' => null,
+        ])->save();
+
+        return $code;
+    }
+
+    /**
+     * Verify a submitted 6-digit Two-Factor Authentication OTP code.
+     */
+    public function verifyTwoFactorCode(string $code): bool
+    {
+        if (!$this->two_factor_code || !$this->two_factor_expires_at) {
+            return false;
+        }
+
+        if ($this->two_factor_expires_at->isPast()) {
+            return false;
+        }
+
+        if (!\Illuminate\Support\Facades\Hash::check(trim($code), $this->two_factor_code)) {
+            return false;
+        }
+
+        $this->forceFill([
+            'two_factor_code' => null,
+            'two_factor_expires_at' => null,
+            'two_factor_verified_at' => now(),
+        ])->save();
+
+        return true;
     }
 }
