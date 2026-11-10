@@ -141,6 +141,11 @@ class RaBillingService
                 "Recorded site measurement for {$woItem->sr_no}"
             );
 
+            if (!$workOrder->isDraftPo() && ($workOrder->lifecycle_status === null || $workOrder->lifecycle_status === WorkOrder::LIFECYCLE_CONFIRMED)) {
+                $workOrder->lifecycle_status = WorkOrder::LIFECYCLE_IN_PROGRESS;
+                $workOrder->saveQuietly();
+            }
+
             return $entry;
         });
     }
@@ -155,6 +160,12 @@ class RaBillingService
         ?RaBill $existingBill = null
     ): RaBill {
         return DB::transaction(function () use ($workOrder, $data, $actor, $existingBill) {
+            if ($workOrder->isDraftPo()) {
+                throw \Illuminate\Validation\ValidationException::withMessages([
+                    'work_order' => 'Billing is blocked while the Work Order is in Draft PO status. Upload or confirm the final PO revision before raising an RA bill.',
+                ]);
+            }
+
             $workOrder->load(['items', 'company']);
 
             if ($workOrder->items->isEmpty()) {
@@ -232,6 +243,7 @@ class RaBillingService
             }
 
             $manualItemsInput = $data['items'] ?? [];
+            $isSequentialManualList = is_array($manualItemsInput) && array_is_list($manualItemsInput);
 
             $totalPreviousAmount = 0.0;
             $totalCurrentAmount = 0.0;
@@ -265,8 +277,10 @@ class RaBillingService
                 $measuredHoldQty = (float) $measurements->sum('hold_quantity');
                 $carriedExcess = $prevExcessByItem[$woItem->id] ?? 0.0;
 
-                // Determine claimed_quantity and hold_quantity (support keyed by work_order_item_id or index)
-                $manualRow = $manualItemsInput[$woItem->id] ?? $manualItemsInput[$index] ?? null;
+                // Determine claimed_quantity and hold_quantity (support keyed by work_order_item_id, sr_no, or 0-based list)
+                $manualRow = $manualItemsInput[$woItem->id]
+                    ?? $manualItemsInput[$woItem->sr_no]
+                    ?? ($isSequentialManualList ? ($manualItemsInput[$index] ?? null) : null);
 
                 if (is_array($manualRow) && array_key_exists('claimed_quantity', $manualRow)) {
                     $claimedQty = (float) $manualRow['claimed_quantity'];

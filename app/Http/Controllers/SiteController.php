@@ -145,6 +145,7 @@ class SiteController extends Controller
 
         $companyUsers = $this->getCompanySupervisors();
         $companyWorkers = Worker::orderBy('first_name')->get();
+        $workOrderSummary = $site->workOrderSummary();
 
         return view('sites.show', compact(
             'site',
@@ -156,8 +157,31 @@ class SiteController extends Controller
             'recentPurchaseRequests',
             'siteAssignments',
             'companyUsers',
-            'companyWorkers'
+            'companyWorkers',
+            'workOrderSummary'
         ));
+    }
+
+    public function destroy(Site $site): RedirectResponse
+    {
+        if ((int) $site->company_id !== (int) TenantContext::getCompanyId()) {
+            abort(403, 'Unauthorized site access.');
+        }
+
+        if (!$site->canBeDeleted()) {
+            return back()->withErrors([
+                'site' => 'A site with attendance or measurements can never be deleted.',
+            ]);
+        }
+
+        Gate::authorize('delete', $site);
+
+        $siteName = $site->name;
+        $site->delete();
+
+        return redirect()
+            ->route('sites.index')
+            ->with('success', "Site {$siteName} deleted.");
     }
 
     public function edit(Site $site): View
@@ -293,7 +317,7 @@ class SiteController extends Controller
                 $codeUniqueRule,
             ],
             'name' => ['required', 'string', 'max:255'],
-            'status' => ['required', 'in:active,paused,closed'],
+            'status' => ['required', 'in:setup_pending,active,paused,closed'],
             'supervisor_id' => [
                 'nullable',
                 'integer',

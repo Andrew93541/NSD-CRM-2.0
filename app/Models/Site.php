@@ -42,6 +42,18 @@ class Site extends Model
                 $site->kiosk_token = \Illuminate\Support\Str::random(48);
             }
         });
+
+        static::saving(function (Site $site) {
+            if ($site->status === 'setup_pending' && $site->isSetupComplete()) {
+                $site->status = 'active';
+            }
+        });
+
+        static::deleting(function (Site $site) {
+            if (!$site->canBeDeleted()) {
+                throw new \DomainException('A site with attendance or measurements can never be deleted.');
+            }
+        });
     }
 
     public function ensureKioskToken(): string
@@ -141,6 +153,72 @@ class Site extends Model
     public function workOrders(): HasMany
     {
         return $this->hasMany(WorkOrder::class);
+    }
+
+    public function measurements(): HasMany
+    {
+        return $this->hasMany(MeasurementEntry::class);
+    }
+
+    public function attendancePunches(): HasMany
+    {
+        return $this->hasMany(AttendancePunch::class);
+    }
+
+    public function isSetupPending(): bool
+    {
+        return $this->status === 'setup_pending';
+    }
+
+    public function isSetupComplete(): bool
+    {
+        return $this->hasValidCoordinates()
+            && (int) ($this->geofence_radius_m ?? 0) > 0
+            && (!empty($this->attributes['site_manager_id'] ?? null) || !empty($this->attributes['supervisor_id'] ?? null));
+    }
+
+    public function canBeDeleted(): bool
+    {
+        if ($this->attendances()->exists()) {
+            return false;
+        }
+
+        if (\Illuminate\Support\Facades\Schema::hasTable('attendance_punches') && $this->attendancePunches()->exists()) {
+            return false;
+        }
+
+        if (\Illuminate\Support\Facades\Schema::hasTable('measurement_entries') && $this->measurements()->exists()) {
+            return false;
+        }
+
+        return true;
+    }
+
+    public function workOrderSummary(): array
+    {
+        $manpowerDays = (int) $this->attendances()
+            ->whereIn('status', ['present', 'late', 'half_day'])
+            ->count();
+
+        $measuredQuantity = round((float) $this->measurements()->sum('computed_quantity'), 3);
+
+        $orders = $this->relationLoaded('workOrders')
+            ? $this->workOrders
+            : $this->workOrders()->with('raBills')->get();
+
+        $orderedAmount = round((float) $orders->sum(fn (WorkOrder $wo) => (float) ($wo->base_order_value ?: $wo->estimated_amount)), 2);
+        $billedAmount = round((float) $orders->sum(fn (WorkOrder $wo) => $wo->totalBilledAmount()), 2);
+        $balanceAmount = max(0.0, round($orderedAmount - $billedAmount, 2));
+
+        return [
+            'work_orders_count' => $orders->count(),
+            'manpower_days' => $manpowerDays,
+            'measured_quantity' => $measuredQuantity,
+            'ordered_amount' => $orderedAmount,
+            'ordered_base_value' => $orderedAmount,
+            'billed_amount' => $billedAmount,
+            'balance_amount' => $balanceAmount,
+        ];
     }
 
     public function warehouses(): HasMany

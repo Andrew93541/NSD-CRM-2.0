@@ -33,13 +33,13 @@ class ReportsController extends Controller
         $user = Auth::user();
         $hasAllSiteAccess = $user->hasRole(['super_admin', 'company_admin', 'senior_manager', 'office_staff']);
 
-        $sites = $hasAllSiteAccess
-            ? Site::where('status', 'active')->orderBy('code')->get()
-            : $user->sites()->where('status', 'active')->orderBy('code')->get();
-
         $accessibleSiteIds = $hasAllSiteAccess
             ? null
             : $user->accessibleSiteIds();
+
+        $sites = $hasAllSiteAccess
+            ? Site::where('status', 'active')->orderBy('code')->get()
+            : Site::whereIn('id', $accessibleSiteIds)->where('status', 'active')->orderBy('code')->get();
 
         $mode = $request->query('mode', 'date');
         if (!in_array($mode, ['date', 'month'], true)) {
@@ -161,7 +161,7 @@ class ReportsController extends Controller
 
         $sites = $hasAllSiteAccess
             ? Site::with('project')->where('status', 'active')->orderBy('code')->get()
-            : $user->sites()->with('project')->where('status', 'active')->orderBy('code')->get();
+            : Site::with('project')->whereIn('id', $user->accessibleSiteIds())->where('status', 'active')->orderBy('code')->get();
 
         $startDate = $request->query('start_date', Carbon::now()->startOfMonth()->format('Y-m-d'));
         $endDate = $request->query('end_date', Carbon::now()->endOfMonth()->format('Y-m-d'));
@@ -237,20 +237,40 @@ class ReportsController extends Controller
             abort(403, 'Unauthorized to view operational audit logs.');
         }
 
+        $companyId = \App\Services\Security\TenantContext::getCompanyId();
+        $hasAllSiteAccess = $user->hasRole(['super_admin', 'company_admin', 'senior_manager', 'office_staff']);
+        $accessibleSiteIds = $hasAllSiteAccess ? null : $user->accessibleSiteIds();
+
         $eventFilter = $request->query('event');
         $siteId = $request->filled('site_id') ? (int) $request->query('site_id') : null;
         $startDate = $request->query('start_date');
         $endDate = $request->query('end_date');
 
-        $sites = Site::where('status', 'active')->orderBy('code')->get();
+        if ($siteId !== null) {
+            $site = Site::findOrFail($siteId);
+            if (!$hasAllSiteAccess && !$user->isAssignedToSite($site)) {
+                abort(403, 'Unauthorized to view audit logs for this site.');
+            }
+        }
+
+        $sites = $hasAllSiteAccess
+            ? Site::where('status', 'active')->orderBy('code')->get()
+            : Site::whereIn('id', $accessibleSiteIds)->where('status', 'active')->orderBy('code')->get();
 
         $logs = collect();
         $distinctEvents = collect();
 
-        if (Schema::hasTable('activity_logs')) {
-            $distinctEvents = AuditLog::select('action')->distinct()->orderBy('action')->pluck('action');
+        if (Schema::hasTable('activity_logs') && $companyId) {
+            $distinctEvents = AuditLog::where('company_id', $companyId)
+                ->when($accessibleSiteIds !== null, fn ($q) => $q->whereIn('site_id', $accessibleSiteIds))
+                ->select('action')
+                ->distinct()
+                ->orderBy('action')
+                ->pluck('action');
 
             $logs = AuditLog::with(['actor', 'site', 'project'])
+                ->where('company_id', $companyId)
+                ->when($accessibleSiteIds !== null, fn ($q) => $q->whereIn('site_id', $accessibleSiteIds))
                 ->when($eventFilter, fn ($q) => $q->where('action', $eventFilter))
                 ->when($siteId, fn ($q) => $q->where('site_id', $siteId))
                 ->when($startDate, fn ($q) => $q->whereDate('created_at', '>=', $startDate))
@@ -279,11 +299,24 @@ class ReportsController extends Controller
             abort(403, 'Unauthorized to export audit logs.');
         }
 
+        $companyId = \App\Services\Security\TenantContext::getCompanyId();
+        $hasAllSiteAccess = $user->hasRole(['super_admin', 'company_admin', 'senior_manager', 'office_staff']);
+        $accessibleSiteIds = $hasAllSiteAccess ? null : $user->accessibleSiteIds();
+
         $eventFilter = $request->query('event');
         $siteId = $request->filled('site_id') ? (int) $request->query('site_id') : null;
 
-        $logs = Schema::hasTable('activity_logs')
+        if ($siteId !== null) {
+            $site = Site::findOrFail($siteId);
+            if (!$hasAllSiteAccess && !$user->isAssignedToSite($site)) {
+                abort(403, 'Unauthorized to export audit logs for this site.');
+            }
+        }
+
+        $logs = (Schema::hasTable('activity_logs') && $companyId)
             ? AuditLog::with(['actor', 'site', 'project'])
+                ->where('company_id', $companyId)
+                ->when($accessibleSiteIds !== null, fn ($q) => $q->whereIn('site_id', $accessibleSiteIds))
                 ->when($eventFilter, fn ($q) => $q->where('action', $eventFilter))
                 ->when($siteId, fn ($q) => $q->where('site_id', $siteId))
                 ->latest('created_at')

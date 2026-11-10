@@ -98,9 +98,15 @@ class RaBillController extends Controller
         );
     }
 
-    public function create(WorkOrder $workOrder): View
+    public function create(WorkOrder $workOrder): View|RedirectResponse
     {
         Gate::authorize('createRaBill', $workOrder);
+
+        if ($workOrder->isDraftPo()) {
+            return redirect()->route('work_orders.show', $workOrder)->withErrors([
+                'work_order' => 'Billing is blocked while the Work Order is in Draft PO status. Upload or confirm the final PO revision before raising an RA bill.',
+            ]);
+        }
 
         $workOrder->load(['items', 'company', 'client', 'site', 'raBills']);
 
@@ -159,6 +165,12 @@ class RaBillController extends Controller
     public function store(Request $request, WorkOrder $workOrder): RedirectResponse
     {
         Gate::authorize('createRaBill', $workOrder);
+
+        if ($workOrder->isDraftPo()) {
+            return back()->withErrors([
+                'work_order' => 'Billing is blocked while the Work Order is in Draft PO status. Upload or confirm the final PO revision before raising an RA bill.',
+            ]);
+        }
 
         $validated = $request->validate([
             'ra_label' => 'nullable|string|max:40',

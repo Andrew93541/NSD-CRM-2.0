@@ -7,10 +7,20 @@
             <h1 class="text-2xl font-extrabold text-slate-900 dark:text-white tracking-tight">{{ __('Work Orders Management') }}</h1>
             <p class="text-sm text-slate-600 dark:text-slate-400 mt-1">{{ __('Client-issued contract tasks and internal operations with 2-tier approval workflow.') }}</p>
         </div>
-        <a href="{{ route('work_orders.create') }}" class="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-sm shadow-lg shadow-amber-500/20 transition">
-            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
-            {{ __('Create Work Order') }}
-        </a>
+        <div class="flex flex-wrap items-center gap-2">
+            @can('uploadPo', \App\Models\WorkOrder::class)
+                <a href="{{ route('work_orders.uploads.create') }}" class="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-slate-900 hover:bg-slate-800 dark:bg-slate-100 dark:hover:bg-white text-white dark:text-slate-900 font-bold text-sm shadow-sm transition">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"/></svg>
+                    {{ __('Upload Client PO (PDF)') }}
+                </a>
+            @endcan
+            @can('create', \App\Models\WorkOrder::class)
+                <a href="{{ route('work_orders.create') }}" class="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-sm shadow-lg shadow-amber-500/20 transition">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
+                    {{ __('Create Work Order') }}
+                </a>
+            @endcan
+        </div>
     </div>
 
     <!-- Filter Bar -->

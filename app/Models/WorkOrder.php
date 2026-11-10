@@ -16,38 +16,69 @@ class WorkOrder extends Model
 
     public const DEFAULT_TERMS = "1. SCOPE & MEASUREMENTS: All earthwork, excavation, backfilling, or civil quantities shall be jointly measured with the NSD Site Engineer and certified by the Site Manager.\n2. HSE & SAFETY COMPLIANCE: Contractor/execution crew must strictly enforce PPE (helmets, reflective jackets, safety shoes) and machinery safety fitness certificates on site.\n3. QUALITY & MACHINERY: All plant, JCB/Excavators, and dumpers deployed must maintain valid PUC, insurance, and operator licences.\n4. STATUTORY DEDUCTIONS: Applicable TDS and GST compliance shall be governed by prevailing Indian tax norms.\n5. TWO-TIER AUTHORIZATION: This Work Order is valid for execution and billing only upon Tier-1 (Site Manager) and Tier-2 (Senior Management / VP) approval.";
 
+    public const LIFECYCLE_DRAFT_PO = 'draft_po';
+    public const LIFECYCLE_CONFIRMED = 'confirmed';
+    public const LIFECYCLE_IN_PROGRESS = 'in_progress';
+    public const LIFECYCLE_WORK_COMPLETE = 'work_complete';
+    public const LIFECYCLE_FINAL_BILL_ISSUED = 'final_bill_issued';
+    public const LIFECYCLE_DEFECT_LIABILITY = 'defect_liability';
+    public const LIFECYCLE_CLOSED = 'closed';
+
+    public const LIFECYCLE_STATUSES = [
+        self::LIFECYCLE_DRAFT_PO => 'Draft PO',
+        self::LIFECYCLE_CONFIRMED => 'Confirmed',
+        self::LIFECYCLE_IN_PROGRESS => 'In progress',
+        self::LIFECYCLE_WORK_COMPLETE => 'Work complete',
+        self::LIFECYCLE_FINAL_BILL_ISSUED => 'Final bill issued',
+        self::LIFECYCLE_DEFECT_LIABILITY => 'Defect liability',
+        self::LIFECYCLE_CLOSED => 'Closed',
+    ];
+
     protected $fillable = [
         'company_id',
         'project_id',
         'site_id',
         'client_id',
         'order_type',
+        'service_type',
         'order_number',
         'po_number',
         'po_date',
         'job_location',
         'user_department_person',
+        'buyer_name',
         'effective_date',
         'completion_date',
+        'contract_tenure',
         'client_reference',
         'contractor_name',
         'contractor_gst',
         'contractor_contact',
         'payment_terms',
+        'price_basis',
         'title',
+        'subject',
         'description',
         'scope_of_work',
         'boq_items',
         'terms_and_conditions',
+        'general_terms_text',
         'estimated_amount',
         'cgst_rate',
         'sgst_rate',
         'retention_percent',
+        'defect_liability_months',
+        'defect_liability_ends_on',
+        'retention_release_due_on',
+        'retention_released_at',
+        'liquidated_damages',
         'current_revision',
         'base_order_value',
         'target_start_date',
         'target_completion_date',
         'status',
+        'lifecycle_status',
+        'is_draft_po',
         'created_by',
         'site_manager_id',
         'site_manager_approved_at',
@@ -67,6 +98,11 @@ class WorkOrder extends Model
             'po_date' => 'date',
             'effective_date' => 'date',
             'completion_date' => 'date',
+            'defect_liability_months' => 'integer',
+            'defect_liability_ends_on' => 'date',
+            'retention_release_due_on' => 'date',
+            'retention_released_at' => 'datetime',
+            'is_draft_po' => 'boolean',
             'estimated_amount' => 'decimal:2',
             'cgst_rate' => 'decimal:2',
             'sgst_rate' => 'decimal:2',
@@ -154,6 +190,136 @@ class WorkOrder extends Model
     public function attachments(): HasMany
     {
         return $this->hasMany(WorkOrderAttachment::class);
+    }
+
+    public function uploads(): HasMany
+    {
+        return $this->hasMany(WorkOrderUpload::class)->latest('id');
+    }
+
+    public function isDraftPo(): bool
+    {
+        return (bool) $this->is_draft_po
+            || $this->lifecycle_status === self::LIFECYCLE_DRAFT_PO
+            || $this->status === self::LIFECYCLE_DRAFT_PO;
+    }
+
+    public function canBeBilled(): bool
+    {
+        return !$this->isDraftPo();
+    }
+
+    public function effectiveLifecycleStatus(): string
+    {
+        if ($this->isDraftPo()) {
+            return self::LIFECYCLE_DRAFT_PO;
+        }
+
+        if (!empty($this->lifecycle_status)) {
+            return (string) $this->lifecycle_status;
+        }
+
+        return match ((string) $this->status) {
+            'completed' => self::LIFECYCLE_WORK_COMPLETE,
+            default => self::LIFECYCLE_CONFIRMED,
+        };
+    }
+
+    public function measuredOrderValue(): float
+    {
+        $items = $this->relationLoaded('items') ? $this->items : $this->items()->get();
+        $measurements = $this->relationLoaded('measurements')
+            ? $this->measurements
+            : $this->measurements()->get();
+
+        $byItem = $measurements->groupBy('work_order_item_id');
+        $total = 0.0;
+        foreach ($items as $item) {
+            $measuredQty = (float) ($byItem->get($item->id)?->sum('computed_quantity') ?? 0);
+            $total += round($measuredQty * (float) $item->rate, 2);
+        }
+
+        return round($total, 2);
+    }
+
+    public function measuredConsumptionPercent(): float
+    {
+        $base = (float) ($this->base_order_value ?: $this->estimated_amount);
+        if ($base <= 0) {
+            return 0.0;
+        }
+
+        return min(100.0, round(($this->measuredOrderValue() / $base) * 100, 2));
+    }
+
+    public function completionAlertLevel(): string
+    {
+        $targetDate = $this->completion_date ?? $this->target_completion_date;
+        if (!$targetDate) {
+            return 'normal';
+        }
+
+        if (in_array($this->effectiveLifecycleStatus(), [
+            self::LIFECYCLE_WORK_COMPLETE,
+            self::LIFECYCLE_FINAL_BILL_ISSUED,
+            self::LIFECYCLE_DEFECT_LIABILITY,
+            self::LIFECYCLE_CLOSED,
+        ], true)) {
+            return 'normal';
+        }
+
+        $daysLeft = (int) now()->startOfDay()->diffInDays($targetDate->copy()->startOfDay(), false);
+
+        if ($daysLeft < 0) {
+            return 'overdue';
+        }
+        if ($daysLeft <= 7) {
+            return 'due_7_days';
+        }
+        if ($daysLeft <= 30) {
+            return 'due_30_days';
+        }
+
+        return 'normal';
+    }
+
+    public function completionAlertState(): string
+    {
+        return $this->completionAlertLevel();
+    }
+
+    public function retentionAndDlpSummary(): array
+    {
+        $retentionPct = (float) ($this->retention_percent ?? 5.0);
+        $billedBase = $this->totalBilledAmount();
+        $retentionHeld = round($billedBase * ($retentionPct / 100), 2);
+        $dlpMonths = (int) ($this->defect_liability_months ?: 12);
+        $dlpEndsOn = $this->defect_liability_ends_on;
+        $releaseDueOn = $this->retention_release_due_on ?? $dlpEndsOn;
+
+        $releaseStatus = 'not_started';
+        if ($this->retention_released_at) {
+            $releaseStatus = 'released';
+        } elseif ($releaseDueOn) {
+            $daysToRelease = (int) now()->startOfDay()->diffInDays($releaseDueOn->copy()->startOfDay(), false);
+            if ($daysToRelease < 0) {
+                $releaseStatus = 'overdue_release';
+            } elseif ($daysToRelease <= 30) {
+                $releaseStatus = 'due_within_30_days';
+            } else {
+                $releaseStatus = 'in_defect_liability';
+            }
+        }
+
+        return [
+            'retention_percent' => $retentionPct,
+            'retention_held_amount' => $retentionHeld,
+            'defect_liability_months' => $dlpMonths,
+            'defect_liability_ends_on' => $dlpEndsOn?->toDateString(),
+            'retention_release_due_on' => $releaseDueOn?->toDateString(),
+            'retention_released_at' => $this->retention_released_at?->toDateTimeString(),
+            'release_status' => $releaseStatus,
+        ];
     }
 
     // Compatibility aliases for notes

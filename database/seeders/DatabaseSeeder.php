@@ -116,8 +116,9 @@ class DatabaseSeeder extends Seeder
             );
         }
 
-        // 3. Users
-        $password = Hash::make('password');
+        // 3. Users (no hardcoded default password; uses SEED_DEMO_PASSWORD if explicitly set or random 24-char secret)
+        $seedPasswordPlain = (string) env('SEED_DEMO_PASSWORD', \Illuminate\Support\Str::random(24));
+        $password = Hash::make($seedPasswordPlain);
 
         $users = [
             'admin@nsd.local' => ['name' => 'Executive Director', 'role' => 'company_admin'],

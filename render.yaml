@@ -1,0 +1,91 @@
+services:
+  - type: web
+    name: nsd-crm-2-demo
+    runtime: docker
+    plan: free
+    autoDeploy: false
+    healthCheckPath: /healthz
+    envVars:
+      - key: APP_NAME
+        value: "NSD CRM 2.0 (Demo)"
+      - key: APP_ENV
+        value: production
+      - key: APP_DEBUG
+        value: "false"
+      - key: APP_KEY
+        sync: false
+      - key: APP_URL
+        sync: false
+      - key: FORCE_HTTPS
+        value: "true"
+      - key: LOG_CHANNEL
+        value: stderr
+      - key: LOG_LEVEL
+        value: warning
+      - key: DB_CONNECTION
+        value: mysql
+      - key: DB_HOST
+        sync: false
+      - key: DB_PORT
+        value: "4000"
+      - key: DB_DATABASE
+        value: nsd_crm_demo
+      - key: DB_USERNAME
+        sync: false
+      - key: DB_PASSWORD
+        sync: false
+      - key: DB_CHARSET
+        value: utf8mb4
+      - key: DB_COLLATION
+        value: utf8mb4_unicode_ci
+      - key: MYSQL_ATTR_SSL_CA
+        value: /etc/ssl/certs/ca-certificates.crt
+      - key: DB_SSL_VERIFY_SERVER_CERT
+        value: "true"
+      - key: SESSION_DRIVER
+        value: database
+      - key: SESSION_LIFETIME
+        value: "120"
+      - key: SESSION_ENCRYPT
+        value: "true"
+      - key: SESSION_SECURE_COOKIE
+        value: "true"
+      - key: SESSION_HTTP_ONLY
+        value: "true"
+      - key: SESSION_SAME_SITE
+        value: lax
+      - key: CACHE_STORE
+        value: database
+      - key: QUEUE_CONNECTION
+        value: sync
+      - key: FILESYSTEM_DISK
+        value: local
+      - key: MAIL_MAILER
+        value: log
+      - key: AUTH_ENFORCE_MANAGER_2FA
+        value: "false"
+      - key: RENDER_AUTO_MIGRATE
+        value: "true"
+      - key: RENDER_AUTO_SEED_DEMO
+        value: "true"
+      - key: DEMO_COMPANY_CODE
+        value: DEMO-NSD
+      - key: DEMO_COMPANY_NAME
+        value: "NSD Demo Infrastructure Pvt Ltd"
+      - key: DEMO_ADMIN_EMAIL
+        value: demo.admin@nsd-demo.example
+      - key: DEMO_ADMIN_PASSWORD
+        sync: false
+      - key: DEMO_SENIOR_MANAGER_EMAIL
+        value: demo.senior@nsd-demo.example
+      - key: DEMO_SITE_MANAGER_EMAIL
+        value: demo.sitemanager@nsd-demo.example
+      - key: DEMO_MANAGER_PASSWORD
+        sync: false
+      - key: DEMO_SUPERVISOR_EMAIL
+        value: demo.supervisor@nsd-demo.example
+      - key: DEMO_STAFF_EMAIL
+        value: demo.office@nsd-demo.example
+      - key: DEMO_STAFF_PASSWORD
+        sync: false
+

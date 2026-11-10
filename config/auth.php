@@ -114,4 +114,17 @@ return [
 
     'password_timeout' => env('AUTH_PASSWORD_TIMEOUT', 10800),
 
+    /*
+    |--------------------------------------------------------------------------
+    | Manager Two-Factor Authentication Enforcement
+    |--------------------------------------------------------------------------
+    |
+    | When enabled, all manager-and-above roles are required to complete RFC 6238
+    | TOTP or email fallback 2FA verification. Keep disabled by default until all
+    | existing managers have enrolled or have administrator recovery available.
+    |
+    */
+
+    'enforce_manager_2fa' => (bool) env('AUTH_ENFORCE_MANAGER_2FA', false),
+
 ];

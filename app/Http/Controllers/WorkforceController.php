@@ -338,6 +338,8 @@ class WorkforceController extends Controller
             'must_change_pin' => true,
         ]);
 
+        \Illuminate\Support\Facades\RateLimiter::clear($worker->getPinLockoutCacheKey());
+
         \App\Models\AuditLog::record(
             'worker.pin_reset',
             $worker,
@@ -1497,7 +1499,7 @@ class WorkforceController extends Controller
                 $worker->joining_date = Carbon::parse($item['joining_date']);
 
                 if ($item['worker_type'] === 'employee' && Schema::hasColumn('workers', 'pin')) {
-                    $worker->pin = Hash::make('123456');
+                    $worker->pin = null;
                     $worker->must_change_pin = true;
                 }
 

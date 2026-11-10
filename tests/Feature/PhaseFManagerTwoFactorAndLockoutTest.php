@@ -296,4 +296,135 @@ class PhaseFManagerTwoFactorAndLockoutTest extends TestCase
             ->post(route('users.toggle_active', $externalUser), ['is_active' => false])
             ->assertStatus(403);
     }
+
+    public function test_totp_rfc6238_enrollment_verification_recovery_and_zero_plaintext_exposure(): void
+    {
+        $totpService = app(\App\Services\Security\TotpAuthenticatorService::class);
+
+        $manager = User::create([
+            'name' => 'Anita Senior Manager',
+            'email' => 'anita.manager@nsd.local',
+            'password' => Hash::make('password123'),
+            'is_active' => true,
+            'two_factor_enabled' => true,
+        ]);
+        $manager->companies()->attach($this->company->id, [
+            'role_id' => $this->siteManagerRole->id,
+            'status' => 'active',
+            'is_primary' => true,
+        ]);
+
+        // Login triggers 2FA challenge without flashing any demo code
+        $loginResponse = $this->post('/login', [
+            'email' => 'anita.manager@nsd.local',
+            'password' => 'password123',
+        ]);
+        $loginResponse->assertRedirect(route('two-factor.challenge'));
+        $loginResponse->assertSessionMissing('two_factor_demo_code');
+
+        $manager->refresh();
+        $this->assertNotEmpty($manager->two_factor_secret);
+        $this->assertNull($manager->two_factor_verified_at);
+
+        // Initial enrollment shows the locally generated inline SVG QR code and Base32 fallback key, but NEVER any 6-digit OTP code
+        $challengeResponse = $this->get('/two-factor-challenge');
+        $challengeResponse->assertStatus(200);
+        $challengeResponse->assertDontSee('Local / Demo Verification Code');
+        $challengeResponse->assertSee('Authenticator App Enrollment (RFC 6238 TOTP)');
+        $challengeResponse->assertSee('data-testid="totp-qr-svg"', false);
+        $challengeResponse->assertSee('<svg xmlns="http://www.w3.org/2000/svg"', false);
+        $challengeResponse->assertSee('Manual Base32 Setup Key (Fallback)');
+        $challengeResponse->assertSee($manager->two_factor_secret);
+
+        // Compute the valid RFC 6238 6-digit TOTP code from the user's Base32 secret
+        $fixedTimestamp = 1793464800;
+        $validTotpCode = $totpService->generateCode($manager->two_factor_secret, $fixedTimestamp);
+        $this->assertMatchesRegularExpression('/^\d{6}$/', $validTotpCode);
+
+        // Verify TOTP Replay Protection (Atomic Database-Backed & Survives cache:clear):
+        // 1. Valid first use at $fixedTimestamp succeeds and persists two_factor_last_step in DB
+        $this->assertTrue($manager->verifyTwoFactorCode($validTotpCode, $fixedTimestamp));
+        $expectedStep = intdiv($fixedTimestamp, 30);
+        $this->assertSame($expectedStep, (int) $manager->fresh()->two_factor_last_step);
+
+        // 2. Clear the entire application cache (php artisan cache:clear) and verify replay is STILL rejected
+        \Illuminate\Support\Facades\Artisan::call('cache:clear');
+        $this->assertFalse($manager->fresh()->verifyTwoFactorCode($validTotpCode, $fixedTimestamp + 5));
+        $earlierStepCode = $totpService->generateCode($manager->two_factor_secret, $fixedTimestamp - 30);
+        $this->assertFalse($manager->fresh()->verifyTwoFactorCode($earlierStepCode, $fixedTimestamp + 5));
+
+        // 3. Advancing to the next 30-second time-step ($fixedTimestamp + 30) succeeds and updates two_factor_last_step
+        $nextStepCode = $totpService->generateCode($manager->two_factor_secret, $fixedTimestamp + 30);
+        $this->assertTrue($manager->fresh()->verifyTwoFactorCode($nextStepCode, $fixedTimestamp + 30));
+        $this->assertSame($expectedStep + 1, (int) $manager->fresh()->two_factor_last_step);
+
+        // Reset replay cache to test HTTP controller verification at current wall-clock time
+        $totpService->clearReplayState($manager->id);
+        $liveTotpCode = $totpService->generateCode($manager->two_factor_secret);
+
+        // Verify using the RFC 6238 TOTP code via HTTP
+        $verifyResponse = $this->post('/two-factor-challenge', [
+            'code' => $liveTotpCode,
+        ]);
+        $verifyResponse->assertRedirect(route('dashboard'));
+
+        $manager->refresh();
+        $this->assertNotNull($manager->two_factor_verified_at);
+        $this->assertTrue($manager->two_factor_enabled);
+
+        // Subsequent login should NOT re-display the TOTP enrollment QR or secret on screen, and replaying the same code via HTTP must fail
+        $this->post('/logout');
+        $this->post('/login', [
+            'email' => 'anita.manager@nsd.local',
+            'password' => 'password123',
+        ])->assertRedirect(route('two-factor.challenge'));
+
+        $secondChallenge = $this->get('/two-factor-challenge');
+        $secondChallenge->assertStatus(200);
+        $secondChallenge->assertDontSee('Authenticator App Enrollment (RFC 6238 TOTP)');
+        $secondChallenge->assertDontSee('data-testid="totp-qr-svg"', false);
+        $secondChallenge->assertDontSee($manager->two_factor_secret);
+
+        // Replay of the already-used $liveTotpCode in the same 30-second step is rejected over HTTP
+        $replayResponse = $this->post('/two-factor-challenge', [
+            'code' => $liveTotpCode,
+        ]);
+        $replayResponse->assertSessionHasErrors('code');
+        $this->post('/logout');
+
+        // Administrator recovery via web route and CLI command resets 2FA enrollment safely
+        $admin = User::create([
+            'name' => 'Recovery Admin',
+            'email' => 'recovery.admin@nsd.local',
+            'password' => Hash::make('password123'),
+            'is_active' => true,
+        ]);
+        $admin->companies()->attach($this->company->id, [
+            'role_id' => $this->adminRole->id,
+            'status' => 'active',
+            'is_primary' => true,
+        ]);
+
+        $this->actingAs($admin)
+            ->withSession(['current_company_id' => $this->company->id])
+            ->post(route('users.reset_2fa', $manager))
+            ->assertRedirect();
+
+        $manager->refresh();
+        $this->assertFalse($manager->two_factor_enabled);
+        $this->assertNull($manager->two_factor_secret);
+        $this->assertNull($manager->two_factor_verified_at);
+
+        // Re-enable and test CLI recovery command
+        $manager->ensureTotpSecret();
+        $manager->update(['two_factor_enabled' => true, 'two_factor_verified_at' => now()]);
+
+        $this->artisan('nsd:reset-2fa', ['email' => 'anita.manager@nsd.local'])
+            ->assertExitCode(0);
+
+        $manager->refresh();
+        $this->assertFalse($manager->two_factor_enabled);
+        $this->assertNull($manager->two_factor_secret);
+        $this->assertNull($manager->two_factor_verified_at);
+    }
 }

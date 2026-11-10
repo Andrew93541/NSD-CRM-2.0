@@ -39,7 +39,7 @@ class KioskController extends Controller
         $hasAllSiteAccess = $user->hasRole(['super_admin', 'company_admin', 'senior_manager']);
         $sites = $hasAllSiteAccess
             ? Site::where('status', 'active')->orderBy('code')->get()
-            : $user->sites()->where('status', 'active')->orderBy('code')->get();
+            : Site::whereIn('id', $user->accessibleSiteIds())->where('status', 'active')->orderBy('code')->get();
 
         foreach ($sites as $site) {
             $site->ensureKioskToken();
@@ -163,6 +163,13 @@ class KioskController extends Controller
                 return back()->withErrors(['worker_code' => 'Scan a Worker QR Badge or enter both Worker ID and 6-digit PIN.']);
             }
 
+            $pinLockoutKey = Worker::pinLockoutCacheKey((int) $site->company_id, $workerCode);
+            if (RateLimiter::tooManyAttempts($pinLockoutKey, 5)) {
+                return back()->withErrors([
+                    'worker_code' => 'Too many failed PIN attempts. This worker account is temporarily locked. Please ask your Site Manager/Admin to reset your PIN.',
+                ]);
+            }
+
             $worker = Worker::withoutGlobalScopes()
                 ->where('company_id', $site->company_id)
                 ->where('code', $workerCode)
@@ -170,8 +177,11 @@ class KioskController extends Controller
                 ->first();
 
             if (!$worker || empty($worker->pin) || !Hash::check($pin, $worker->pin)) {
+                RateLimiter::hit($pinLockoutKey, 900);
                 return back()->withErrors(['worker_code' => 'Invalid Worker ID or 6-digit PIN.']);
             }
+
+            RateLimiter::clear($pinLockoutKey);
         }
 
         try {

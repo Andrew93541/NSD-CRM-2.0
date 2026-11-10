@@ -38,7 +38,7 @@ class DashboardController extends Controller
             && !$user->hasRole(['super_admin', 'company_admin', 'senior_manager', 'office_staff']);
 
         $scopedSiteIds = ($isSupervisorOnly || $isSiteManagerOnly)
-            ? $user->sites()->pluck('sites.id')->all()
+            ? $user->accessibleSiteIds()
             : null;
 
         // 1. Workforce & Attendance metrics today
@@ -88,7 +88,7 @@ class DashboardController extends Controller
         // 7. Role-Specific Queues & Context
         $userRole = $user?->currentRole()?->slug;
         $assignedSites = ($scopedSiteIds !== null)
-            ? $user->sites()->where('sites.status', 'active')->get()
+            ? Site::whereIn('id', $scopedSiteIds)->where('status', 'active')->get()
             : Site::where('status', 'active')->take(6)->get();
 
         $pendingTier1Orders = WorkOrder::where('status', 'submitted')

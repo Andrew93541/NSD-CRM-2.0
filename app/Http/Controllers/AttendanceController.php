@@ -43,7 +43,7 @@ class AttendanceController extends Controller
 
         $accessibleSites = $user->hasRole(['super_admin', 'company_admin', 'senior_manager'])
             ? Site::where('status', 'active')->get()
-            : $user->sites()->where('status', 'active')->get();
+            : Site::whereIn('id', $user->accessibleSiteIds())->where('status', 'active')->get();
 
         $activeSiteSession = session('active_site_id');
         $selectedSiteId = $request->query('site_id') ?? $activeSiteSession ?? $accessibleSites->first()?->id;
@@ -178,6 +178,12 @@ class AttendanceController extends Controller
     {
         $user = Auth::user();
 
+        $qrThrottleKey = 'supervisor-qr-scan:' . $user->id . '|' . $request->ip();
+        if (\Illuminate\Support\Facades\RateLimiter::tooManyAttempts($qrThrottleKey, 60)) {
+            return back()->withErrors(['badge_token' => 'Too many QR scan requests. Please wait a moment and try again.']);
+        }
+        \Illuminate\Support\Facades\RateLimiter::hit($qrThrottleKey, 60);
+
         $validated = $request->validate([
             'site_id' => ['required', 'exists:sites,id'],
             'badge_token' => ['required', 'string', 'max:100'],
@@ -306,7 +312,7 @@ class AttendanceController extends Controller
         $user = Auth::user();
         $accessibleSiteIds = $user->hasRole(['super_admin', 'company_admin', 'senior_manager'])
             ? null
-            : $user->sites()->pluck('sites.id')->all();
+            : $user->accessibleSiteIds();
 
         $conflicts = DailyAttendance::where('has_conflict', true)
             ->when($accessibleSiteIds !== null, fn ($q) => $q->whereIn('site_id', $accessibleSiteIds))
@@ -374,7 +380,7 @@ class AttendanceController extends Controller
         $user = Auth::user();
         $accessibleSiteIds = $user->hasRole(['super_admin', 'company_admin', 'senior_manager'])
             ? null
-            : $user->sites()->pluck('sites.id')->all();
+            : $user->accessibleSiteIds();
 
         $corrections = AttendanceCorrection::with(['attendance.worker', 'attendance.site', 'requester', 'reviewer'])
             ->when($accessibleSiteIds !== null, function ($q) use ($accessibleSiteIds) {
@@ -464,7 +470,7 @@ class AttendanceController extends Controller
         $user = Auth::user();
         $accessibleSiteIds = $user->hasRole(['super_admin', 'company_admin', 'senior_manager'])
             ? null
-            : $user->sites()->pluck('sites.id')->all();
+            : $user->accessibleSiteIds();
 
         $pendingCorrections = AttendanceCorrection::with(['attendance.worker', 'attendance.site', 'requester'])
             ->where('status', 'pending')
@@ -535,7 +541,7 @@ class AttendanceController extends Controller
         $user = Auth::user();
         $accessibleSites = $user->hasRole(['super_admin', 'company_admin', 'senior_manager'])
             ? Site::where('status', 'active')->orderBy('name')->get()
-            : $user->sites()->where('status', 'active')->orderBy('name')->get();
+            : Site::whereIn('id', $user->accessibleSiteIds())->where('status', 'active')->orderBy('name')->get();
 
         $accessibleSiteIds = $accessibleSites->pluck('id')->all();
 
@@ -726,7 +732,7 @@ class AttendanceController extends Controller
 
         $accessibleSiteIds = $user->hasRole(['super_admin', 'company_admin', 'senior_manager', 'office_staff'])
             ? null
-            : $user->sites()->pluck('sites.id')->all();
+            : $user->accessibleSiteIds();
 
         $records = DailyAttendance::with(['worker', 'site'])
             ->whereDate('attendance_date', '>=', $startDate)
@@ -818,7 +824,7 @@ class AttendanceController extends Controller
 
         $accessibleSites = $hasAllSiteAccess
             ? Site::where('status', 'active')->orderBy('code')->get()
-            : $user->sites()->where('status', 'active')->orderBy('code')->get();
+            : Site::whereIn('id', $user->accessibleSiteIds())->where('status', 'active')->orderBy('code')->get();
 
         $accessibleSiteIds = $hasAllSiteAccess
             ? null

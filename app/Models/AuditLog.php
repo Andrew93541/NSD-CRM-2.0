@@ -14,7 +14,19 @@ class AuditLog extends Model
 {
     protected $table = 'activity_logs';
 
-    protected $guarded = [];
+    protected $fillable = [
+        'company_id',
+        'project_id',
+        'site_id',
+        'user_id',
+        'action',
+        'subject_type',
+        'subject_id',
+        'old_values',
+        'new_values',
+        'description',
+        'ip_address',
+    ];
 
     protected static function booted(): void
     {

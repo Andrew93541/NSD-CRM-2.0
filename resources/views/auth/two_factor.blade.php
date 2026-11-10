@@ -53,10 +53,30 @@
                 </div>
             @endif
 
-            @if (session('two_factor_demo_code'))
-                <div class="mb-6 p-4 rounded-xl bg-amber-50 border border-amber-300 text-amber-900 dark:bg-amber-950/60 dark:border-amber-500/40 dark:text-amber-200 text-xs">
-                    <div class="font-bold uppercase tracking-wider text-[10px] mb-1">Local / Demo Verification Code</div>
-                    <div class="font-mono text-lg font-extrabold tracking-widest">{{ session('two_factor_demo_code') }}</div>
+            @if (!empty($isEnrollingTotp) && !empty($totpSecret))
+                <div class="mb-6 p-4 rounded-xl bg-sky-50 border border-sky-300 text-sky-900 dark:bg-sky-950/60 dark:border-sky-500/40 dark:text-sky-200 text-xs space-y-3">
+                    <div class="font-bold uppercase tracking-wider text-[10px]">Authenticator App Enrollment (RFC 6238 TOTP)</div>
+                    <p class="text-[11px] leading-relaxed text-slate-700 dark:text-slate-300">
+                        Scan the locally generated QR code below with Google Authenticator, Microsoft Authenticator, Authy, or 1Password, or enter the Base32 setup key manually:
+                    </p>
+                    @if (!empty($totpQrSvg))
+                        <div class="flex justify-center py-2">
+                            <div class="p-2 bg-white rounded-xl border border-sky-200 dark:border-sky-800 shadow-sm inline-block" data-testid="totp-qr-svg">
+                                {!! $totpQrSvg !!}
+                            </div>
+                        </div>
+                    @endif
+                    <div>
+                        <div class="text-[10px] font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-1">Manual Base32 Setup Key (Fallback)</div>
+                        <div class="p-2.5 rounded-lg bg-white/80 dark:bg-slate-950/80 border border-sky-200 dark:border-sky-800 font-mono text-xs font-bold tracking-wider break-all select-all text-center">
+                            {{ $totpSecret }}
+                        </div>
+                    </div>
+                    @if (!empty($totpUri))
+                        <div class="text-[10px] text-slate-500 dark:text-slate-400 break-all font-mono">
+                            {{ $totpUri }}
+                        </div>
+                    @endif
                 </div>
             @endif
 

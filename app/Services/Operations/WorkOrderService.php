@@ -400,7 +400,12 @@ class WorkOrderService
     /**
      * Atomically generate the next unique work order number (WO-NSD-YYYY-###) using a locked sequence row.
      */
-    protected function generateNextOrderNumber(int $companyId, int $year): string
+    public function nextOrderNumber(int $companyId): string
+    {
+        return $this->generateNextOrderNumber($companyId, (int) Carbon::now()->format('Y'));
+    }
+
+    public function generateNextOrderNumber(int $companyId, int $year): string
     {
         $prefix = 'WO-NSD';
         $pattern = sprintf('%s-%04d-', $prefix, $year);

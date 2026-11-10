@@ -24,6 +24,7 @@ class User extends Authenticatable
         'two_factor_code',
         'two_factor_expires_at',
         'two_factor_verified_at',
+        'two_factor_last_step',
     ];
 
     protected $hidden = [
@@ -42,6 +43,7 @@ class User extends Authenticatable
             'two_factor_enabled' => 'boolean',
             'two_factor_expires_at' => 'datetime',
             'two_factor_verified_at' => 'datetime',
+            'two_factor_last_step' => 'integer',
         ];
     }
 
@@ -253,35 +255,106 @@ class User extends Authenticatable
     }
 
     /**
-     * Generate, hash, and store a 6-digit Two-Factor Authentication OTP valid for 10 minutes.
+     * Ensure an RFC 6238 Base32 TOTP secret is provisioned for this user.
      */
-    public function issueTwoFactorCode(): string
+    public function ensureTotpSecret(): string
     {
+        if (!empty($this->two_factor_secret) && strlen((string) $this->two_factor_secret) >= 16) {
+            return (string) $this->two_factor_secret;
+        }
+
+        $secret = app(\App\Services\Security\TotpAuthenticatorService::class)->generateSecret(32);
+
+        $this->forceFill([
+            'two_factor_secret' => $secret,
+        ])->save();
+
+        return $secret;
+    }
+
+    /**
+     * Return the standard otpauth://totp/ URI for Authenticator App enrollment.
+     */
+    public function totpOtpAuthUri(): string
+    {
+        $secret = $this->ensureTotpSecret();
+
+        return app(\App\Services\Security\TotpAuthenticatorService::class)->buildOtpAuthUri(
+            (string) config('app.name', 'NSD CRM 2.0'),
+            (string) $this->email,
+            $secret
+        );
+    }
+
+    /**
+     * Generate a local inline SVG QR code for the user's otpauth://totp/ URI (zero external requests).
+     */
+    public function totpQrSvg(int $sizePx = 180): string
+    {
+        return app(\App\Services\Security\TotpAuthenticatorService::class)->generateQrSvg(
+            $this->totpOtpAuthUri(),
+            $sizePx
+        );
+    }
+
+    /**
+     * Generate, hash, and store a 6-digit Two-Factor Authentication OTP valid for 10 minutes,
+     * while ensuring an RFC 6238 TOTP secret is provisioned.
+     * Never writes plaintext OTP codes to application logs.
+     */
+    public function issueTwoFactorCode(bool $deliverEmailFallback = false): string
+    {
+        $this->ensureTotpSecret();
+
         $code = str_pad((string) random_int(100000, 999999), 6, '0', STR_PAD_LEFT);
 
         $this->forceFill([
             'two_factor_code' => \Illuminate\Support\Facades\Hash::make($code),
             'two_factor_expires_at' => now()->addMinutes(10),
-            'two_factor_verified_at' => null,
         ])->save();
+
+        if ($deliverEmailFallback && !empty($this->email) && config('mail.default') !== 'log') {
+            try {
+                \Illuminate\Support\Facades\Mail::raw(
+                    "Your NSD CRM 2.0 security verification code is: {$code}. This code expires in 10 minutes.",
+                    function ($message) {
+                        $message->to($this->email)->subject('NSD CRM 2.0 Security Verification Code');
+                    }
+                );
+            } catch (\Throwable) {
+                // Fail safely if SMTP is unreachable; user can always verify via RFC 6238 Authenticator App TOTP
+            }
+        }
 
         return $code;
     }
 
     /**
-     * Verify a submitted 6-digit Two-Factor Authentication OTP code.
+     * Verify a submitted 6-digit Two-Factor Authentication code via RFC 6238 TOTP
+     * (primary Authenticator App with replay protection) or hashed email fallback OTP.
      */
-    public function verifyTwoFactorCode(string $code): bool
+    public function verifyTwoFactorCode(string $code, ?int $timestamp = null): bool
     {
-        if (!$this->two_factor_code || !$this->two_factor_expires_at) {
-            return false;
+        $trimmed = trim($code);
+        $totpValid = false;
+
+        if (!empty($this->two_factor_secret)) {
+            $totpValid = app(\App\Services\Security\TotpAuthenticatorService::class)
+                ->verifyCodeWithReplayProtection(
+                    $this->id,
+                    (string) $this->two_factor_secret,
+                    $trimmed,
+                    1,
+                    $timestamp
+                );
         }
 
-        if ($this->two_factor_expires_at->isPast()) {
-            return false;
+        $otpValid = false;
+        if (!$totpValid && $this->two_factor_code && $this->two_factor_expires_at && !$this->two_factor_expires_at->isPast()) {
+            $otpValid = \Illuminate\Support\Facades\Hash::check($trimmed, $this->two_factor_code);
         }
 
-        if (!\Illuminate\Support\Facades\Hash::check(trim($code), $this->two_factor_code)) {
+        if (!$totpValid && !$otpValid) {
             return false;
         }
 
@@ -289,8 +362,26 @@ class User extends Authenticatable
             'two_factor_code' => null,
             'two_factor_expires_at' => null,
             'two_factor_verified_at' => now(),
+            'two_factor_enabled' => true,
         ])->save();
 
         return true;
+    }
+
+    /**
+     * Reset all Two-Factor Authentication secrets and enrollment state for administrator recovery.
+     */
+    public function resetTwoFactorEnrollment(): void
+    {
+        app(\App\Services\Security\TotpAuthenticatorService::class)->clearReplayState($this->id);
+
+        $this->forceFill([
+            'two_factor_enabled' => false,
+            'two_factor_secret' => null,
+            'two_factor_code' => null,
+            'two_factor_expires_at' => null,
+            'two_factor_verified_at' => null,
+            'two_factor_last_step' => null,
+        ])->save();
     }
 }

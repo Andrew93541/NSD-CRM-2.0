@@ -54,6 +54,22 @@ return [
 
     'url' => env('APP_URL', 'http://localhost'),
 
+    'force_https' => filter_var(env('FORCE_HTTPS', false), FILTER_VALIDATE_BOOL),
+
+    'demo' => [
+        'company_code' => env('DEMO_COMPANY_CODE', 'DEMO-NSD'),
+        'company_name' => env('DEMO_COMPANY_NAME', 'NSD Demo Infrastructure Pvt Ltd'),
+        'admin_email' => env('DEMO_ADMIN_EMAIL', 'demo.admin@nsd-demo.example'),
+        'admin_password' => env('DEMO_ADMIN_PASSWORD', ''),
+        'senior_manager_email' => env('DEMO_SENIOR_MANAGER_EMAIL', 'demo.senior@nsd-demo.example'),
+        'site_manager_email' => env('DEMO_SITE_MANAGER_EMAIL', 'demo.sitemanager@nsd-demo.example'),
+        'manager_password' => env('DEMO_MANAGER_PASSWORD', ''),
+        'supervisor_email' => env('DEMO_SUPERVISOR_EMAIL', 'demo.supervisor@nsd-demo.example'),
+        'staff_email' => env('DEMO_STAFF_EMAIL', 'demo.office@nsd-demo.example'),
+        'staff_password' => env('DEMO_STAFF_PASSWORD', ''),
+        'worker_pin' => env('DEMO_WORKER_PIN', ''),
+    ],
+
     /*
     |--------------------------------------------------------------------------
     | Application Timezone

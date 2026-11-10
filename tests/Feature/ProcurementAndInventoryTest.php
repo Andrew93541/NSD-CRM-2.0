@@ -271,4 +271,102 @@ class ProcurementAndInventoryTest extends TestCase
             'CHALLAN-EMPTY'
         );
     }
+
+    public function test_procurement_and_inventory_enforce_site_scoping_and_role_authorization(): void
+    {
+        $project = \App\Models\Project::create([
+            'company_id' => $this->company->id,
+            'code' => 'PRJ-01',
+            'name' => 'Test Project',
+            'status' => 'active',
+        ]);
+
+        $siteA = Site::create([
+            'company_id' => $this->company->id,
+            'project_id' => $project->id,
+            'code' => 'SITE-A',
+            'name' => 'Site Alpha',
+            'status' => 'active',
+            'site_manager_id' => $this->siteManager->id,
+        ]);
+
+        $siteB = Site::create([
+            'company_id' => $this->company->id,
+            'project_id' => $project->id,
+            'code' => 'SITE-B',
+            'name' => 'Site Beta',
+            'status' => 'active',
+        ]);
+
+        $warehouseB = Warehouse::create([
+            'company_id' => $this->company->id,
+            'site_id' => $siteB->id,
+            'name' => 'Site Beta Store',
+            'code' => 'WH-B',
+            'location_type' => 'site_store',
+            'is_active' => true,
+        ]);
+
+        // 1. Site Manager assigned to Site A cannot create a Purchase Request for Site B or Warehouse B
+        $this->actingAs($this->siteManager)
+            ->post(route('procurement.store_request'), [
+                'site_id' => $siteB->id,
+                'urgency' => 'normal',
+                'items' => [
+                    ['material_id' => $this->cement->id, 'quantity' => 50],
+                ],
+            ])
+            ->assertStatus(403);
+
+        // 2. Site Manager assigned to Site A cannot view Inventory Stocks filtered by Site B's warehouse
+        $this->actingAs($this->siteManager)
+            ->get(route('inventory.stocks', ['warehouse_id' => $warehouseB->id]))
+            ->assertStatus(403);
+
+        // 3. Office staff cannot create Purchase Requests or confirm Goods Receipt Notes
+        $officeRole = Role::create([
+            'company_id' => $this->company->id,
+            'name' => 'Office Staff',
+            'slug' => 'office_staff',
+            'permissions' => ['reports.view'],
+        ]);
+        $officeUser = User::create([
+            'name' => 'Office User',
+            'email' => 'office@nsd.local',
+            'password' => Hash::make('Secret#12345'),
+            'is_active' => true,
+        ]);
+        $officeUser->companies()->attach($this->company->id, ['role_id' => $officeRole->id, 'status' => 'active', 'is_primary' => true]);
+
+        $this->actingAs($officeUser)
+            ->get(route('procurement.create_request'))
+            ->assertStatus(403);
+
+        $service = new InventoryService();
+        $pr = $service->createPurchaseRequest([
+            'site_id' => $siteB->id,
+            'warehouse_id' => $warehouseB->id,
+            'urgency' => 'normal',
+        ], [
+            ['material_id' => $this->cement->id, 'quantity' => 50, 'estimated_unit_cost' => 380],
+        ], $this->seniorManager);
+        $service->approvePurchaseRequest($pr, $this->seniorManager);
+        $poB = $service->createPurchaseOrder($pr, [
+            'supplier_name' => 'Vendor B',
+            'unit_prices' => [$this->cement->id => 380],
+        ], $this->seniorManager);
+
+        // Site Manager A cannot receive goods for Site B's PO
+        $this->actingAs($this->siteManager)
+            ->get(route('procurement.receive_goods', $poB))
+            ->assertStatus(403);
+
+        // Office Staff cannot confirm receipt even on central PO
+        $this->actingAs($officeUser)
+            ->post(route('procurement.confirm_receipt', $poB), [
+                'destination_warehouse_id' => $this->warehouse->id,
+                'received' => [$this->cement->id => 10],
+            ])
+            ->assertStatus(403);
+    }
 }

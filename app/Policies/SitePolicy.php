@@ -40,4 +40,19 @@ class SitePolicy
         return ($user->hasPermission('attendance.record') || $user->hasRole(['site_supervisor', 'site_manager', 'company_admin', 'super_admin']))
             && $user->isAssignedToSite($site);
     }
+
+    public function delete(User $user, Site $site): bool
+    {
+        if (!$user->isAssignedToSite($site)) {
+            return false;
+        }
+
+        if (!$site->canBeDeleted()) {
+            return false;
+        }
+
+        return $user->hasPermission('sites.delete')
+            || $user->hasPermission('sites.manage')
+            || $user->hasRole(['super_admin', 'company_admin', 'senior_manager']);
+    }
 }

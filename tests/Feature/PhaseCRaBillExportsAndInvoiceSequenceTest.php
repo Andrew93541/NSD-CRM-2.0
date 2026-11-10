@@ -314,6 +314,58 @@ class PhaseCRaBillExportsAndInvoiceSequenceTest extends TestCase
             ->assertRedirect();
 
         $this->assertSame('CIVIL/22/26-27', $raBill2->fresh()->invoice_number);
+
+        // Verify Financial Year rollover (March 31 -> 25-26 vs April 2 -> 26-27) and strict derivation from invoice_date
+        \Carbon\Carbon::setTestNow('2026-04-02 10:00:00');
+        try {
+            // Bill with March period_to (2026-03-31) but NO explicit invoice_date approved on April 2, 2026 -> must use saved invoice_date (2026-04-02 => FY 26-27)
+            $raBill3 = RaBill::create([
+                'company_id' => $this->company->id,
+                'work_order_id' => $workOrder->id,
+                'site_id' => $this->siteA->id,
+                'client_id' => $this->client->id,
+                'ra_number' => 3,
+                'ra_label' => '15TH RA BILL',
+                'invoice_date' => null,
+                'period_from' => '2026-03-01',
+                'period_to' => '2026-03-31',
+                'status' => 'site_manager_approved',
+                'site_manager_id' => $this->siteManagerA->id,
+                'created_by' => $this->officeStaffA->id,
+            ]);
+
+            $this->actingAs($this->seniorManager)
+                ->post(route('work_orders.ra_bills.approve_senior', [$workOrder, $raBill3]))
+                ->assertRedirect();
+
+            $raBill3->refresh();
+            $this->assertSame('2026-04-02', $raBill3->invoice_date->toDateString());
+            $this->assertSame('CIVIL/23/26-27', $raBill3->invoice_number);
+
+            // Bill explicitly dated in FY 25-26 (2026-03-28) starts a separate FY 25-26 sequence at 21 -> CIVIL/21/25-26
+            $raBillFy2526 = RaBill::create([
+                'company_id' => $this->company->id,
+                'work_order_id' => $workOrder->id,
+                'site_id' => $this->siteA->id,
+                'client_id' => $this->client->id,
+                'ra_number' => 4,
+                'ra_label' => 'FY 25-26 BILL',
+                'invoice_date' => '2026-03-28',
+                'period_from' => '2026-03-01',
+                'period_to' => '2026-03-28',
+                'status' => 'site_manager_approved',
+                'site_manager_id' => $this->siteManagerA->id,
+                'created_by' => $this->officeStaffA->id,
+            ]);
+
+            $this->actingAs($this->seniorManager)
+                ->post(route('work_orders.ra_bills.approve_senior', [$workOrder, $raBillFy2526]))
+                ->assertRedirect();
+
+            $this->assertSame('CIVIL/21/25-26', $raBillFy2526->fresh()->invoice_number);
+        } finally {
+            \Carbon\Carbon::setTestNow();
+        }
     }
 }
 

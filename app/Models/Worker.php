@@ -150,6 +150,16 @@ class Worker extends Model
         return $this->qr_token;
     }
 
+    public static function pinLockoutCacheKey(int $companyId, string $workerCode): string
+    {
+        return 'worker-pin-lockout:' . $companyId . ':' . strtoupper(trim($workerCode));
+    }
+
+    public function getPinLockoutCacheKey(): string
+    {
+        return self::pinLockoutCacheKey((int) $this->company_id, (string) $this->code);
+    }
+
     public function getFullNameAttribute(): string
     {
         return trim($this->first_name . ' ' . ($this->last_name ?? ''));

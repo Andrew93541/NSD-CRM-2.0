@@ -196,28 +196,42 @@ class Phase5DashboardsReportsSecurityTest extends TestCase
 
         $this->assertNotNull($log);
 
+        // Create a second company audit log and verify strict cross-company isolation in viewer & CSV export
+        $otherCompany = Company::create(['name' => 'Other Corp', 'code' => 'OTH', 'is_active' => true]);
+        AuditLog::record(
+            'security.other_company_secret_event',
+            null,
+            null,
+            ['secret' => 'other-tenant'],
+            null,
+            $this->admin->id,
+            $otherCompany->id
+        );
+
         // 1. Supervisor cannot view global security audit logs (403)
         $this->actingAs($this->supervisor)
             ->withSession(['active_company_id' => $this->company->id])
             ->get('/reports/audit-logs')
             ->assertStatus(403);
 
-        // 2. Admin can view audit logs and filter by event
+        // 2. Admin can view audit logs and filter by event, and never sees another company's audit logs
         $auditResp = $this->actingAs($this->admin)
             ->withSession(['active_company_id' => $this->company->id])
-            ->get('/reports/audit-logs?event=security.test_event');
+            ->get('/reports/audit-logs');
 
         $auditResp->assertStatus(200);
         $auditResp->assertSee('Append-Only Security & Operational Audit Trail');
         $auditResp->assertSee('security.test_event');
+        $auditResp->assertDontSee('security.other_company_secret_event');
 
-        // 3. Admin can export Audit Logs CSV
+        // 3. Admin can export Audit Logs CSV and it never contains another company's events
         $csvResp = $this->actingAs($this->admin)
             ->withSession(['active_company_id' => $this->company->id])
             ->get('/reports/audit-logs/export');
 
         $csvResp->assertStatus(200);
         $this->assertStringContainsString('security.test_event', $csvResp->streamedContent());
+        $this->assertStringNotContainsString('security.other_company_secret_event', $csvResp->streamedContent());
 
         // 4. ActivityLog is strictly append-only (cannot update or delete)
         $this->expectException(LogicException::class);

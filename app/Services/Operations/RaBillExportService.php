@@ -61,8 +61,10 @@ class RaBillExportService
 
             $company = $lockedBill->workOrder->company()->firstOrFail();
             $prefix = strtoupper(trim($company->invoice_prefix ?: 'CIVIL'));
-            $invoiceDate = $lockedBill->invoice_date ?? $lockedBill->period_to ?? now();
-            $fy = self::resolveFinancialYear(Carbon::parse($invoiceDate));
+            $effectiveInvoiceDate = $lockedBill->invoice_date
+                ? Carbon::parse($lockedBill->invoice_date)
+                : now();
+            $fy = self::resolveFinancialYear($effectiveInvoiceDate);
 
             $startingNumber = max(1, (int) ($company->invoice_starting_number ?? 21));
 
@@ -104,7 +106,7 @@ class RaBillExportService
 
             $lockedBill->update([
                 'invoice_number' => $invoiceNumber,
-                'invoice_date' => $lockedBill->invoice_date ?? now()->toDateString(),
+                'invoice_date' => $effectiveInvoiceDate->toDateString(),
             ]);
 
             $raBill->fill([

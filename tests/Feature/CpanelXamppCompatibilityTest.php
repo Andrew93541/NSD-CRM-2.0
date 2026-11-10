@@ -143,7 +143,7 @@ class CpanelXamppCompatibilityTest extends TestCase
         $loginPost->assertRedirect('http://localhost/NSD-CRM-2.0/dashboard');
     }
 
-    public function test_sql_deployment_package_has_all_61_tables_and_mariadb_compatible_collation(): void
+    public function test_sql_deployment_package_has_all_62_tables_and_mariadb_compatible_collation(): void
     {
         $sqlPath = database_path('sql/nsd_crm_2_cpanel_xampp.sql');
         $this->assertFileExists($sqlPath);
@@ -152,8 +152,35 @@ class CpanelXamppCompatibilityTest extends TestCase
         $this->assertStringContainsString('utf8mb4_unicode_ci', $sql);
         $this->assertStringNotContainsString('utf8mb4_0900_ai_ci', $sql);
         $this->assertStringNotContainsString('@@GLOBAL.GTID_PURGED', $sql);
+        $this->assertStringContainsString('CREATE TABLE `work_order_uploads`', $sql);
 
         preg_match_all('/CREATE TABLE `[a-z0-9_]+`/i', $sql, $matches);
-        $this->assertCount(61, $matches[0], 'Expected exactly 61 CREATE TABLE definitions in SQL deployment package.');
+        $this->assertCount(62, $matches[0], 'Expected exactly 62 CREATE TABLE definitions in SQL deployment package.');
+
+        // Verify zero demo accounts, worker rows, or default passwords exist in the production SQL package
+        $this->assertStringNotContainsString('INSERT INTO `users`', $sql);
+        $this->assertStringNotContainsString('INSERT INTO `workers`', $sql);
+        $this->assertStringNotContainsString('@nsd.local', $sql);
+    }
+
+    public function test_login_screen_contains_no_prefilled_demo_credentials_and_cli_admin_command_works(): void
+    {
+        $loginView = $this->get('/login');
+        $loginView->assertStatus(200);
+        $loginView->assertDontSee('admin@nsd.local');
+        $loginView->assertDontSee('Quick Demo Credentials');
+
+        $this->artisan('nsd:create-admin', [
+            '--email' => 'ops.director@nsdconstruction.in',
+            '--name' => 'Operations Director',
+            '--password' => 'StrongProdPass!2026',
+            '--company-name' => 'NSD Construction Pvt Ltd',
+            '--company-code' => 'NSD',
+        ])->assertExitCode(0);
+
+        $createdAdmin = User::where('email', 'ops.director@nsdconstruction.in')->first();
+        $this->assertNotNull($createdAdmin);
+        $this->assertTrue($createdAdmin->is_active);
+        $this->assertTrue(Hash::check('StrongProdPass!2026', $createdAdmin->password));
     }
 }

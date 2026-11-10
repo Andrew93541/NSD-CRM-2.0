@@ -9,6 +9,8 @@
                 <span class="font-mono text-xs font-bold px-2.5 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-amber-600 dark:text-amber-400 border border-slate-200 dark:border-slate-700">{{ $site->code }}</span>
                 @if($site->status === 'active')
                     <span class="px-2 py-0.5 rounded text-[11px] font-bold uppercase bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30">{{ __('Active') }}</span>
+                @elseif($site->status === 'setup_pending')
+                    <span class="px-2 py-0.5 rounded text-[11px] font-bold uppercase bg-amber-500/15 text-amber-700 dark:text-amber-300 border border-amber-500/40">{{ __('Setup pending') }}</span>
                 @elseif($site->status === 'paused')
                     <span class="px-2 py-0.5 rounded text-[11px] font-bold uppercase bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/30">{{ __('Paused') }}</span>
                 @else
@@ -40,6 +42,44 @@
             @endcan
         </div>
     </div>
+
+    @if($site->status === 'setup_pending')
+        <div class="rounded-2xl border-2 border-amber-400 dark:border-amber-600 bg-amber-50 dark:bg-amber-950/40 p-4 text-xs text-amber-900 dark:text-amber-200 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div>
+                <div class="font-extrabold uppercase tracking-wider text-amber-700 dark:text-amber-300">Site Setup Pending — Created from Work Order Upload</div>
+                <p class="mt-0.5">Configure the GPS map coordinates, geofence radius, and assign a Site Manager on the Edit Site page. Once saved, the site automatically transitions to <strong>Active</strong>.</p>
+            </div>
+            @can('update', $site)
+                <a href="{{ route('sites.edit', $site) }}" class="shrink-0 px-4 py-2 rounded-xl bg-amber-600 hover:bg-amber-500 text-white font-bold">
+                    Complete Site Setup →
+                </a>
+            @endcan
+        </div>
+    @endif
+
+    @if(isset($workOrderSummary))
+        <div class="p-4 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-sm">
+            <div class="text-[11px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-3">Per-Site Work Order & Manpower Summary</div>
+            <div class="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
+                <div class="p-3 rounded-xl bg-slate-50 dark:bg-slate-950">
+                    <div class="text-slate-500">Manpower Days (Attendance)</div>
+                    <div class="text-lg font-extrabold text-slate-900 dark:text-white mt-0.5">{{ $workOrderSummary['manpower_days'] }}</div>
+                </div>
+                <div class="p-3 rounded-xl bg-slate-50 dark:bg-slate-950">
+                    <div class="text-slate-500">Total Measured Quantity</div>
+                    <div class="text-lg font-extrabold text-sky-600 dark:text-sky-400 mt-0.5">{{ number_format($workOrderSummary['measured_quantity'], 3) }}</div>
+                </div>
+                <div class="p-3 rounded-xl bg-slate-50 dark:bg-slate-950">
+                    <div class="text-slate-500">Total Billed Amount</div>
+                    <div class="text-lg font-extrabold text-amber-600 dark:text-amber-400 mt-0.5">₹{{ number_format($workOrderSummary['billed_amount'], 2) }}</div>
+                </div>
+                <div class="p-3 rounded-xl bg-slate-50 dark:bg-slate-950">
+                    <div class="text-slate-500">Remaining Order Balance</div>
+                    <div class="text-lg font-extrabold text-emerald-600 dark:text-emerald-400 mt-0.5">₹{{ number_format($workOrderSummary['balance_amount'], 2) }}</div>
+                </div>
+            </div>
+        </div>
+    @endif
 
     <!-- Real Operational Summary Cards -->
     <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">

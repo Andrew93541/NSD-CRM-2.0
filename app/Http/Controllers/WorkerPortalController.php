@@ -32,20 +32,62 @@ class WorkerPortalController extends Controller
         $validated = $request->validate([
             'worker_code' => ['required', 'string', 'max:40'],
             'pin' => ['required', 'string', 'min:4', 'max:12'],
+            'company_id' => ['nullable', 'integer'],
+            'company_code' => ['nullable', 'string', 'max:30'],
         ]);
 
-        $throttleKey = 'worker-login:' . strtolower(trim($validated['worker_code'])) . '|' . $request->ip();
-        if (RateLimiter::tooManyAttempts($throttleKey, 5)) {
-            return back()->withErrors(['worker_code' => 'Too many login attempts. Please wait a minute and try again.']);
+        $normalizedCode = strtoupper(trim($validated['worker_code']));
+        $ipThrottleKey = 'worker-login-ip:' . $request->ip();
+
+        if (RateLimiter::tooManyAttempts($ipThrottleKey, 25)) {
+            return back()->withErrors([
+                'worker_code' => 'Too many failed PIN attempts. This worker account is temporarily locked. Please wait or ask your Site Manager/Admin to reset your PIN.',
+            ]);
         }
 
-        $worker = Worker::withoutGlobalScopes()
-            ->where('code', trim($validated['worker_code']))
+        $requestedCompanyId = !empty($validated['company_id']) ? (int) $validated['company_id'] : null;
+        if (!$requestedCompanyId && !empty($validated['company_code'])) {
+            $requestedCompanyId = (int) (\App\Models\Company::where('code', strtoupper(trim($validated['company_code'])))->value('id') ?: 0);
+        }
+
+        $workersQuery = Worker::withoutGlobalScopes()
+            ->where('code', $normalizedCode)
             ->where('status', 'active')
-            ->first();
+            ->orderBy('id');
+
+        if ($requestedCompanyId) {
+            $workersQuery->where('company_id', $requestedCompanyId);
+        }
+
+        $candidates = $workersQuery->get();
+
+        // Determine target worker: if multiple companies share the same worker_code and company_id wasn't specified,
+        // prefer an unlocked candidate whose PIN matches, or fall back to the first unlocked / primary candidate.
+        $worker = null;
+        foreach ($candidates as $candidate) {
+            $candidateKey = $candidate->getPinLockoutCacheKey();
+            if (!RateLimiter::tooManyAttempts($candidateKey, 5) && !empty($candidate->pin) && Hash::check($validated['pin'], $candidate->pin)) {
+                $worker = $candidate;
+                break;
+            }
+        }
+
+        if (!$worker) {
+            $worker = $candidates->first();
+        }
+
+        $resolvedCompanyId = $worker ? (int) $worker->company_id : ($requestedCompanyId ?: (int) (TenantContext::getCompanyId() ?: 0));
+        $pinLockoutKey = Worker::pinLockoutCacheKey($resolvedCompanyId, $normalizedCode);
+
+        if (RateLimiter::tooManyAttempts($pinLockoutKey, 5)) {
+            return back()->withErrors([
+                'worker_code' => 'Too many failed PIN attempts. This worker account is temporarily locked. Please wait or ask your Site Manager/Admin to reset your PIN.',
+            ]);
+        }
 
         if (!$worker || empty($worker->pin) || !Hash::check($validated['pin'], $worker->pin)) {
-            RateLimiter::hit($throttleKey, 60);
+            RateLimiter::hit($ipThrottleKey, 60);
+            RateLimiter::hit($pinLockoutKey, 900);
             return back()->withErrors(['worker_code' => 'Invalid worker code or PIN, or account is not active.'])->withInput(['worker_code' => $validated['worker_code']]);
         }
 
@@ -53,7 +95,8 @@ class WorkerPortalController extends Controller
             return back()->withErrors(['worker_code' => 'Direct Labour and Subcontractor workers must use QR Badge scanning at the site muster roll.']);
         }
 
-        RateLimiter::clear($throttleKey);
+        RateLimiter::clear($ipThrottleKey);
+        RateLimiter::clear($pinLockoutKey);
         $request->session()->regenerate();
         session([
             'worker_auth_id' => $worker->id,
@@ -160,6 +203,12 @@ class WorkerPortalController extends Controller
         if ($worker->must_change_pin) {
             return redirect()->route('worker.pin.show');
         }
+
+        $punchThrottleKey = 'worker-punch:' . $worker->id . '|' . $request->ip();
+        if (RateLimiter::tooManyAttempts($punchThrottleKey, 15)) {
+            return back()->withErrors(['site_id' => 'Too many punch requests. Please wait a moment before trying again.']);
+        }
+        RateLimiter::hit($punchThrottleKey, 60);
 
         $validated = $request->validate([
             'site_id' => ['nullable', 'exists:sites,id'],

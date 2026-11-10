@@ -7,6 +7,7 @@ use App\Models\User;
 use App\Models\WorkOrder;
 use App\Models\WorkOrderAttachment;
 use App\Models\WorkOrderRevision;
+use App\Models\WorkOrderUpload;
 use App\Services\Security\TenantContext;
 
 class WorkOrderPolicy
@@ -231,5 +232,38 @@ class WorkOrderPolicy
         }
 
         return $user->hasRole(['site_manager', 'senior_manager', 'company_admin', 'super_admin']);
+    }
+
+    public function uploadPo(User $user): bool
+    {
+        if (!$user->currentCompany()) {
+            return false;
+        }
+
+        if ($user->hasRole(['supervisor', 'site_supervisor', 'warehouse_manager'])) {
+            return false;
+        }
+
+        return $user->hasRole(['office_staff', 'site_manager', 'senior_manager', 'company_admin', 'super_admin'])
+            || $user->hasPermission('work_orders.create');
+    }
+
+    public function manageUpload(User $user, WorkOrderUpload $upload): bool
+    {
+        $companyId = TenantContext::getCompanyId();
+        if (!$companyId || !$user->currentCompany() || (int) $upload->company_id !== (int) $companyId) {
+            return false;
+        }
+
+        return $this->uploadPo($user);
+    }
+
+    public function transitionLifecycle(User $user, WorkOrder $wo): bool
+    {
+        if (!$this->canAccessWorkOrderSite($user, $wo)) {
+            return false;
+        }
+
+        return $user->hasRole(['office_staff', 'site_manager', 'senior_manager', 'company_admin', 'super_admin']);
     }
 }

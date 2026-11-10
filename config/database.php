@@ -59,9 +59,20 @@ return [
             'prefix_indexes' => true,
             'strict' => true,
             'engine' => null,
-            'options' => extension_loaded('pdo_mysql') ? array_filter([
-                Mysql::ATTR_SSL_CA => env('MYSQL_ATTR_SSL_CA'),
-            ]) : [],
+            'options' => extension_loaded('pdo_mysql') ? (function (): array {
+                $sslCa = env('MYSQL_ATTR_SSL_CA') ?: env('DB_SSL_CA');
+                if (! $sslCa) {
+                    return [];
+                }
+
+                return [
+                    Mysql::ATTR_SSL_CA => $sslCa,
+                    Mysql::ATTR_SSL_VERIFY_SERVER_CERT => filter_var(
+                        env('DB_SSL_VERIFY_SERVER_CERT', true),
+                        FILTER_VALIDATE_BOOL
+                    ),
+                ];
+            })() : [],
         ],
 
         'mariadb' => [
@@ -79,9 +90,20 @@ return [
             'prefix_indexes' => true,
             'strict' => true,
             'engine' => null,
-            'options' => extension_loaded('pdo_mysql') ? array_filter([
-                Mysql::ATTR_SSL_CA => env('MYSQL_ATTR_SSL_CA'),
-            ]) : [],
+            'options' => extension_loaded('pdo_mysql') ? (function (): array {
+                $sslCa = env('MYSQL_ATTR_SSL_CA') ?: env('DB_SSL_CA');
+                if (! $sslCa) {
+                    return [];
+                }
+
+                return [
+                    Mysql::ATTR_SSL_CA => $sslCa,
+                    Mysql::ATTR_SSL_VERIFY_SERVER_CERT => filter_var(
+                        env('DB_SSL_VERIFY_SERVER_CERT', true),
+                        FILTER_VALIDATE_BOOL
+                    ),
+                ];
+            })() : [],
         ],
 
         'pgsql' => [

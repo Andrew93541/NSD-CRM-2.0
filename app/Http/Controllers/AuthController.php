@@ -70,12 +70,8 @@ class AuthController extends Controller
             );
 
             if ($user->requiresTwoFactorChallenge($company?->id)) {
-                $code = $user->issueTwoFactorCode();
+                $user->issueTwoFactorCode(true);
                 $request->session()->put('two_factor_pending', true);
-
-                if (!app()->environment('production') && config('app.env') !== 'production') {
-                    $request->session()->flash('two_factor_demo_code', $code);
-                }
 
                 AuditLog::record(
                     'auth.2fa_challenge_issued',
@@ -221,15 +217,20 @@ class AuthController extends Controller
         }
 
         if (!$user->two_factor_code || !$user->two_factor_expires_at || $user->two_factor_expires_at->isPast()) {
-            $code = $user->issueTwoFactorCode();
-            if (!app()->environment('production') && config('app.env') !== 'production') {
-                $request->session()->flash('two_factor_demo_code', $code);
-            }
+            $user->issueTwoFactorCode(false);
+        } else {
+            $user->ensureTotpSecret();
         }
+
+        $isEnrollingTotp = is_null($user->two_factor_verified_at);
 
         return view('auth.two_factor', [
             'user' => $user,
             'expiresAt' => $user->two_factor_expires_at,
+            'isEnrollingTotp' => $isEnrollingTotp,
+            'totpSecret' => $isEnrollingTotp ? $user->ensureTotpSecret() : null,
+            'totpUri' => $isEnrollingTotp ? $user->totpOtpAuthUri() : null,
+            'totpQrSvg' => $isEnrollingTotp ? $user->totpQrSvg(180) : null,
         ]);
     }
 
@@ -287,12 +288,18 @@ class AuthController extends Controller
             return redirect()->route('login');
         }
 
-        $code = $user->issueTwoFactorCode();
-        $request->session()->put('two_factor_pending', true);
-
-        if (!app()->environment('production') && config('app.env') !== 'production') {
-            $request->session()->flash('two_factor_demo_code', $code);
+        $throttleKey = 'two-factor-resend:' . $user->id . '|' . $request->ip();
+        if (RateLimiter::tooManyAttempts($throttleKey, 3)) {
+            $seconds = RateLimiter::availableIn($throttleKey);
+            return back()->withErrors([
+                'code' => "Too many code resend requests. Please wait {$seconds} seconds before requesting another email code.",
+            ]);
         }
+
+        RateLimiter::hit($throttleKey, 60);
+
+        $user->issueTwoFactorCode(true);
+        $request->session()->put('two_factor_pending', true);
 
         AuditLog::record(
             'auth.2fa_resent',
@@ -324,9 +331,14 @@ class AuthController extends Controller
         }
 
         $enabled = $request->has('enabled') ? $request->boolean('enabled') : !$user->two_factor_enabled;
-        $user->forceFill([
-            'two_factor_enabled' => $enabled,
-        ])->save();
+        if ($enabled) {
+            $user->ensureTotpSecret();
+            $user->forceFill([
+                'two_factor_enabled' => true,
+            ])->save();
+        } else {
+            $user->resetTwoFactorEnrollment();
+        }
 
         AuditLog::record(
             'auth.2fa_toggled',
@@ -338,6 +350,34 @@ class AuthController extends Controller
         return back()->with('success', $enabled
             ? __('Two-Factor Authentication enabled for :name.', ['name' => $user->name])
             : __('Two-Factor Authentication disabled for :name.', ['name' => $user->name]));
+    }
+
+    public function resetTwoFactor(Request $request, \App\Models\User $user): RedirectResponse
+    {
+        $actor = Auth::user();
+        $companyId = TenantContext::getCompanyId();
+
+        if (!$actor || !$actor->hasRole(['super_admin', 'company_admin'])) {
+            abort(403, 'Only Company Administrators can reset Two-Factor Authentication recovery.');
+        }
+
+        if ($companyId && !$actor->hasRole('super_admin')) {
+            $belongsToCompany = $user->companies()->where('companies.id', $companyId)->exists();
+            if (!$belongsToCompany) {
+                abort(403, 'Target user does not belong to your company.');
+            }
+        }
+
+        $user->resetTwoFactorEnrollment();
+
+        AuditLog::record(
+            'auth.2fa_reset',
+            $user,
+            null,
+            ['reset_by' => $actor->id, 'target_email' => $user->email]
+        );
+
+        return back()->with('success', __('Two-Factor Authentication enrollment has been reset for :name.', ['name' => $user->name]));
     }
 
     public function toggleUserActive(Request $request, \App\Models\User $user): RedirectResponse

@@ -39,6 +39,7 @@
                 <div>
                     <label class="block text-xs font-bold text-slate-700 dark:text-slate-300 uppercase mb-1">{{ __('Status') }} *</label>
                     <select name="status" required class="w-full rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-slate-800 p-2.5 text-sm text-slate-900 dark:text-white focus:border-amber-500 outline-none">
+                        <option value="setup_pending" {{ old('status', $site->status) === 'setup_pending' ? 'selected' : '' }}>{{ __('Setup pending') }}</option>
                         <option value="active" {{ old('status', $site->status) === 'active' ? 'selected' : '' }}>{{ __('Active') }}</option>
                         <option value="paused" {{ old('status', $site->status) === 'paused' ? 'selected' : '' }}>{{ __('Paused') }}</option>
                         <option value="closed" {{ old('status', $site->status) === 'closed' ? 'selected' : '' }}>{{ __('Closed') }}</option>

@@ -44,6 +44,17 @@ class AttendancePunch extends Model
         ];
     }
 
+    protected static function booted(): void
+    {
+        static::updating(function () {
+            throw new \LogicException('AttendancePunch records are append-only and cannot be modified.');
+        });
+
+        static::deleting(function () {
+            throw new \LogicException('AttendancePunch records are append-only and cannot be deleted.');
+        });
+    }
+
     public function company(): BelongsTo
     {
         return $this->belongsTo(Company::class);

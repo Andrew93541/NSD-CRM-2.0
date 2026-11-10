@@ -41,6 +41,96 @@
         </div>
     </div>
 
+    <!-- Phase G & H: Work Order Lifecycle, Draft PO Lock, Alerts & Per-Site Summary -->
+    @php
+        $lifecycleStatus = $workOrder->effectiveLifecycleStatus();
+        $lifecycleLabel = \App\Models\WorkOrder::LIFECYCLE_STATUSES[$lifecycleStatus] ?? ucfirst(str_replace('_', ' ', $lifecycleStatus));
+        $completionAlert = $workOrder->completionAlertLevel();
+        $dlpSummary = $workOrder->retentionAndDlpSummary();
+        $siteSummary = $workOrder->site ? $workOrder->site->workOrderSummary() : null;
+    @endphp
+
+    @if($workOrder->isDraftPo())
+        <div class="rounded-2xl border-2 border-amber-400 dark:border-amber-600 bg-amber-50 dark:bg-amber-950/40 p-4 text-xs text-amber-900 dark:text-amber-200 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div>
+                <div class="font-extrabold uppercase tracking-wider text-amber-700 dark:text-amber-300">Draft PO Status — Field Tracking Active, Billing Locked</div>
+                <p class="mt-0.5">Site setup and field measurements are allowed against this Draft PO, but raising RA Bills is blocked until the final PO is uploaded or confirmed.</p>
+            </div>
+            @can('uploadPo', \App\Models\WorkOrder::class)
+                <a href="{{ route('work_orders.uploads.create') }}" class="shrink-0 px-3.5 py-2 rounded-xl bg-amber-600 hover:bg-amber-500 text-white font-bold">
+                    Upload Final PO Revision →
+                </a>
+            @endcan
+        </div>
+    @endif
+
+    @if($completionAlert !== 'normal')
+        <div class="rounded-2xl border {{ $completionAlert === 'overdue' ? 'border-red-400 bg-red-50 dark:bg-red-950/40 text-red-800 dark:text-red-200' : 'border-amber-400 bg-amber-50 dark:bg-amber-950/40 text-amber-900 dark:text-amber-200' }} p-4 text-xs font-semibold flex items-center justify-between">
+            <span>
+                @if($completionAlert === 'overdue')
+                    Completion Date Overdue: Target completion date ({{ optional($workOrder->completion_date ?? $workOrder->target_completion_date)->format('d M Y') }}) has passed.
+                @elseif($completionAlert === 'due_7_days')
+                    Completion Date Warning (Within 7 Days): Order completion due on {{ optional($workOrder->completion_date ?? $workOrder->target_completion_date)->format('d M Y') }}.
+                @else
+                    Completion Date Notice (Within 30 Days): Order completion due on {{ optional($workOrder->completion_date ?? $workOrder->target_completion_date)->format('d M Y') }}.
+                @endif
+            </span>
+            <span class="px-2.5 py-1 rounded-full text-[11px] font-bold uppercase bg-white/80 dark:bg-slate-900/80">{{ strtoupper(str_replace('_', ' ', $completionAlert)) }}</span>
+        </div>
+    @endif
+
+    <div class="p-5 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-sm space-y-4">
+        <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div>
+                <span class="text-[11px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Contract Lifecycle Stage</span>
+                <div class="flex items-center gap-2 mt-1">
+                    <span class="px-3 py-1 rounded-full text-xs font-extrabold {{ $workOrder->isDraftPo() ? 'bg-amber-100 text-amber-800 dark:bg-amber-950/60 dark:text-amber-300' : 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300' }}">
+                        {{ $lifecycleLabel }}
+                    </span>
+                    <span class="text-xs text-slate-500">
+                        Measured: <strong>{{ number_format($workOrder->measuredConsumptionPercent(), 1) }}%</strong> &bull;
+                        Billed: <strong>{{ number_format($workOrder->consumptionPercent(), 1) }}%</strong>
+                    </span>
+                </div>
+            </div>
+
+            @can('transitionLifecycle', $workOrder)
+                <form action="{{ route('work_orders.lifecycle', $workOrder) }}" method="POST" class="flex items-center gap-2">
+                    @csrf
+                    <select name="lifecycle_status" class="rounded-lg border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-xs px-3 py-1.5 font-semibold">
+                        @foreach(\App\Models\WorkOrder::LIFECYCLE_STATUSES as $statusKey => $statusText)
+                            <option value="{{ $statusKey }}" @selected($lifecycleStatus === $statusKey)>{{ $statusText }}</option>
+                        @endforeach
+                    </select>
+                    <button type="submit" class="px-3 py-1.5 rounded-lg bg-slate-900 dark:bg-white text-white dark:text-slate-900 text-xs font-bold">
+                        Update Stage
+                    </button>
+                </form>
+            @endcan
+        </div>
+
+        <div class="grid grid-cols-2 sm:grid-cols-4 gap-3 pt-2 border-t border-slate-100 dark:border-slate-800 text-xs">
+            <div class="p-3 rounded-xl bg-slate-50 dark:bg-slate-950">
+                <div class="text-slate-500">Retention ({{ number_format($dlpSummary['retention_percent'], 1) }}%) Held</div>
+                <div class="text-sm font-extrabold text-slate-900 dark:text-white mt-0.5">₹{{ number_format($dlpSummary['retention_held_amount'], 2) }}</div>
+            </div>
+            <div class="p-3 rounded-xl bg-slate-50 dark:bg-slate-950">
+                <div class="text-slate-500">Defect Liability ({{ $dlpSummary['defect_liability_months'] }}M)</div>
+                <div class="text-sm font-bold text-slate-900 dark:text-white mt-0.5">{{ $dlpSummary['defect_liability_ends_on'] ?? 'Starts on completion' }}</div>
+            </div>
+            @if($siteSummary)
+                <div class="p-3 rounded-xl bg-slate-50 dark:bg-slate-950">
+                    <div class="text-slate-500">Site Manpower / Measured Qty</div>
+                    <div class="text-sm font-bold text-slate-900 dark:text-white mt-0.5">{{ $siteSummary['manpower_days'] }} days / {{ number_format($siteSummary['measured_quantity'], 3) }}</div>
+                </div>
+                <div class="p-3 rounded-xl bg-slate-50 dark:bg-slate-950">
+                    <div class="text-slate-500">Site Order Balance</div>
+                    <div class="text-sm font-extrabold text-emerald-600 dark:text-emerald-400 mt-0.5">₹{{ number_format($siteSummary['balance_amount'], 2) }}</div>
+                </div>
+            @endif
+        </div>
+    </div>
+
     <!-- 2-Tier Approval Stepper -->
     <div class="p-5 sm:p-6 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 space-y-4 shadow-sm transition-colors duration-200">
         <h3 class="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">{{ __('Multi-Tier Approval Lifecycle') }}</h3>

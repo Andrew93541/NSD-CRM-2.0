@@ -9,7 +9,9 @@ use App\Models\Site;
 use App\Models\WorkOrder;
 use App\Models\WorkOrderAttachment;
 use App\Models\WorkOrderRevision;
+use App\Models\WorkOrderUpload;
 use App\Services\Operations\WorkOrderService;
+use App\Services\Operations\WorkOrderUploadService;
 use App\Services\Security\TenantContext;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -27,8 +29,10 @@ class WorkOrderController extends Controller
     public const ALLOWED_ATTACHMENT_MIMES = 'pdf,doc,docx,jpg,jpeg,png,webp';
     public const MAX_ATTACHMENT_SIZE_KB = 10240; // 10 MB
 
-    public function __construct(protected WorkOrderService $workOrderService)
-    {
+    public function __construct(
+        protected WorkOrderService $workOrderService,
+        protected WorkOrderUploadService $workOrderUploadService
+    ) {
     }
 
     public function index(Request $request): View
@@ -410,8 +414,214 @@ class WorkOrderController extends Controller
 
         $expectedPrefix = sprintf('work-orders/%d/%d/', $wo->company_id, $wo->id);
         $legacyPrefix = sprintf('work_orders/%d/', $wo->id);
+        $uploadPrefix = sprintf('work-order-uploads/%d/', $wo->company_id);
 
-        return str_starts_with($path, $expectedPrefix) || str_starts_with($path, $legacyPrefix);
+        return str_starts_with($path, $expectedPrefix)
+            || str_starts_with($path, $legacyPrefix)
+            || str_starts_with($path, $uploadPrefix);
+    }
+
+    public function createUpload(): View
+    {
+        Gate::authorize('uploadPo', WorkOrder::class);
+
+        $companyId = (int) TenantContext::getCompanyId();
+        $recentUploads = Schema::hasTable('work_order_uploads')
+            ? WorkOrderUpload::where('company_id', $companyId)->with(['uploader', 'workOrder', 'site'])->latest()->limit(10)->get()
+            : collect();
+
+        return view('work_orders.uploads.create', compact('recentUploads'));
+    }
+
+    public function storeUpload(Request $request): RedirectResponse
+    {
+        Gate::authorize('uploadPo', WorkOrder::class);
+
+        $validated = $request->validate([
+            'pdf_file' => ['required', 'file', 'mimes:pdf', 'max:10240'],
+            'is_draft_po' => ['nullable', 'boolean'],
+        ]);
+
+        $companyId = (int) TenantContext::getCompanyId();
+        $upload = $this->workOrderUploadService->uploadAndExtract(
+            $companyId,
+            $request->file('pdf_file'),
+            Auth::user(),
+            (bool) ($validated['is_draft_po'] ?? false)
+        );
+
+        return redirect()
+            ->route('work_orders.uploads.review', $upload)
+            ->with('success', $upload->is_scanned_or_unreadable
+                ? 'PDF uploaded. Automated text extraction could not read a JSW layout — please enter or import the BOQ lines below.'
+                : 'JSW Service Order PDF parsed. Please review the extracted header, lines, and totals before confirming.');
+    }
+
+    public function reviewUpload(WorkOrderUpload $upload): View
+    {
+        Gate::authorize('manageUpload', [WorkOrder::class, $upload]);
+
+        $companyId = (int) TenantContext::getCompanyId();
+        $payload = $upload->activePayload();
+        $poNumber = trim((string) ($payload['header']['po_number'] ?? ''));
+
+        $existingPoWorkOrder = $poNumber !== ''
+            ? WorkOrder::where('company_id', $companyId)->where('po_number', $poNumber)->with('site')->first()
+            : null;
+
+        $existingSites = Site::where('company_id', $companyId)->orderBy('name')->get();
+
+        return view('work_orders.uploads.review', compact(
+            'upload',
+            'payload',
+            'existingPoWorkOrder',
+            'existingSites'
+        ));
+    }
+
+    public function updateUploadReview(Request $request, WorkOrderUpload $upload): RedirectResponse
+    {
+        Gate::authorize('manageUpload', [WorkOrder::class, $upload]);
+
+        $validated = $request->validate([
+            'header' => ['required', 'array'],
+            'header.po_number' => ['nullable', 'string', 'max:100'],
+            'header.client_reference' => ['nullable', 'string', 'max:150'],
+            'header.po_date' => ['nullable', 'date'],
+            'header.effective_date' => ['nullable', 'date'],
+            'header.completion_date' => ['nullable', 'date'],
+            'header.service_type' => ['nullable', 'string', 'max:60'],
+            'header.subject' => ['nullable', 'string', 'max:255'],
+            'header.user_department_person' => ['nullable', 'string', 'max:150'],
+            'header.buyer_name' => ['nullable', 'string', 'max:150'],
+            'header.price_basis' => ['nullable', 'string', 'max:190'],
+            'header.payment_terms' => ['nullable', 'string', 'max:500'],
+            'header.contract_tenure' => ['nullable', 'string', 'max:120'],
+            'header.retention_percent' => ['nullable', 'numeric', 'min:0', 'max:100'],
+            'header.defect_liability_months' => ['nullable', 'integer', 'min:0', 'max:120'],
+            'header.liquidated_damages' => ['nullable', 'string', 'max:500'],
+            'header.client_name' => ['nullable', 'string', 'max:200'],
+            'header.client_address' => ['nullable', 'string', 'max:1000'],
+            'header.client_gstin' => ['nullable', 'string', 'max:30'],
+            'vendor' => ['nullable', 'array'],
+            'items' => ['nullable', 'array'],
+            'items.*.sr_no' => ['required', 'string', 'max:30'],
+            'items.*.service_code' => ['nullable', 'string', 'max:60'],
+            'items.*.sac_code' => ['nullable', 'string', 'max:30'],
+            'items.*.description' => ['required', 'string', 'max:500'],
+            'items.*.specification_text' => ['nullable', 'string', 'max:5000'],
+            'items.*.unit' => ['required', 'string', 'max:30'],
+            'items.*.ordered_qty' => ['required', 'numeric', 'min:0'],
+            'items.*.rate' => ['required', 'numeric', 'min:0'],
+            'items.*.line_total' => ['nullable', 'numeric', 'min:0'],
+            'totals' => ['required', 'array'],
+            'totals.base_value' => ['required', 'numeric', 'min:0'],
+            'totals.cgst_rate' => ['nullable', 'numeric', 'min:0', 'max:28'],
+            'totals.cgst_amount' => ['required', 'numeric', 'min:0'],
+            'totals.sgst_rate' => ['nullable', 'numeric', 'min:0', 'max:28'],
+            'totals.sgst_amount' => ['required', 'numeric', 'min:0'],
+            'totals.total_taxes' => ['nullable', 'numeric', 'min:0'],
+            'totals.total_po_value' => ['required', 'numeric', 'min:0'],
+            'is_draft_po' => ['nullable', 'boolean'],
+            'general_terms_text' => ['nullable', 'string'],
+        ]);
+
+        $this->workOrderUploadService->saveReviewEdits($upload, $validated, Auth::user());
+
+        return redirect()
+            ->route('work_orders.uploads.review', $upload)
+            ->with('success', 'Review draft saved and arithmetic validation updated.');
+    }
+
+    public function importUploadLines(Request $request, WorkOrderUpload $upload): RedirectResponse
+    {
+        Gate::authorize('manageUpload', [WorkOrder::class, $upload]);
+
+        $request->validate([
+            'lines_file' => ['required', 'file', 'mimes:csv,txt,xlsx,xls', 'max:5120'],
+        ]);
+
+        $this->workOrderUploadService->importLinesFromSpreadsheet(
+            $upload,
+            $request->file('lines_file'),
+            Auth::user()
+        );
+
+        return redirect()
+            ->route('work_orders.uploads.review', $upload)
+            ->with('success', 'BOQ line items imported from spreadsheet.');
+    }
+
+    public function confirmUpload(Request $request, WorkOrderUpload $upload): RedirectResponse
+    {
+        Gate::authorize('manageUpload', [WorkOrder::class, $upload]);
+
+        $companyId = (int) TenantContext::getCompanyId();
+        $validated = $request->validate([
+            'attach_to_site_id' => [
+                'nullable',
+                'integer',
+                Rule::exists('sites', 'id')->where(fn ($q) => $q->where('company_id', $companyId)),
+            ],
+            'override_reason' => ['nullable', 'string', 'max:500'],
+            'is_draft_po' => ['nullable', 'boolean'],
+        ]);
+
+        $result = $this->workOrderUploadService->confirmUpload(
+            $upload,
+            Auth::user(),
+            !empty($validated['attach_to_site_id']) ? (int) $validated['attach_to_site_id'] : null,
+            $validated['override_reason'] ?? null,
+            array_key_exists('is_draft_po', $validated) ? (bool) $validated['is_draft_po'] : null
+        );
+
+        /** @var WorkOrder $wo */
+        $wo = $result['work_order'];
+        /** @var Site $site */
+        $site = $result['site'];
+        $isRevision = (bool) $result['is_revision'];
+
+        return redirect()
+            ->route('work_orders.show', $wo)
+            ->with('success', $isRevision
+                ? "Duplicate PO {$wo->po_number} applied as Revision #{$wo->current_revision} on {$wo->order_number} (no duplicate site created)."
+                : "Confirmed Work Order {$wo->order_number} (PO {$wo->po_number}) and provisioned Site '{$site->name}' ({$site->status}).");
+    }
+
+    public function downloadUploadPdf(WorkOrderUpload $upload): StreamedResponse
+    {
+        Gate::authorize('manageUpload', [WorkOrder::class, $upload]);
+
+        $disk = Storage::disk('local');
+        if (!$disk->exists($upload->file_path)) {
+            abort(404, 'Uploaded PDF file not found in private storage.');
+        }
+
+        $safeName = preg_replace('/[^A-Za-z0-9._\- ]/', '_', basename($upload->original_filename)) ?: 'work-order-upload.pdf';
+
+        return $disk->response($upload->file_path, $safeName, [
+            'Content-Type' => 'application/pdf',
+            'X-Content-Type-Options' => 'nosniff',
+        ]);
+    }
+
+    public function transitionLifecycle(Request $request, WorkOrder $workOrder): RedirectResponse
+    {
+        Gate::authorize('transitionLifecycle', $workOrder);
+
+        $validated = $request->validate([
+            'lifecycle_status' => ['required', 'string', Rule::in(array_keys(WorkOrder::LIFECYCLE_STATUSES))],
+            'notes' => ['nullable', 'string', 'max:500'],
+        ]);
+
+        $this->workOrderUploadService->transitionLifecycleStatus(
+            $workOrder,
+            $validated['lifecycle_status'],
+            Auth::user(),
+            $validated['notes'] ?? null
+        );
+
+        return back()->with('success', "Work order {$workOrder->order_number} lifecycle status updated to " . (WorkOrder::LIFECYCLE_STATUSES[$validated['lifecycle_status']] ?? $validated['lifecycle_status']) . '.');
     }
 
     public function approveSite(Request $request, WorkOrder $workOrder): RedirectResponse

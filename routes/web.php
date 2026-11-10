@@ -17,6 +17,9 @@ use App\Http\Controllers\WorkforceController;
 use App\Http\Controllers\WorkOrderController;
 use Illuminate\Support\Facades\Route;
 
+// Render / Load Balancer Health Check (minimal response, no sensitive environment details)
+Route::get('/healthz', fn () => response()->json(['status' => 'ok'], 200))->name('healthz');
+
 // Guest Authentication Routes
 Route::middleware('guest')->group(function () {
     Route::get('/login', [AuthController::class, 'showLogin'])->name('login');
@@ -55,6 +58,7 @@ Route::middleware('auth')->group(function () {
     Route::post('/two-factor-challenge', [AuthController::class, 'verifyTwoFactorChallenge'])->name('two-factor.verify');
     Route::post('/two-factor-challenge/resend', [AuthController::class, 'resendTwoFactorChallenge'])->name('two-factor.resend');
     Route::post('/users/{user}/toggle-2fa', [AuthController::class, 'toggleTwoFactor'])->name('users.toggle_2fa');
+    Route::post('/users/{user}/reset-2fa', [AuthController::class, 'resetTwoFactor'])->name('users.reset_2fa');
     Route::post('/users/{user}/toggle-active', [AuthController::class, 'toggleUserActive'])->name('users.toggle_active');
 
     // Dashboard
@@ -84,6 +88,7 @@ Route::middleware('auth')->group(function () {
         Route::get('/{site}', [SiteController::class, 'show'])->name('show');
         Route::get('/{site}/edit', [SiteController::class, 'edit'])->name('edit');
         Route::put('/{site}', [SiteController::class, 'update'])->name('update');
+        Route::delete('/{site}', [SiteController::class, 'destroy'])->name('destroy');
         Route::post('/{site}/assignments', [SiteController::class, 'storeAssignment'])->name('assignments.store');
     });
 
@@ -163,7 +168,18 @@ Route::middleware('auth')->group(function () {
         Route::get('/create', [WorkOrderController::class, 'create'])->name('create');
         Route::post('/', [WorkOrderController::class, 'store'])->name('store');
         Route::post('/clients', [WorkOrderController::class, 'storeClient'])->name('clients.store');
+
+        // Phase G & H: Client PO Upload, Extraction, Review & Automatic Site Creation
+        Route::get('/uploads/create', [WorkOrderController::class, 'createUpload'])->name('uploads.create');
+        Route::post('/uploads', [WorkOrderController::class, 'storeUpload'])->name('uploads.store');
+        Route::get('/uploads/{upload}/review', [WorkOrderController::class, 'reviewUpload'])->name('uploads.review');
+        Route::put('/uploads/{upload}/review', [WorkOrderController::class, 'updateUploadReview'])->name('uploads.update_review');
+        Route::post('/uploads/{upload}/import-lines', [WorkOrderController::class, 'importUploadLines'])->name('uploads.import_lines');
+        Route::post('/uploads/{upload}/confirm', [WorkOrderController::class, 'confirmUpload'])->name('uploads.confirm');
+        Route::get('/uploads/{upload}/pdf', [WorkOrderController::class, 'downloadUploadPdf'])->name('uploads.pdf');
+
         Route::get('/{workOrder}', [WorkOrderController::class, 'show'])->name('show');
+        Route::post('/{workOrder}/lifecycle', [WorkOrderController::class, 'transitionLifecycle'])->name('lifecycle');
         Route::get('/{workOrder}/print', [WorkOrderController::class, 'printOrder'])->name('print');
         Route::get('/{workOrder}/export-pdf', [WorkOrderController::class, 'exportPdf'])->name('export_pdf');
         Route::post('/{workOrder}/revisions', [WorkOrderController::class, 'storeRevision'])->name('revisions.store');
