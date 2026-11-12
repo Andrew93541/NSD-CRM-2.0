@@ -6,22 +6,26 @@ class TenantContext
 {
     protected static ?int $companyId = null;
     protected static bool $bypassed = false;
+    protected static ?string $verifiedKey = null;
 
     public static function setCompanyId(?int $id): void
     {
         static::$companyId = $id;
+        static::$verifiedKey = null;
     }
 
     public static function reset(): void
     {
         static::$companyId = null;
         static::$bypassed = false;
+        static::$verifiedKey = null;
     }
 
     public static function clear(): void
     {
         static::$companyId = null;
         static::$bypassed = false;
+        static::$verifiedKey = null;
         if (session()) {
             session()->forget('current_company_id');
         }
@@ -32,6 +36,13 @@ class TenantContext
         if (static::$companyId !== null) {
             if (auth()->check()) {
                 $user = auth()->user();
+                $reqId = app()->bound('request') ? spl_object_id(request()) : 0;
+                $cacheKey = "{$reqId}:{$user->id}:" . static::$companyId;
+
+                if ($reqId > 0 && static::$verifiedKey === $cacheKey) {
+                    return static::$companyId;
+                }
+
                 $isValid = $user->companies()
                     ->where('companies.id', static::$companyId)
                     ->wherePivot('status', 'active')
@@ -39,10 +50,14 @@ class TenantContext
                     ->exists();
 
                 if ($isValid) {
+                    if ($reqId > 0) {
+                        static::$verifiedKey = $cacheKey;
+                    }
                     return static::$companyId;
                 }
 
                 static::$companyId = null;
+                static::$verifiedKey = null;
             } else {
                 return static::$companyId;
             }

@@ -435,14 +435,21 @@ class WorkOrderController extends Controller
         $storedName = Str::uuid()->toString() . '.' . $ext;
         $storedPath = $file->storeAs($directory, $storedName, 'local');
 
-        return WorkOrderAttachment::create([
-            'work_order_id' => $wo->id,
-            'file_name' => basename($file->getClientOriginalName()),
-            'file_path' => $storedPath,
-            'file_size' => (int) $file->getSize(),
-            'mime_type' => (string) $file->getMimeType(),
-            'uploaded_by' => $uploadedBy,
-        ]);
+        try {
+            return WorkOrderAttachment::create([
+                'work_order_id' => $wo->id,
+                'file_name' => basename($file->getClientOriginalName()),
+                'file_path' => $storedPath,
+                'file_size' => (int) $file->getSize(),
+                'mime_type' => (string) $file->getMimeType(),
+                'uploaded_by' => $uploadedBy,
+            ]);
+        } catch (\Throwable $e) {
+            if ($storedPath && Storage::disk('local')->exists($storedPath)) {
+                Storage::disk('local')->delete($storedPath);
+            }
+            throw $e;
+        }
     }
 
     protected function isValidAttachmentPath(WorkOrder $wo, WorkOrderAttachment $att): bool

@@ -100,13 +100,36 @@ class SiteController extends Controller
         $site = DB::transaction(function () use ($validated, $companyId) {
             $payload = $this->filterPersistableColumns($validated);
             $payload['company_id'] = $companyId;
+            $code = trim((string) ($payload['code'] ?? ''));
 
-            if (!empty($payload['code']) && preg_match('/^SITE-\d+$/', $payload['code']) && Site::where('company_id', $companyId)->where('code', $payload['code'])->lockForUpdate()->exists()) {
-                $nextNum = Site::where('company_id', $companyId)->count() + 1;
-                $code = sprintf('SITE-%03d', $nextNum);
-                while (Site::where('company_id', $companyId)->where('code', $code)->exists()) {
-                    $nextNum++;
+            if ($code === '' || preg_match('/^SITE-\d+$/i', $code)) {
+                if (Schema::hasTable('worker_sequences') && $companyId) {
+                    $seq = DB::table('worker_sequences')
+                        ->where('company_id', $companyId)
+                        ->where('prefix', 'SITE')
+                        ->where('year', 0)
+                        ->lockForUpdate()
+                        ->first();
+
+                    if (!$seq) {
+                        DB::table('worker_sequences')->insertOrIgnore([
+                            'company_id' => $companyId,
+                            'prefix' => 'SITE',
+                            'year' => 0,
+                            'last_number' => 0,
+                            'created_at' => now(),
+                            'updated_at' => now(),
+                        ]);
+                    }
+                }
+
+                if ($code === '' || Site::where('company_id', $companyId)->where('code', $code)->lockForUpdate()->exists()) {
+                    $nextNum = Site::where('company_id', $companyId)->count() + 1;
                     $code = sprintf('SITE-%03d', $nextNum);
+                    while (Site::where('company_id', $companyId)->where('code', $code)->exists()) {
+                        $nextNum++;
+                        $code = sprintf('SITE-%03d', $nextNum);
+                    }
                 }
                 $payload['code'] = $code;
             }
@@ -345,15 +368,20 @@ class SiteController extends Controller
 
     protected function validateSite(Request $request, ?int $companyId, ?int $ignoreSiteId = null): array
     {
-        if ($request->filled('code')) {
-            $request->merge([
-                'code' => strtoupper(trim((string) $request->input('code'))),
-            ]);
+        $rawCode = strtoupper(trim((string) $request->input('code', '')));
+        if ($rawCode !== '') {
+            $request->merge(['code' => $rawCode]);
         }
 
-        $codeUniqueRule = Rule::unique('sites', 'code')->where(fn ($q) => $q->where('company_id', $companyId));
-        if ($ignoreSiteId !== null) {
-            $codeUniqueRule->ignore($ignoreSiteId);
+        $isAutoCodeOnCreate = $ignoreSiteId === null && ($rawCode === '' || (bool) preg_match('/^SITE-\d+$/', $rawCode));
+
+        $codeRules = [$ignoreSiteId === null ? 'nullable' : 'required', 'string', 'max:30'];
+        if (!$isAutoCodeOnCreate) {
+            $codeUniqueRule = Rule::unique('sites', 'code')->where(fn ($q) => $q->where('company_id', $companyId));
+            if ($ignoreSiteId !== null) {
+                $codeUniqueRule->ignore($ignoreSiteId);
+            }
+            $codeRules[] = $codeUniqueRule;
         }
 
         return $request->validate([
@@ -362,12 +390,7 @@ class SiteController extends Controller
                 'integer',
                 Rule::exists('projects', 'id')->where(fn ($q) => $q->where('company_id', $companyId)),
             ],
-            'code' => [
-                'required',
-                'string',
-                'max:30',
-                $codeUniqueRule,
-            ],
+            'code' => $codeRules,
             'name' => ['required', 'string', 'max:255'],
             'status' => ['required', 'in:setup_pending,active,paused,closed'],
             'supervisor_id' => [

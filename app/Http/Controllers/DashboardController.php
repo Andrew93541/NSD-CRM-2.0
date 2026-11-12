@@ -40,7 +40,7 @@ class DashboardController extends Controller
         $isSiteManagerOnly = $user->hasRole('site_manager')
             && !$user->hasRole(['super_admin', 'company_admin', 'senior_manager', 'office_staff']);
 
-        $scopedSiteIds = ($isSupervisorOnly || $isSiteManagerOnly)
+        $scopedSiteIds = ($isSupervisorOnly || $isSiteManagerOnly || $user->isRestrictedToAssignedSites())
             ? $user->accessibleSiteIds()
             : null;
 
@@ -166,7 +166,7 @@ class DashboardController extends Controller
 
         // 9. Company Admin Setup Progress & Employee Access Summary
         $totalWorkersCount = Worker::where('status', 'active')
-            ->when($scopedSiteIds !== null, fn ($q) => $q->whereIn('site_id', $scopedSiteIds))
+            ->when($scopedSiteIds !== null, fn ($q) => $q->whereIn('assigned_site_id', $scopedSiteIds))
             ->count();
 
         $totalUsersCount = User::whereHas('companies', fn ($q) => $q->where('companies.id', $companyId))->count();

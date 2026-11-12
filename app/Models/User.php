@@ -73,6 +73,26 @@ class User extends Authenticatable
         return $this->hasMany(SiteAssignment::class);
     }
 
+    protected array $memoCompanyContext = [];
+
+    public function refresh(): static
+    {
+        $this->memoCompanyContext = [];
+        return parent::refresh();
+    }
+
+    public function unsetRelations(): static
+    {
+        $this->memoCompanyContext = [];
+        return parent::unsetRelations();
+    }
+
+    protected function memoCacheKey(int $companyId, string $slot): string
+    {
+        $reqId = app()->bound('request') ? spl_object_id(request()) : 0;
+        return "{$reqId}:{$companyId}:{$slot}";
+    }
+
     public function currentCompany(): ?Company
     {
         $companyId = TenantContext::getCompanyId();
@@ -80,11 +100,20 @@ class User extends Authenticatable
             return null;
         }
 
-        return $this->companies()
+        $key = $this->memoCacheKey((int) $companyId, 'company');
+        if (array_key_exists($key, $this->memoCompanyContext)) {
+            return $this->memoCompanyContext[$key];
+        }
+
+        $company = $this->companies()
             ->where('companies.id', $companyId)
             ->wherePivot('status', 'active')
             ->where('companies.is_active', true)
             ->first();
+
+        $this->memoCompanyContext[$key] = $company;
+
+        return $company;
     }
 
     public function currentRole(?int $companyId = null): ?Role
@@ -94,22 +123,34 @@ class User extends Authenticatable
             return null;
         }
 
-        $company = $this->companies()
-            ->where('companies.id', $targetCompanyId)
-            ->wherePivot('status', 'active')
-            ->where('companies.is_active', true)
-            ->first();
+        $key = $this->memoCacheKey((int) $targetCompanyId, 'role');
+        if (array_key_exists($key, $this->memoCompanyContext)) {
+            return $this->memoCompanyContext[$key];
+        }
+
+        $compKey = $this->memoCacheKey((int) $targetCompanyId, 'company');
+        if (array_key_exists($compKey, $this->memoCompanyContext)) {
+            $company = $this->memoCompanyContext[$compKey];
+        } else {
+            $company = $this->companies()
+                ->where('companies.id', $targetCompanyId)
+                ->wherePivot('status', 'active')
+                ->where('companies.is_active', true)
+                ->first();
+            $this->memoCompanyContext[$compKey] = $company;
+        }
 
         if (!$company) {
+            $this->memoCompanyContext[$key] = null;
             return null;
         }
 
         $roleId = $company->pivot->role_id ?? null;
-        if (!$roleId) {
-            return null;
-        }
+        $role = $roleId ? Role::find($roleId) : null;
 
-        return Role::find($roleId);
+        $this->memoCompanyContext[$key] = $role;
+
+        return $role;
     }
 
     /**
@@ -175,10 +216,19 @@ class User extends Authenticatable
             return null;
         }
 
-        return \Illuminate\Support\Facades\DB::table('company_user')
+        $key = $this->memoCacheKey((int) $targetCompanyId, 'pivot');
+        if (array_key_exists($key, $this->memoCompanyContext)) {
+            return $this->memoCompanyContext[$key];
+        }
+
+        $row = \Illuminate\Support\Facades\DB::table('company_user')
             ->where('company_id', $targetCompanyId)
             ->where('user_id', $this->id)
             ->first();
+
+        $this->memoCompanyContext[$key] = $row;
+
+        return $row;
     }
 
     /**
@@ -405,6 +455,11 @@ class User extends Authenticatable
             return false;
         }
 
+        if (app()->bound('request') && request()->isMethodSafe()) {
+            $siteId = $site instanceof Site ? (int) $site->id : (int) $site;
+            return in_array($siteId, $this->accessibleSiteIds(), true);
+        }
+
         $targetSite = $site instanceof Site ? $site : Site::withoutGlobalScopes()->find($site);
         if (!$targetSite || (int) $targetSite->company_id !== (int) $currentCompanyId) {
             return false;
@@ -457,20 +512,62 @@ class User extends Authenticatable
             return [];
         }
 
+        $isSafeRequest = app()->bound('request') && request()->isMethodSafe();
+        $cacheKey = $this->memoCacheKey((int) $companyId, 'accessible_sites');
+
+        if ($isSafeRequest && array_key_exists($cacheKey, $this->memoCompanyContext)) {
+            return $this->memoCompanyContext[$cacheKey];
+        }
+
         $sites = Site::where('company_id', $companyId)->get();
-        if ($this->hasRole(['super_admin', 'company_admin'])) {
-            return $sites->pluck('id')->all();
+        if ($this->hasRole(['super_admin', 'company_admin'])
+            || ($this->hasRole('senior_manager') && ! $this->isRestrictedToAssignedSites($companyId))
+        ) {
+            $ids = $sites->pluck('id')->map(fn ($id) => (int) $id)->values()->all();
+            if ($isSafeRequest) {
+                $this->memoCompanyContext[$cacheKey] = $ids;
+            }
+            return $ids;
         }
 
-        if ($this->hasRole('senior_manager') && ! $this->isRestrictedToAssignedSites($companyId)) {
-            return $sites->pluck('id')->all();
-        }
+        $userSiteIds = $this->sites()
+            ->where('sites.company_id', $companyId)
+            ->pluck('sites.id')
+            ->map(fn ($id) => (int) $id)
+            ->all();
 
-        return $sites
-            ->filter(fn (Site $site) => $this->isAssignedToSite($site))
+        $datedSiteIds = Schema::hasTable('site_assignments')
+            ? SiteAssignment::withoutGlobalScopes()
+                ->where('company_id', $companyId)
+                ->where('user_id', $this->id)
+                ->where('is_active', true)
+                ->pluck('site_id')
+                ->map(fn ($id) => (int) $id)
+                ->all()
+            : [];
+
+        $explicitLookup = array_flip(array_merge($userSiteIds, $datedSiteIds));
+
+        $ids = $sites
+            ->filter(function (Site $site) use ($explicitLookup) {
+                if ((int) $site->supervisor_id === (int) $this->id) {
+                    return true;
+                }
+                if (isset($site->attributes['site_manager_id']) && (int) $site->attributes['site_manager_id'] === (int) $this->id) {
+                    return true;
+                }
+                return isset($explicitLookup[(int) $site->id]);
+            })
             ->pluck('id')
+            ->map(fn ($id) => (int) $id)
             ->values()
             ->all();
+
+        if ($isSafeRequest) {
+            $this->memoCompanyContext[$cacheKey] = $ids;
+        }
+
+        return $ids;
     }
 
     /**

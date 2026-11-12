@@ -49,12 +49,7 @@ class WorkforceController extends Controller
             ));
 
         if (!$hasUnrestrictedSiteAccess) {
-            $companyId = TenantContext::getCompanyId();
-            $assignedSiteIds = Site::where('company_id', $companyId)
-                ->get()
-                ->filter(fn (Site $site) => $user->isAssignedToSite($site))
-                ->pluck('id')
-                ->all();
+            $assignedSiteIds = $user->accessibleSiteIds();
 
             $query->where(function ($q) use ($assignedSiteIds) {
                 $q->whereNull('assigned_site_id')
@@ -172,7 +167,7 @@ class WorkforceController extends Controller
         }
 
         if (!empty($validated['aadhaar_last_four'])) {
-            $duplicateWorker = Worker::where('company_id', $companyId)
+            $candidateDuplicates = Worker::where('company_id', $companyId)
                 ->where('status', 'active')
                 ->whereRaw('LOWER(TRIM(first_name)) = ?', [mb_strtolower(trim((string) $validated['first_name']))])
                 ->when(
@@ -181,13 +176,53 @@ class WorkforceController extends Controller
                     fn ($q) => $q->where(fn ($sub) => $sub->whereNull('last_name')->orWhere('last_name', ''))
                 )
                 ->where('aadhaar_last_four', $validated['aadhaar_last_four'])
-                ->first();
+                ->get();
+
+            $incomingPhone = preg_replace('/\D+/', '', (string) ($validated['phone'] ?? ''));
+            $incomingDob = !empty($validated['date_of_birth']) ? Carbon::parse($validated['date_of_birth'])->format('Y-m-d') : '';
+
+            $duplicateWorker = $candidateDuplicates->first(function (Worker $existing) use ($incomingPhone, $incomingDob) {
+                $existingPhone = preg_replace('/\D+/', '', (string) ($existing->phone ?? ''));
+                $existingDob = $existing->date_of_birth ? Carbon::parse($existing->date_of_birth)->format('Y-m-d') : '';
+
+                // If both records specify a phone number and they are different, treat as a distinct worker
+                if ($incomingPhone !== '' && $existingPhone !== '' && $incomingPhone !== $existingPhone) {
+                    return false;
+                }
+
+                // If both records specify a date of birth and they are different, treat as a distinct worker
+                if ($incomingDob !== '' && $existingDob !== '' && $incomingDob !== $existingDob) {
+                    return false;
+                }
+
+                return true;
+            });
 
             if ($duplicateWorker) {
                 return back()
                     ->withInput()
                     ->withErrors([
                         'aadhaar_last_four' => "An active worker with the same name and Aadhaar last 4 digits already exists ({$duplicateWorker->full_name} — {$duplicateWorker->code}).",
+                    ]);
+            }
+        } elseif (!empty($validated['phone'])) {
+            $incomingPhone = trim((string) $validated['phone']);
+            $duplicateByPhone = Worker::where('company_id', $companyId)
+                ->where('status', 'active')
+                ->whereRaw('LOWER(TRIM(first_name)) = ?', [mb_strtolower(trim((string) $validated['first_name']))])
+                ->when(
+                    !empty($validated['last_name']),
+                    fn ($q) => $q->whereRaw('LOWER(TRIM(last_name)) = ?', [mb_strtolower(trim((string) $validated['last_name']))]),
+                    fn ($q) => $q->where(fn ($sub) => $sub->whereNull('last_name')->orWhere('last_name', ''))
+                )
+                ->where('phone', $incomingPhone)
+                ->first();
+
+            if ($duplicateByPhone) {
+                return back()
+                    ->withInput()
+                    ->withErrors([
+                        'phone' => "An active worker with the same name and phone number already exists ({$duplicateByPhone->full_name} — {$duplicateByPhone->code}).",
                     ]);
             }
         }

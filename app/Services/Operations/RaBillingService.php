@@ -107,46 +107,53 @@ class RaBillingService
                 );
             }
 
-            $entry = MeasurementEntry::create([
-                'company_id' => $workOrder->company_id,
-                'work_order_id' => $workOrder->id,
-                'work_order_item_id' => $woItem->id,
-                'site_id' => $data['site_id'] ?? $workOrder->site_id,
-                'measured_on' => $data['measured_on'] ?? now()->toDateString(),
-                'location_chainage' => $data['location_chainage'] ?? null,
-                'nos' => $data['nos'] ?? 1.000,
-                'length' => $data['length'] ?? null,
-                'breadth' => $data['breadth'] ?? null,
-                'depth_height' => $data['depth_height'] ?? null,
-                'direct_quantity' => $data['direct_quantity'] ?? null,
-                'hold_quantity' => $data['hold_quantity'] ?? 0.000,
-                'photo_path' => $photoPath,
-                'remarks' => $data['remarks'] ?? null,
-                'status' => $data['status'] ?? 'verified',
-                'recorded_by' => $actor->id,
-                'verified_by' => ($data['status'] ?? 'verified') === 'verified' ? $actor->id : null,
-                'verified_at' => ($data['status'] ?? 'verified') === 'verified' ? now() : null,
-            ]);
-
-            AuditLog::record(
-                'work_order.measurement.recorded',
-                $entry,
-                [],
-                [
+            try {
+                $entry = MeasurementEntry::create([
+                    'company_id' => $workOrder->company_id,
                     'work_order_id' => $workOrder->id,
-                    'sr_no' => $woItem->sr_no,
-                    'computed_quantity' => (float) $entry->computed_quantity,
-                    'hold_quantity' => (float) $entry->hold_quantity,
-                ],
-                "Recorded site measurement for {$woItem->sr_no}"
-            );
+                    'work_order_item_id' => $woItem->id,
+                    'site_id' => $data['site_id'] ?? $workOrder->site_id,
+                    'measured_on' => $data['measured_on'] ?? now()->toDateString(),
+                    'location_chainage' => $data['location_chainage'] ?? null,
+                    'nos' => $data['nos'] ?? 1.000,
+                    'length' => $data['length'] ?? null,
+                    'breadth' => $data['breadth'] ?? null,
+                    'depth_height' => $data['depth_height'] ?? null,
+                    'direct_quantity' => $data['direct_quantity'] ?? null,
+                    'hold_quantity' => $data['hold_quantity'] ?? 0.000,
+                    'photo_path' => $photoPath,
+                    'remarks' => $data['remarks'] ?? null,
+                    'status' => $data['status'] ?? 'verified',
+                    'recorded_by' => $actor->id,
+                    'verified_by' => ($data['status'] ?? 'verified') === 'verified' ? $actor->id : null,
+                    'verified_at' => ($data['status'] ?? 'verified') === 'verified' ? now() : null,
+                ]);
 
-            if (!$workOrder->isDraftPo() && ($workOrder->lifecycle_status === null || $workOrder->lifecycle_status === WorkOrder::LIFECYCLE_CONFIRMED)) {
-                $workOrder->lifecycle_status = WorkOrder::LIFECYCLE_IN_PROGRESS;
-                $workOrder->saveQuietly();
+                AuditLog::record(
+                    'work_order.measurement.recorded',
+                    $entry,
+                    [],
+                    [
+                        'work_order_id' => $workOrder->id,
+                        'sr_no' => $woItem->sr_no,
+                        'computed_quantity' => (float) $entry->computed_quantity,
+                        'hold_quantity' => (float) $entry->hold_quantity,
+                    ],
+                    "Recorded site measurement for {$woItem->sr_no}"
+                );
+
+                if (!$workOrder->isDraftPo() && ($workOrder->lifecycle_status === null || $workOrder->lifecycle_status === WorkOrder::LIFECYCLE_CONFIRMED)) {
+                    $workOrder->lifecycle_status = WorkOrder::LIFECYCLE_IN_PROGRESS;
+                    $workOrder->saveQuietly();
+                }
+
+                return $entry;
+            } catch (\Throwable $e) {
+                if ($photoPath && \Illuminate\Support\Facades\Storage::disk('local')->exists($photoPath)) {
+                    \Illuminate\Support\Facades\Storage::disk('local')->delete($photoPath);
+                }
+                throw $e;
             }
-
-            return $entry;
         });
     }
 

@@ -114,13 +114,36 @@ class ProjectController extends Controller
         $validated = $this->validateProject($request, $companyId);
 
         $project = DB::transaction(function () use ($validated, $companyId, $request) {
-            $code = $validated['code'];
-            if (preg_match('/^PRJ-\d+$/', $code) && Project::where('company_id', $companyId)->where('code', $code)->lockForUpdate()->exists()) {
-                $nextNum = Project::where('company_id', $companyId)->count() + 1;
-                $code = sprintf('PRJ-%03d', $nextNum);
-                while (Project::where('company_id', $companyId)->where('code', $code)->exists()) {
-                    $nextNum++;
+            $code = trim((string) ($validated['code'] ?? ''));
+
+            if ($code === '' || preg_match('/^PRJ-\d+$/i', $code)) {
+                if (Schema::hasTable('worker_sequences') && $companyId) {
+                    $seq = DB::table('worker_sequences')
+                        ->where('company_id', $companyId)
+                        ->where('prefix', 'PRJ')
+                        ->where('year', 0)
+                        ->lockForUpdate()
+                        ->first();
+
+                    if (!$seq) {
+                        DB::table('worker_sequences')->insertOrIgnore([
+                            'company_id' => $companyId,
+                            'prefix' => 'PRJ',
+                            'year' => 0,
+                            'last_number' => 0,
+                            'created_at' => now(),
+                            'updated_at' => now(),
+                        ]);
+                    }
+                }
+
+                if ($code === '' || Project::where('company_id', $companyId)->where('code', $code)->lockForUpdate()->exists()) {
+                    $nextNum = Project::where('company_id', $companyId)->count() + 1;
                     $code = sprintf('PRJ-%03d', $nextNum);
+                    while (Project::where('company_id', $companyId)->where('code', $code)->exists()) {
+                        $nextNum++;
+                        $code = sprintf('PRJ-%03d', $nextNum);
+                    }
                 }
             }
 
@@ -446,21 +469,28 @@ class ProjectController extends Controller
             $directory = "project-documents/{$companyId}/{$project->id}";
             $storedPath = $file->storeAs($directory, $generatedName, 'local');
 
-            return ProjectDocument::create([
-                'company_id' => $companyId,
-                'project_id' => $project->id,
-                'site_id' => $validated['site_id'] ?? null,
-                'document_type' => $validated['document_type'],
-                'title' => trim($validated['title']),
-                'version' => $nextVersion,
-                'original_name' => mb_substr(preg_replace('/[\x00-\x1F\x7F]/u', '', $originalName) ?: 'project-document', 0, 255),
-                'storage_disk' => 'local',
-                'file_path' => $storedPath,
-                'mime_type' => $detectedMime,
-                'file_size' => (int) $file->getSize(),
-                'visibility_roles' => !empty($validated['visibility_roles']) ? array_values($validated['visibility_roles']) : null,
-                'uploaded_by' => Auth::id(),
-            ]);
+            try {
+                return ProjectDocument::create([
+                    'company_id' => $companyId,
+                    'project_id' => $project->id,
+                    'site_id' => $validated['site_id'] ?? null,
+                    'document_type' => $validated['document_type'],
+                    'title' => trim($validated['title']),
+                    'version' => $nextVersion,
+                    'original_name' => mb_substr(preg_replace('/[\x00-\x1F\x7F]/u', '', $originalName) ?: 'project-document', 0, 255),
+                    'storage_disk' => 'local',
+                    'file_path' => $storedPath,
+                    'mime_type' => $detectedMime,
+                    'file_size' => (int) $file->getSize(),
+                    'visibility_roles' => !empty($validated['visibility_roles']) ? array_values($validated['visibility_roles']) : null,
+                    'uploaded_by' => Auth::id(),
+                ]);
+            } catch (\Throwable $e) {
+                if ($storedPath && Storage::disk('local')->exists($storedPath)) {
+                    Storage::disk('local')->delete($storedPath);
+                }
+                throw $e;
+            }
         });
 
         return redirect()
@@ -533,19 +563,24 @@ class ProjectController extends Controller
 
     protected function validateProject(Request $request, ?int $companyId, ?int $ignoreProjectId = null): array
     {
-        if ($request->filled('code')) {
-            $request->merge([
-                'code' => strtoupper(trim((string) $request->input('code'))),
-            ]);
+        $rawCode = strtoupper(trim((string) $request->input('code', '')));
+        if ($rawCode !== '') {
+            $request->merge(['code' => $rawCode]);
         }
 
-        $codeRule = Rule::unique('projects', 'code')->where(fn ($q) => $q->where('company_id', $companyId));
-        if ($ignoreProjectId !== null) {
-            $codeRule->ignore($ignoreProjectId);
+        $isAutoCodeOnCreate = $ignoreProjectId === null && ($rawCode === '' || (bool) preg_match('/^PRJ-\d+$/', $rawCode));
+
+        $codeRules = [$ignoreProjectId === null ? 'nullable' : 'required', 'string', 'max:30'];
+        if (!$isAutoCodeOnCreate) {
+            $codeRule = Rule::unique('projects', 'code')->where(fn ($q) => $q->where('company_id', $companyId));
+            if ($ignoreProjectId !== null) {
+                $codeRule->ignore($ignoreProjectId);
+            }
+            $codeRules[] = $codeRule;
         }
 
         return $request->validate([
-            'code' => ['required', 'string', 'max:30', $codeRule],
+            'code' => $codeRules,
             'name' => ['required', 'string', 'max:255'],
             'client_name' => ['nullable', 'string', 'max:255'],
             'manager_id' => [

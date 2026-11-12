@@ -202,48 +202,63 @@ class ReportsController extends Controller
 
         $projects = Project::orderBy('name')->get();
         $siteRows = [];
+        $siteIds = $sites->pluck('id')->all();
 
-        foreach ($sites as $site) {
-            $assignedWorkersCount = Worker::where('status', 'active')
-                ->where('assigned_site_id', $site->id)
-                ->count();
+        $workerCountsBySite = !empty($siteIds)
+            ? Worker::where('status', 'active')
+                ->whereIn('assigned_site_id', $siteIds)
+                ->selectRaw('assigned_site_id, COUNT(*) as aggregate_count')
+                ->groupBy('assigned_site_id')
+                ->pluck('aggregate_count', 'assigned_site_id')
+            : collect();
 
-            $atts = DailyAttendance::where('site_id', $site->id)
+        $attendancesBySite = !empty($siteIds)
+            ? DailyAttendance::whereIn('site_id', $siteIds)
                 ->whereDate('attendance_date', '>=', $startDate)
                 ->whereDate('attendance_date', '<=', $endDate)
-                ->get();
+                ->get()
+                ->groupBy('site_id')
+            : collect();
 
-            $presentDays = $atts->where('status', 'present')->count();
-            $halfDays = $atts->where('status', 'half_day')->count();
-            $paidLeaves = $atts->where('status', 'paid_leave')->count();
-            $absentDays = $atts->where('status', 'absent')->count();
-            $workedHours = round((float) $atts->sum('worked_hours'), 2);
-            $overtimeHours = round((float) $atts->sum('overtime_hours'), 2);
+        $openFlagsBySite = (!empty($siteIds) && Schema::hasTable('attendance_flags'))
+            ? AttendanceFlag::whereIn('site_id', $siteIds)
+                ->where('status', 'open')
+                ->selectRaw('site_id, COUNT(*) as aggregate_count')
+                ->groupBy('site_id')
+                ->pluck('aggregate_count', 'site_id')
+            : collect();
 
-            $openFlagsCount = Schema::hasTable('attendance_flags')
-                ? AttendanceFlag::where('site_id', $site->id)->where('status', 'open')->count()
-                : 0;
+        $openTasksBySite = (!empty($siteIds) && Schema::hasTable('tasks'))
+            ? Task::whereIn('site_id', $siteIds)
+                ->whereIn('status', ['pending', 'in_progress', 'blocked'])
+                ->selectRaw('site_id, COUNT(*) as aggregate_count')
+                ->groupBy('site_id')
+                ->pluck('aggregate_count', 'site_id')
+            : collect();
 
-            $openTasksCount = Schema::hasTable('tasks')
-                ? Task::where('site_id', $site->id)->whereIn('status', ['pending', 'in_progress', 'blocked'])->count()
-                : 0;
+        $completedTasksBySite = (!empty($siteIds) && Schema::hasTable('tasks'))
+            ? Task::whereIn('site_id', $siteIds)
+                ->where('status', 'completed')
+                ->selectRaw('site_id, COUNT(*) as aggregate_count')
+                ->groupBy('site_id')
+                ->pluck('aggregate_count', 'site_id')
+            : collect();
 
-            $completedTasksCount = Schema::hasTable('tasks')
-                ? Task::where('site_id', $site->id)->where('status', 'completed')->count()
-                : 0;
+        foreach ($sites as $site) {
+            $atts = $attendancesBySite->get($site->id, collect());
 
             $siteRows[] = [
                 'site' => $site,
-                'assigned_workers' => $assignedWorkersCount,
-                'present_days' => $presentDays,
-                'half_days' => $halfDays,
-                'paid_leaves' => $paidLeaves,
-                'absent_days' => $absentDays,
-                'worked_hours' => $workedHours,
-                'overtime_hours' => $overtimeHours,
-                'open_flags' => $openFlagsCount,
-                'open_tasks' => $openTasksCount,
-                'completed_tasks' => $completedTasksCount,
+                'assigned_workers' => (int) ($workerCountsBySite[$site->id] ?? 0),
+                'present_days' => $atts->where('status', 'present')->count(),
+                'half_days' => $atts->where('status', 'half_day')->count(),
+                'paid_leaves' => $atts->where('status', 'paid_leave')->count(),
+                'absent_days' => $atts->where('status', 'absent')->count(),
+                'worked_hours' => round((float) $atts->sum('worked_hours'), 2),
+                'overtime_hours' => round((float) $atts->sum('overtime_hours'), 2),
+                'open_flags' => (int) ($openFlagsBySite[$site->id] ?? 0),
+                'open_tasks' => (int) ($openTasksBySite[$site->id] ?? 0),
+                'completed_tasks' => (int) ($completedTasksBySite[$site->id] ?? 0),
             ];
         }
 
@@ -377,7 +392,7 @@ class ReportsController extends Controller
             foreach ($logs as $log) {
                 fputcsv($out, [
                     $log->created_at?->format('Y-m-d H:i:s'),
-                    $log->event,
+                    $log->action ?? $log->event,
                     $log->actor?->name ?? 'System',
                     $log->site?->code ?? '-',
                     class_basename($log->subject_type ?? ''),
