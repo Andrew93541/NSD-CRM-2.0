@@ -98,7 +98,11 @@ class PayrollController extends Controller
 
         $validated = $request->validate([
             'title' => ['required', 'string', 'max:150'],
-            'site_id' => ['nullable', 'integer', 'exists:sites,id'],
+            'site_id' => [
+                'nullable',
+                'integer',
+                \Illuminate\Validation\Rule::exists('sites', 'id')->where(fn ($q) => $q->where('company_id', $companyId)),
+            ],
             'start_date' => ['required', 'date'],
             'end_date' => ['required', 'date', 'after_or_equal:start_date'],
             'notes' => ['nullable', 'string', 'max:1000'],
@@ -109,24 +113,31 @@ class PayrollController extends Controller
             if (!$user->isAssignedToSite($site)) {
                 abort(403, 'You are not authorized to generate payroll for this site.');
             }
-        } elseif (!$user->hasRole(['super_admin', 'company_admin', 'senior_manager', 'office_staff'])) {
-            abort(403, 'Site managers must select an assigned site when generating a payroll period.');
+        } elseif ($user->isRestrictedToAssignedSites() || !$user->hasRole(['super_admin', 'company_admin', 'senior_manager', 'office_staff'])) {
+            abort(403, 'Site-restricted users must select an assigned site when generating a payroll period.');
         }
 
-        $periodCode = 'PAY-' . Carbon::parse($validated['start_date'])->format('Ym') . '-' . strtoupper(Str::random(4));
+        $period = \Illuminate\Support\Facades\DB::transaction(function () use ($companyId, $validated, $user) {
+            $periodCode = 'PAY-' . Carbon::parse($validated['start_date'])->format('Ym') . '-' . strtoupper(Str::random(4));
+            while (PayrollPeriod::withoutGlobalScopes()->where('company_id', $companyId)->where('period_code', $periodCode)->exists()) {
+                $periodCode = 'PAY-' . Carbon::parse($validated['start_date'])->format('Ym') . '-' . strtoupper(Str::random(4));
+            }
 
-        $period = PayrollPeriod::create([
-            'company_id' => $companyId,
-            'site_id' => $validated['site_id'] ?? null,
-            'period_code' => $periodCode,
-            'title' => $validated['title'],
-            'start_date' => $validated['start_date'],
-            'end_date' => $validated['end_date'],
-            'status' => 'draft',
-            'notes' => $validated['notes'] ?? null,
-        ]);
+            $period = PayrollPeriod::create([
+                'company_id' => $companyId,
+                'site_id' => $validated['site_id'] ?? null,
+                'period_code' => $periodCode,
+                'title' => $validated['title'],
+                'start_date' => $validated['start_date'],
+                'end_date' => $validated['end_date'],
+                'status' => 'draft',
+                'notes' => $validated['notes'] ?? null,
+            ]);
 
-        $this->payrollService->calculatePeriod($period, $user);
+            $this->payrollService->calculatePeriod($period, $user);
+
+            return $period;
+        });
 
         return redirect()
             ->route('payroll.show', $period)
@@ -207,23 +218,25 @@ class PayrollController extends Controller
         $gross = round((float) $entry->base_pay + (float) $entry->overtime_pay + $bonus, 2);
         $net = max(0.0, round($gross - (float) $entry->advance_deduction - $otherDed, 2));
 
-        $entry->update([
-            'bonus_amount' => $bonus,
-            'gross_pay' => $gross,
-            'other_deduction' => $otherDed,
-            'deduction_notes' => $validated['deduction_notes'] ?? $entry->deduction_notes,
-            'net_pay' => $net,
-            'payment_status' => $validated['payment_status'] ?? $entry->payment_status,
-            'paid_at' => ($validated['payment_status'] ?? $entry->payment_status) === 'paid' ? ($entry->paid_at ?? now()) : null,
-        ]);
+        \Illuminate\Support\Facades\DB::transaction(function () use ($entry, $payrollPeriod, $validated, $bonus, $gross, $otherDed, $net) {
+            $entry->update([
+                'bonus_amount' => $bonus,
+                'gross_pay' => $gross,
+                'other_deduction' => $otherDed,
+                'deduction_notes' => $validated['deduction_notes'] ?? $entry->deduction_notes,
+                'net_pay' => $net,
+                'payment_status' => $validated['payment_status'] ?? $entry->payment_status,
+                'paid_at' => ($validated['payment_status'] ?? $entry->payment_status) === 'paid' ? ($entry->paid_at ?? now()) : null,
+            ]);
 
-        // Refresh period totals
-        $allEntries = PayrollEntry::where('payroll_period_id', $payrollPeriod->id)->get();
-        $payrollPeriod->update([
-            'total_gross_amount' => round((float) $allEntries->sum('gross_pay'), 2),
-            'total_deductions' => round((float) $allEntries->sum(fn ($e) => (float) $e->advance_deduction + (float) $e->other_deduction), 2),
-            'total_net_amount' => round((float) $allEntries->sum('net_pay'), 2),
-        ]);
+            // Refresh period totals
+            $allEntries = PayrollEntry::where('payroll_period_id', $payrollPeriod->id)->get();
+            $payrollPeriod->update([
+                'total_gross_amount' => round((float) $allEntries->sum('gross_pay'), 2),
+                'total_deductions' => round((float) $allEntries->sum(fn ($e) => (float) $e->advance_deduction + (float) $e->other_deduction), 2),
+                'total_net_amount' => round((float) $allEntries->sum('net_pay'), 2),
+            ]);
+        });
 
         return back()->with('success', "Updated payroll entry for {$entry->worker?->full_name}.");
     }

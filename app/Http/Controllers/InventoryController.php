@@ -15,8 +15,19 @@ class InventoryController extends Controller
     protected function isGlobalInventoryViewer(): bool
     {
         $user = Auth::user();
+        if (!$user) {
+            return false;
+        }
 
-        return $user && $user->hasRole(['super_admin', 'company_admin', 'senior_manager', 'warehouse_manager', 'office_staff']);
+        if ($user->hasRole(['super_admin', 'company_admin'])) {
+            return true;
+        }
+
+        if ($user->isRestrictedToAssignedSites()) {
+            return false;
+        }
+
+        return $user->hasRole(['senior_manager', 'warehouse_manager', 'office_staff']);
     }
 
     public function stocks(Request $request): View

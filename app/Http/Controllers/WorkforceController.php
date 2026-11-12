@@ -41,9 +41,14 @@ class WorkforceController extends Controller
             $query->withCount('documents');
         }
 
-        if (!$user->hasRole(['super_admin', 'company_admin', 'senior_manager', 'office_staff'])
-            && !$user->hasPermission('workforce.manage')
-        ) {
+        $hasUnrestrictedSiteAccess = $user->hasRole(['super_admin', 'company_admin'])
+            || (!$user->isRestrictedToAssignedSites() && (
+                $user->hasRole(['senior_manager', 'office_staff'])
+                || $user->hasPermission('workforce.manage')
+                || $user->hasPermission('workforce.view_all')
+            ));
+
+        if (!$hasUnrestrictedSiteAccess) {
             $companyId = TenantContext::getCompanyId();
             $assignedSiteIds = Site::where('company_id', $companyId)
                 ->get()
@@ -164,6 +169,27 @@ class WorkforceController extends Controller
 
         if (!empty($validated['assigned_site_id']) && !Auth::user()->isAssignedToSite((int) $validated['assigned_site_id'])) {
             abort(403, 'You are not authorized to assign workers to this site.');
+        }
+
+        if (!empty($validated['aadhaar_last_four'])) {
+            $duplicateWorker = Worker::where('company_id', $companyId)
+                ->where('status', 'active')
+                ->whereRaw('LOWER(TRIM(first_name)) = ?', [mb_strtolower(trim((string) $validated['first_name']))])
+                ->when(
+                    !empty($validated['last_name']),
+                    fn ($q) => $q->whereRaw('LOWER(TRIM(last_name)) = ?', [mb_strtolower(trim((string) $validated['last_name']))]),
+                    fn ($q) => $q->where(fn ($sub) => $sub->whereNull('last_name')->orWhere('last_name', ''))
+                )
+                ->where('aadhaar_last_four', $validated['aadhaar_last_four'])
+                ->first();
+
+            if ($duplicateWorker) {
+                return back()
+                    ->withInput()
+                    ->withErrors([
+                        'aadhaar_last_four' => "An active worker with the same name and Aadhaar last 4 digits already exists ({$duplicateWorker->full_name} — {$duplicateWorker->code}).",
+                    ]);
+            }
         }
 
         $uploadedFiles = $request->file('documents', []);
@@ -411,6 +437,28 @@ class WorkforceController extends Controller
             abort(403, 'You are not authorized to assign workers to this site.');
         }
 
+        if (!empty($validated['aadhaar_last_four'])) {
+            $duplicateWorker = Worker::where('company_id', $companyId)
+                ->where('id', '!=', $worker->id)
+                ->where('status', 'active')
+                ->whereRaw('LOWER(TRIM(first_name)) = ?', [mb_strtolower(trim((string) $validated['first_name']))])
+                ->when(
+                    !empty($validated['last_name']),
+                    fn ($q) => $q->whereRaw('LOWER(TRIM(last_name)) = ?', [mb_strtolower(trim((string) $validated['last_name']))]),
+                    fn ($q) => $q->where(fn ($sub) => $sub->whereNull('last_name')->orWhere('last_name', ''))
+                )
+                ->where('aadhaar_last_four', $validated['aadhaar_last_four'])
+                ->first();
+
+            if ($duplicateWorker) {
+                return back()
+                    ->withInput()
+                    ->withErrors([
+                        'aadhaar_last_four' => "An active worker with the same name and Aadhaar last 4 digits already exists ({$duplicateWorker->full_name} — {$duplicateWorker->code}).",
+                    ]);
+            }
+        }
+
         $uploadedFiles = $request->file('documents', []);
         if (!is_array($uploadedFiles)) {
             throw ValidationException::withMessages(['documents' => ['Invalid documents payload.']]);
@@ -583,7 +631,7 @@ class WorkforceController extends Controller
         $user = Auth::user();
         $sites = Site::where('status', 'active')->orderBy('name')->get();
 
-        if ($user && !$user->hasRole(['super_admin', 'company_admin', 'senior_manager', 'office_staff'])) {
+        if ($user && ($user->isRestrictedToAssignedSites() || !$user->hasRole(['super_admin', 'company_admin', 'senior_manager', 'office_staff']))) {
             return $sites->filter(fn (Site $site) => $user->isAssignedToSite($site))->values();
         }
 

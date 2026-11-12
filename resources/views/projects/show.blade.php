@@ -109,7 +109,7 @@
             <div class="flex items-center justify-between">
                 <h2 class="text-sm font-bold text-slate-900 dark:text-white uppercase tracking-wider">{{ __('Linked Sites') }} ({{ $allSites->count() }})</h2>
                 @can('create', \App\Models\Site::class)
-                    <a href="{{ route('sites.create') }}" class="text-xs font-bold text-amber-600 dark:text-amber-400 hover:underline">+ {{ __('Register Site') }}</a>
+                    <a href="{{ route('sites.create', ['project_id' => $project->id]) }}" class="text-xs font-bold text-amber-600 dark:text-amber-400 hover:underline">+ {{ __('Register Site for Project') }}</a>
                 @endcan
             </div>
 

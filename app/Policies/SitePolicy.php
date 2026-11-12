@@ -53,11 +53,11 @@ class SitePolicy
 
     public function recordAttendance(User $user, Site $site): bool
     {
-        if ($user->isExplicitlyDenied('attendance.record')) {
+        if ($user->isExplicitlyDenied('attendance.mark') || $user->isExplicitlyDenied('attendance.record')) {
             return false;
         }
 
-        return ($user->hasPermission('attendance.record') || $user->hasRole(['site_supervisor', 'site_manager', 'company_admin', 'super_admin']))
+        return $user->hasPermission('attendance.mark')
             && $user->isAssignedToSite($site);
     }
 

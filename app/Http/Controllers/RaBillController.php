@@ -70,12 +70,16 @@ class RaBillController extends Controller
             'photo' => 'nullable|file|mimes:jpg,jpeg,png,webp,pdf|max:10240',
         ]);
 
-        $this->raBillingService->recordMeasurement(
-            workOrder: $workOrder,
-            data: $validated,
-            actor: $request->user(),
-            photo: $request->file('photo')
-        );
+        try {
+            $this->raBillingService->recordMeasurement(
+                workOrder: $workOrder,
+                data: $validated,
+                actor: $request->user(),
+                photo: $request->file('photo')
+            );
+        } catch (Throwable $e) {
+            return back()->withInput()->withErrors(['direct_quantity' => $e->getMessage()]);
+        }
 
         return redirect()->route('work_orders.show', $workOrder)
             ->with('status', __('Site measurement entry recorded successfully.'));
@@ -88,13 +92,14 @@ class RaBillController extends Controller
         $entry = MeasurementEntry::where('work_order_id', $workOrder->id)
             ->findOrFail($measurementId);
 
-        if (!$entry->photo_path || !Storage::disk('local')->exists($entry->photo_path)) {
+        if (!$entry->photo_path || str_contains($entry->photo_path, '..') || !Storage::disk('local')->exists($entry->photo_path)) {
             abort(404, 'Measurement photo not found in private vault.');
         }
 
         return Storage::disk('local')->download(
             $entry->photo_path,
-            'measurement-' . $entry->id . '-' . basename($entry->photo_path)
+            'measurement-' . $entry->id . '-' . preg_replace('/[^A-Za-z0-9._\- ]/', '_', basename($entry->photo_path)),
+            ['X-Content-Type-Options' => 'nosniff']
         );
     }
 

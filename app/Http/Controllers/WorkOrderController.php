@@ -218,26 +218,42 @@ class WorkOrderController extends Controller
             if (!$hasAllSiteAccess && !$user->isAssignedToSite($siteId)) {
                 abort(403, 'You are not authorized to create a work order for this site.');
             }
+
+            $project = Project::find((int) $validated['project_id']);
+            if ($project) {
+                $projectSiteIds = $project->allSites()->pluck('id')->map(fn ($id) => (int) $id)->all();
+                $site = Site::find($siteId);
+                $belongsToProject = ($site && (int) $site->project_id === (int) $project->id) || in_array($siteId, $projectSiteIds, true);
+                if (!$belongsToProject) {
+                    return back()
+                        ->withInput()
+                        ->withErrors(['site_id' => 'The selected site does not belong to the chosen project. Please select a matching project and site.']);
+                }
+            }
         }
 
-        if (empty($validated['client_id']) && !empty($validated['client_name']) && Schema::hasTable('clients')) {
-            $client = Client::firstOrCreate(
-                ['company_id' => $companyId, 'name' => trim($validated['client_name'])],
-                [
-                    'gstin' => $validated['client_gstin'] ?? null,
-                    'address' => $validated['client_address'] ?? null,
-                    'is_active' => true,
-                ]
-            );
-            $validated['client_id'] = $client->id;
-        }
+        $wo = \Illuminate\Support\Facades\DB::transaction(function () use ($validated, $companyId, $user, $request) {
+            if (empty($validated['client_id']) && !empty($validated['client_name']) && Schema::hasTable('clients')) {
+                $client = Client::firstOrCreate(
+                    ['company_id' => $companyId, 'name' => trim($validated['client_name'])],
+                    [
+                        'gstin' => $validated['client_gstin'] ?? null,
+                        'address' => $validated['client_address'] ?? null,
+                        'is_active' => true,
+                    ]
+                );
+                $validated['client_id'] = $client->id;
+            }
 
-        $wo = $this->workOrderService->createWorkOrder($validated, $user);
+            $wo = $this->workOrderService->createWorkOrder($validated, $user);
 
-        // Private document attachment storage
-        if ($request->hasFile('attachment')) {
-            $this->persistWorkOrderAttachment($wo, $request->file('attachment'), $user->id);
-        }
+            // Private document attachment storage
+            if ($request->hasFile('attachment')) {
+                $this->persistWorkOrderAttachment($wo, $request->file('attachment'), $user->id);
+            }
+
+            return $wo;
+        });
 
         return redirect()->route('work_orders.show', $wo)->with('success', "Work order {$wo->order_number} submitted for Tier 1 approval.");
     }
@@ -332,7 +348,11 @@ class WorkOrderController extends Controller
 
         Gate::authorize('approveRevision', [$workOrder, $rev]);
 
-        $this->workOrderService->approveRevision($workOrder, $rev, Auth::user());
+        try {
+            $this->workOrderService->approveRevision($workOrder, $rev, Auth::user());
+        } catch (\InvalidArgumentException $e) {
+            return back()->withErrors(['status' => $e->getMessage()]);
+        }
 
         return back()->with('success', "Work Order Revision #{$rev->revision_number} approved and applied.");
     }
@@ -652,7 +672,11 @@ class WorkOrderController extends Controller
             'notes' => ['nullable', 'string', 'max:500'],
         ]);
 
-        $this->workOrderService->approveBySiteManager($workOrder, Auth::user(), $validated['notes'] ?? null);
+        try {
+            $this->workOrderService->approveBySiteManager($workOrder, Auth::user(), $validated['notes'] ?? null);
+        } catch (\InvalidArgumentException $e) {
+            return back()->withErrors(['status' => $e->getMessage()]);
+        }
 
         return back()->with('success', "Work order {$workOrder->order_number} approved by Site Manager and forwarded to Senior Management.");
     }
@@ -665,7 +689,11 @@ class WorkOrderController extends Controller
             'notes' => ['nullable', 'string', 'max:500'],
         ]);
 
-        $this->workOrderService->approveBySeniorManager($workOrder, Auth::user(), $validated['notes'] ?? null);
+        try {
+            $this->workOrderService->approveBySeniorManager($workOrder, Auth::user(), $validated['notes'] ?? null);
+        } catch (\InvalidArgumentException $e) {
+            return back()->withErrors(['status' => $e->getMessage()]);
+        }
 
         return back()->with('success', "Work order {$workOrder->order_number} fully authorized by Senior Management for execution.");
     }
@@ -678,7 +706,11 @@ class WorkOrderController extends Controller
             'rejection_reason' => ['required', 'string', 'min:5', 'max:500'],
         ]);
 
-        $this->workOrderService->rejectWorkOrder($workOrder, Auth::user(), $validated['rejection_reason']);
+        try {
+            $this->workOrderService->rejectWorkOrder($workOrder, Auth::user(), $validated['rejection_reason']);
+        } catch (\InvalidArgumentException $e) {
+            return back()->withErrors(['status' => $e->getMessage()]);
+        }
 
         return back()->with('success', "Work order {$workOrder->order_number} has been rejected.");
     }

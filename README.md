@@ -103,3 +103,41 @@ php artisan test
 - `TenancySecurityTest`: Fail-closed tenant context, strict company isolation, unassigned site authorization prevention.
 - `AuthenticationAndNavigationTest`: Session security, deactivated user lockouts, protected route redirection.
 - `ControllerWorkflowTest`: End-to-end dashboard, muster roll submission, work order creation, and reporting page rendering.
+- `Phase3EndToEndWorkflowUsabilityTest`: Complete 9-journey business workflow verification from company onboarding through reports.
+- `Phase4ReliabilityDataIntegritySecurityTest`: Concurrency-safe sequence generation, duplicate prevention, transaction atomicity, site-restriction enforcement, and data validation hardening.
+
+---
+
+## 6. Database Backup, Recovery & Data Integrity Procedures
+
+### Non-Destructive Operations Policy
+- Never run `php artisan migrate:fresh`, `php artisan db:wipe`, or `php artisan schema:drop` against production or shared databases.
+- All schema migrations must be additive and backward-compatible (`php artisan migrate --force`).
+
+### Creating a Full Database & Private Storage Backup
+```bash
+# 1. Logical MySQL/TiDB dump with single-transaction consistency
+mysqldump --single-transaction --routines --triggers \
+  -h "$DB_HOST" -P "$DB_PORT" -u "$DB_USERNAME" -p"$DB_PASSWORD" "$DB_DATABASE" \
+  | gzip > "backup_nsd_crm_$(date +%Y%m%d_%H%M%S).sql.gz"
+
+# 2. Archive private employee/project/work-order documents (storage/app/private)
+tar -czf "backup_nsd_storage_$(date +%Y%m%d_%H%M%S).tar.gz" storage/app/private
+```
+
+### Restoring from a Verified Backup
+```bash
+# 1. Enable maintenance mode during restore
+php artisan down
+
+# 2. Restore SQL dump into target database
+gunzip < backup_nsd_crm_YYYYMMDD_HHMMSS.sql.gz | mysql \
+  -h "$DB_HOST" -P "$DB_PORT" -u "$DB_USERNAME" -p"$DB_PASSWORD" "$DB_DATABASE"
+
+# 3. Restore private document vault
+tar -xzf backup_nsd_storage_YYYYMMDD_HHMMSS.tar.gz -C /
+
+# 4. Clear cached state and bring application back online
+php artisan optimize:clear
+php artisan up
+```

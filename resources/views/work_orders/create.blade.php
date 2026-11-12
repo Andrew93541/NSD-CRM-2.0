@@ -113,7 +113,7 @@
                     <label class="block text-xs font-bold text-slate-700 dark:text-slate-300 uppercase mb-1">{{ __('Project') }} *</label>
                     <select name="project_id" required class="w-full rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-slate-800 p-2.5 text-sm text-slate-900 dark:text-white focus:border-amber-500 outline-none">
                         @foreach($projects as $p)
-                            <option value="{{ $p->id }}">{{ $p->code }} — {{ $p->name }}</option>
+                            <option value="{{ $p->id }}" {{ (string) old('project_id', request('project_id')) === (string) $p->id ? 'selected' : '' }}>{{ $p->code }} — {{ $p->name }}</option>
                         @endforeach
                     </select>
                 </div>
@@ -122,7 +122,7 @@
                     <select name="site_id" class="w-full rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-slate-800 p-2.5 text-sm text-slate-900 dark:text-white focus:border-amber-500 outline-none">
                         <option value="">{{ __('General Project Wide') }}</option>
                         @foreach($sites as $s)
-                            <option value="{{ $s->id }}">{{ $s->code }} — {{ $s->name }}</option>
+                            <option value="{{ $s->id }}" {{ (string) old('site_id', request('site_id')) === (string) $s->id ? 'selected' : '' }}>{{ $s->code }} — {{ $s->name }}</option>
                         @endforeach
                     </select>
                 </div>
@@ -174,38 +174,52 @@
                     </div>
                 </div>
 
-                <div class="grid grid-cols-1 sm:grid-cols-3 gap-4 pt-2 border-t border-slate-200 dark:border-slate-800">
-                    <div>
-                        <label class="block text-[11px] font-bold text-slate-600 dark:text-slate-400 uppercase mb-1">{{ __('Executing Contractor / Subcontractor Name') }}</label>
-                        <input type="text" name="contractor_name" placeholder="e.g. NSD Earth Movers & Construction" value="{{ old('contractor_name') }}" class="w-full rounded-lg bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 p-2 text-xs text-slate-900 dark:text-white">
-                    </div>
-                    <div>
-                        <label class="block text-[11px] font-bold text-slate-600 dark:text-slate-400 uppercase mb-1">{{ __('Contractor GSTIN') }}</label>
-                        <input type="text" name="contractor_gst" placeholder="e.g. 27AABCS1429B1Z1" value="{{ old('contractor_gst') }}" class="w-full rounded-lg bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 p-2 text-xs font-mono text-slate-900 dark:text-white">
-                    </div>
-                    <div>
-                        <label class="block text-[11px] font-bold text-slate-600 dark:text-slate-400 uppercase mb-1">{{ __('Contact Person & Phone') }}</label>
-                        <input type="text" name="contractor_contact" placeholder="e.g. Rajesh Patil (+91 98201...)" value="{{ old('contractor_contact') }}" class="w-full rounded-lg bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 p-2 text-xs text-slate-900 dark:text-white">
-                    </div>
-                </div>
+                <details class="pt-2 border-t border-slate-200 dark:border-slate-800">
+                    <summary class="cursor-pointer list-none flex items-center justify-between text-xs font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider">
+                        <span>+ {{ __('Contractor Details, GST Rates & Billing Terms (Optional — Pre-filled with Defaults)') }}</span>
+                        <span class="px-2 py-0.5 rounded bg-slate-200/70 dark:bg-slate-800 text-[11px] font-semibold">{{ __('Show / Hide') }}</span>
+                    </summary>
 
-                <div class="grid grid-cols-1 sm:grid-cols-4 gap-4">
-                    <div class="sm:col-span-2">
-                        <label class="block text-[11px] font-bold text-slate-600 dark:text-slate-400 uppercase mb-1">{{ __('Payment & Billing Terms') }}</label>
-                        <input type="text" name="payment_terms" value="{{ old('payment_terms', \App\Models\WorkOrder::DEFAULT_PAYMENT_TERMS) }}" class="w-full rounded-lg bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 p-2 text-xs text-slate-900 dark:text-white">
-                    </div>
-                    <div>
-                        <label class="block text-[11px] font-bold text-slate-600 dark:text-slate-400 uppercase mb-1">{{ __('CGST / SGST Rate (%)') }}</label>
-                        <div class="grid grid-cols-2 gap-2">
-                            <input type="number" step="0.01" name="cgst_rate" x-model="cgstRate" class="w-full rounded-lg bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 p-2 text-xs font-mono text-slate-900 dark:text-white" title="CGST %">
-                            <input type="number" step="0.01" name="sgst_rate" x-model="sgstRate" class="w-full rounded-lg bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 p-2 text-xs font-mono text-slate-900 dark:text-white" title="SGST %">
+                    <div class="pt-3 mt-2 border-t border-slate-200 dark:border-slate-800 space-y-4">
+                        <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                            <div>
+                                <label class="block text-[11px] font-bold text-slate-600 dark:text-slate-400 uppercase mb-1">{{ __('Executing Contractor / Subcontractor Name') }}</label>
+                                <input type="text" name="contractor_name" placeholder="e.g. NSD Earth Movers & Construction" value="{{ old('contractor_name') }}" class="w-full rounded-lg bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 p-2 text-xs text-slate-900 dark:text-white">
+                            </div>
+                            <div>
+                                <label class="block text-[11px] font-bold text-slate-600 dark:text-slate-400 uppercase mb-1">{{ __('Contractor GSTIN') }}</label>
+                                <input type="text" name="contractor_gst" placeholder="e.g. 27AABCS1429B1Z1" value="{{ old('contractor_gst') }}" class="w-full rounded-lg bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 p-2 text-xs font-mono text-slate-900 dark:text-white">
+                            </div>
+                            <div>
+                                <label class="block text-[11px] font-bold text-slate-600 dark:text-slate-400 uppercase mb-1">{{ __('Contact Person & Phone') }}</label>
+                                <input type="text" name="contractor_contact" placeholder="e.g. Rajesh Patil (+91 98201...)" value="{{ old('contractor_contact') }}" class="w-full rounded-lg bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 p-2 text-xs text-slate-900 dark:text-white">
+                            </div>
+                        </div>
+
+                        <div class="grid grid-cols-1 sm:grid-cols-4 gap-4">
+                            <div class="sm:col-span-2">
+                                <label class="block text-[11px] font-bold text-slate-600 dark:text-slate-400 uppercase mb-1">{{ __('Payment & Billing Terms') }}</label>
+                                <input type="text" name="payment_terms" value="{{ old('payment_terms', \App\Models\WorkOrder::DEFAULT_PAYMENT_TERMS) }}" class="w-full rounded-lg bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 p-2 text-xs text-slate-900 dark:text-white">
+                            </div>
+                            <div>
+                                <label class="block text-[11px] font-bold text-slate-600 dark:text-slate-400 uppercase mb-1">{{ __('CGST / SGST Rate (%)') }}</label>
+                                <div class="grid grid-cols-2 gap-2">
+                                    <input type="number" step="0.01" name="cgst_rate" x-model="cgstRate" class="w-full rounded-lg bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 p-2 text-xs font-mono text-slate-900 dark:text-white" title="CGST %">
+                                    <input type="number" step="0.01" name="sgst_rate" x-model="sgstRate" class="w-full rounded-lg bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 p-2 text-xs font-mono text-slate-900 dark:text-white" title="SGST %">
+                                </div>
+                            </div>
+                            <div>
+                                <label class="block text-[11px] font-bold text-slate-600 dark:text-slate-400 uppercase mb-1">{{ __('Retention (%)') }}</label>
+                                <input type="number" step="0.01" name="retention_percent" value="{{ old('retention_percent', 5.00) }}" class="w-full rounded-lg bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 p-2 text-xs font-mono text-slate-900 dark:text-white">
+                            </div>
+                        </div>
+
+                        <div>
+                            <label class="block text-xs font-bold text-slate-700 dark:text-slate-300 uppercase mb-1">{{ __('Standard Terms & Conditions (NSD / JSW Template)') }}</label>
+                            <textarea name="terms_and_conditions" rows="3" class="w-full rounded-xl bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 p-2.5 text-xs font-mono text-slate-800 dark:text-slate-200 focus:border-amber-500 outline-none">{{ old('terms_and_conditions', \App\Models\WorkOrder::DEFAULT_TERMS) }}</textarea>
                         </div>
                     </div>
-                    <div>
-                        <label class="block text-[11px] font-bold text-slate-600 dark:text-slate-400 uppercase mb-1">{{ __('Retention (%)') }}</label>
-                        <input type="number" step="0.01" name="retention_percent" value="{{ old('retention_percent', 5.00) }}" class="w-full rounded-lg bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 p-2 text-xs font-mono text-slate-900 dark:text-white">
-                    </div>
-                </div>
+                </details>
             </div>
 
             <div>
@@ -316,18 +330,13 @@
             </div>
 
             <div>
-                <label class="block text-xs font-bold text-slate-700 dark:text-slate-300 uppercase mb-1">{{ __('Standard Terms & Conditions (NSD / JSW Template)') }}</label>
-                <textarea name="terms_and_conditions" rows="4" class="w-full rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-slate-800 p-2.5 text-xs font-mono text-slate-800 dark:text-slate-200 focus:border-amber-500 outline-none">{{ old('terms_and_conditions', \App\Models\WorkOrder::DEFAULT_TERMS) }}</textarea>
-            </div>
-
-            <div>
-                <label class="block text-xs font-bold text-slate-700 dark:text-slate-300 uppercase mb-1">{{ __('Supporting Attachment (PDF, DOC, DOCX, Image — Stored in Private Vault)') }}</label>
+                <label class="block text-xs font-bold text-slate-700 dark:text-slate-300 uppercase mb-1">{{ __('Supporting Attachment (PDF, DOC, DOCX, Image — Optional)') }}</label>
                 <input type="file" name="attachment" class="w-full rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-slate-800 p-2 text-xs text-slate-600 dark:text-slate-400 file:mr-4 file:py-1 file:px-3 file:rounded-lg file:border-0 file:text-xs file:font-semibold file:bg-slate-100 hover:file:bg-slate-200 dark:file:bg-slate-800 dark:file:text-white file:text-slate-800">
             </div>
 
-            <div class="flex items-center justify-end gap-3 pt-4 border-t border-slate-200 dark:border-slate-800">
+            <div class="flex items-center justify-end gap-3 pt-4 border-t border-slate-200 dark:border-slate-800" x-data="{ submitting: false }">
                 <a href="{{ route('work_orders.index') }}" class="px-4 py-2.5 text-xs font-bold rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-200 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700 dark:border-slate-700 transition">{{ __('Cancel') }}</a>
-                <button type="submit" class="px-6 py-2.5 text-xs font-extrabold rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 shadow-lg shadow-amber-500/20 transition">{{ __('Save Service Order & Submit for Tier 1 Approval') }}</button>
+                <button type="submit" :disabled="submitting" @click="$nextTick(() => { if ($el.form.checkValidity()) submitting = true })" class="px-6 py-2.5 text-xs font-extrabold rounded-xl bg-amber-500 hover:bg-amber-400 disabled:opacity-60 disabled:cursor-not-allowed text-slate-950 shadow-lg shadow-amber-500/20 transition">{{ __('Save Service Order & Submit for Tier 1 Approval') }}</button>
             </div>
         </form>
     </div>

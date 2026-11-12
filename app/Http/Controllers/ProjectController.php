@@ -37,8 +37,11 @@ class ProjectController extends Controller
             $query->withCount(['milestones', 'documents']);
         }
 
-        // Scope projects for site managers / supervisors to only those linked to their assigned sites
-        if (!$user->hasRole(['super_admin', 'company_admin', 'senior_manager', 'office_staff'])) {
+        // Scope projects for site-restricted users to only those linked to their assigned sites
+        $hasUnrestrictedSiteAccess = $user->hasRole(['super_admin', 'company_admin'])
+            || (!$user->isRestrictedToAssignedSites() && $user->hasRole(['senior_manager', 'office_staff']));
+
+        if (!$hasUnrestrictedSiteAccess) {
             $accessibleSiteIds = $user->accessibleSiteIds();
             $query->where(function ($q) use ($user, $accessibleSiteIds) {
                 $q->where('projects.manager_id', $user->id)
@@ -85,11 +88,22 @@ class ProjectController extends Controller
     {
         Gate::authorize('create', Project::class);
 
+        $user = Auth::user();
         $managers = $this->getCompanyStaff();
-        $sites = Site::orderBy('code')->get();
+        $sitesQuery = Site::orderBy('code');
+        if ($user && $user->isRestrictedToAssignedSites()) {
+            $sitesQuery->whereIn('id', $user->accessibleSiteIds());
+        }
+        $sites = $sitesQuery->get();
         $statuses = Project::STATUSES;
+        $nextNum = Project::count() + 1;
+        $suggestedCode = sprintf('PRJ-%03d', $nextNum);
+        while (Project::where('code', $suggestedCode)->exists()) {
+            $nextNum++;
+            $suggestedCode = sprintf('PRJ-%03d', $nextNum);
+        }
 
-        return view('projects.create', compact('managers', 'sites', 'statuses'));
+        return view('projects.create', compact('managers', 'sites', 'statuses', 'suggestedCode'));
     }
 
     public function store(Request $request): RedirectResponse
@@ -100,9 +114,19 @@ class ProjectController extends Controller
         $validated = $this->validateProject($request, $companyId);
 
         $project = DB::transaction(function () use ($validated, $companyId, $request) {
+            $code = $validated['code'];
+            if (preg_match('/^PRJ-\d+$/', $code) && Project::where('company_id', $companyId)->where('code', $code)->lockForUpdate()->exists()) {
+                $nextNum = Project::where('company_id', $companyId)->count() + 1;
+                $code = sprintf('PRJ-%03d', $nextNum);
+                while (Project::where('company_id', $companyId)->where('code', $code)->exists()) {
+                    $nextNum++;
+                    $code = sprintf('PRJ-%03d', $nextNum);
+                }
+            }
+
             $project = Project::create([
                 'company_id' => $companyId,
-                'code' => $validated['code'],
+                'code' => $code,
                 'name' => $validated['name'],
                 'client_name' => $validated['client_name'] ?? null,
                 'manager_id' => $validated['manager_id'] ?? null,
@@ -113,6 +137,14 @@ class ProjectController extends Controller
             ]);
 
             $this->syncProjectSites($project, (array) $request->input('site_ids', []));
+
+            \App\Models\AuditLog::record(
+                'project.created',
+                $project,
+                null,
+                ['code' => $project->code, 'name' => $project->name, 'status' => $project->status],
+                "Created project {$project->name} ({$project->code})"
+            );
 
             return $project;
         });
@@ -135,7 +167,10 @@ class ProjectController extends Controller
         $project->load(['manager']);
 
         $allProjectSites = $project->allSites();
-        if (!$user->hasRole(['super_admin', 'company_admin', 'senior_manager', 'office_staff'])) {
+        $hasUnrestrictedSiteAccess = $user->hasRole(['super_admin', 'company_admin'])
+            || (!$user->isRestrictedToAssignedSites() && $user->hasRole(['senior_manager', 'office_staff']));
+
+        if (!$hasUnrestrictedSiteAccess) {
             $accessibleIds = $user->accessibleSiteIds();
             $visibleSites = $allProjectSites->filter(fn (Site $s) => in_array($s->id, $accessibleIds, true))->values();
         } else {
@@ -147,7 +182,7 @@ class ProjectController extends Controller
         $milestones = collect();
         if (Schema::hasTable('project_milestones')) {
             $milestoneQuery = $project->milestones()->with(['site', 'creator']);
-            if (!$user->hasRole(['super_admin', 'company_admin', 'senior_manager', 'office_staff'])) {
+            if (!$hasUnrestrictedSiteAccess) {
                 $milestoneQuery->where(function ($q) use ($visibleSiteIds) {
                     $q->whereNull('site_id')->orWhereIn('site_id', $visibleSiteIds);
                 });
@@ -197,8 +232,13 @@ class ProjectController extends Controller
     {
         Gate::authorize('update', $project);
 
+        $user = Auth::user();
         $managers = $this->getCompanyStaff();
-        $sites = Site::orderBy('code')->get();
+        $sitesQuery = Site::orderBy('code');
+        if ($user && $user->isRestrictedToAssignedSites()) {
+            $sitesQuery->whereIn('id', $user->accessibleSiteIds());
+        }
+        $sites = $sitesQuery->get();
         $statuses = Project::STATUSES;
         $linkedSiteIds = $project->allSites()->pluck('id')->all();
 
@@ -213,6 +253,8 @@ class ProjectController extends Controller
         $validated = $this->validateProject($request, $companyId, $project->id);
 
         DB::transaction(function () use ($project, $validated, $request) {
+            $oldValues = ['code' => $project->code, 'name' => $project->name, 'status' => $project->status];
+
             $project->update([
                 'code' => $validated['code'],
                 'name' => $validated['name'],
@@ -227,6 +269,14 @@ class ProjectController extends Controller
             if ($request->has('site_ids')) {
                 $this->syncProjectSites($project, (array) $request->input('site_ids', []));
             }
+
+            \App\Models\AuditLog::record(
+                'project.updated',
+                $project,
+                $oldValues,
+                ['code' => $project->code, 'name' => $project->name, 'status' => $project->status],
+                "Updated project {$project->name} ({$project->code})"
+            );
         });
 
         return redirect()
@@ -253,8 +303,17 @@ class ProjectController extends Controller
             'percent_complete' => ['required', 'integer', 'min:0', 'max:100'],
         ]);
 
-        if (!empty($validated['site_id']) && !Auth::user()->isAssignedToSite((int) $validated['site_id'])) {
-            abort(403, 'Unauthorized to create a milestone for an unassigned site.');
+        if (!empty($validated['site_id'])) {
+            $siteId = (int) $validated['site_id'];
+            if (!Auth::user()->isAssignedToSite($siteId)) {
+                abort(403, 'Unauthorized to create a milestone for an unassigned site.');
+            }
+            $projectSiteIds = $project->allSites()->pluck('id')->map(fn ($id) => (int) $id)->all();
+            if (!in_array($siteId, $projectSiteIds, true)) {
+                throw ValidationException::withMessages([
+                    'site_id' => ['The selected site does not belong to this project.'],
+                ]);
+            }
         }
 
         $percent = (int) $validated['percent_complete'];
@@ -349,8 +408,17 @@ class ProjectController extends Controller
             'visibility_roles.*' => ['string', 'max:50'],
         ]);
 
-        if (!empty($validated['site_id']) && !Auth::user()->isAssignedToSite((int) $validated['site_id'])) {
-            abort(403, 'Unauthorized to upload a document for an unassigned site.');
+        if (!empty($validated['site_id'])) {
+            $siteId = (int) $validated['site_id'];
+            if (!Auth::user()->isAssignedToSite($siteId)) {
+                abort(403, 'Unauthorized to upload a document for an unassigned site.');
+            }
+            $projectSiteIds = $project->allSites()->pluck('id')->map(fn ($id) => (int) $id)->all();
+            if (!in_array($siteId, $projectSiteIds, true)) {
+                throw ValidationException::withMessages([
+                    'site_id' => ['The selected site does not belong to this project.'],
+                ]);
+            }
         }
 
         /** @var UploadedFile $file */
@@ -465,6 +533,12 @@ class ProjectController extends Controller
 
     protected function validateProject(Request $request, ?int $companyId, ?int $ignoreProjectId = null): array
     {
+        if ($request->filled('code')) {
+            $request->merge([
+                'code' => strtoupper(trim((string) $request->input('code'))),
+            ]);
+        }
+
         $codeRule = Rule::unique('projects', 'code')->where(fn ($q) => $q->where('company_id', $companyId));
         if ($ignoreProjectId !== null) {
             $codeRule->ignore($ignoreProjectId);
@@ -488,6 +562,9 @@ class ProjectController extends Controller
                 'integer',
                 Rule::exists('sites', 'id')->where(fn ($q) => $q->where('company_id', $companyId)),
             ],
+        ], [
+            'code.unique' => 'This Project Code is already in use by another project in your company. Please enter a unique Project Code.',
+            'end_date.after_or_equal' => 'Project completion date cannot be earlier than the start date.',
         ]);
     }
 

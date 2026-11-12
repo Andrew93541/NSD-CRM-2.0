@@ -29,11 +29,12 @@
     <style>
         body { font-family: 'Plus Jakarta Sans', 'Noto Sans Devanagari', sans-serif; }
         code, pre, .font-mono { font-family: 'JetBrains Mono', monospace; }
+        [x-cloak] { display: none !important; }
     </style>
 </head>
 <body class="h-full flex flex-col overflow-x-hidden bg-slate-100 text-slate-800 dark:bg-slate-950 dark:text-slate-100 transition-colors duration-200" x-data="{ mobileMenu: false }">
     <!-- Top Navigation Header -->
-    <header class="sticky top-0 z-30 bg-white/95 text-slate-800 border-b border-slate-200 dark:bg-slate-900/90 dark:text-slate-200 dark:border-slate-800 backdrop-blur-md transition-colors duration-200">
+    <header class="sticky top-0 z-30 w-full max-w-full overflow-x-hidden bg-white/95 text-slate-800 border-b border-slate-200 dark:bg-slate-900/90 dark:text-slate-200 dark:border-slate-800 backdrop-blur-md transition-colors duration-200">
         <div class="px-2.5 sm:px-6 lg:px-8 flex h-16 items-center justify-between gap-2">
             <div class="flex items-center gap-1.5 sm:gap-3 min-w-0">
                 <button type="button" @click="mobileMenu = !mobileMenu" class="lg:hidden p-1.5 sm:p-2 rounded-xl text-slate-500 hover:text-slate-900 hover:bg-slate-100 dark:text-slate-400 dark:hover:text-white dark:hover:bg-slate-800 focus:outline-none focus:ring-2 focus:ring-amber-500 shrink-0" aria-label="Toggle Navigation">
@@ -82,11 +83,11 @@
                         :aria-label="isDark ? '{{ __('Switch to light theme') }}' : '{{ __('Switch to dark theme') }}'"
                         :title="isDark ? '{{ __('Switch to light theme') }}' : '{{ __('Switch to dark theme') }}'">
                         <!-- Sun icon (shown in dark mode to switch to light) -->
-                        <svg x-show="isDark" class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <svg x-show="isDark" class="w-4 h-4 hidden dark:block" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z"/>
                         </svg>
                         <!-- Moon icon (shown in light mode to switch to dark) -->
-                        <svg x-show="!isDark" class="w-4 h-4 text-slate-700" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <svg x-show="!isDark" class="w-4 h-4 text-slate-700 block dark:hidden" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z"/>
                         </svg>
                     </button>
@@ -153,7 +154,7 @@
                     @endif
                 </a>
 
-                <div class="flex items-center gap-1.5 sm:gap-3">
+                <div class="hidden sm:flex items-center gap-1.5 sm:gap-3">
                     <div class="text-right hidden md:block">
                         <div class="text-xs font-bold text-slate-900 dark:text-white">{{ Auth::user()->name }}</div>
                         <div class="text-[10px] font-semibold text-amber-600 dark:text-amber-400 uppercase tracking-wider">
@@ -376,63 +377,72 @@
                         </button>
                     </div>
 
-                    <nav class="mt-4 space-y-1.5">
-                        <a href="{{ route('dashboard') }}" class="flex items-center gap-3 px-3 py-2.5 rounded-xl font-bold {{ request()->routeIs('dashboard') ? 'bg-amber-500 text-slate-950 shadow' : 'text-slate-700 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800' }}">
+                    <nav class="mt-4 space-y-1">
+                        <div class="px-3 pb-1 text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider">{{ __('Overview') }}</div>
+                        <a href="{{ route('dashboard') }}" class="flex items-center gap-3 px-3 py-2 rounded-xl text-sm font-bold {{ request()->routeIs('dashboard') ? 'bg-amber-500 text-slate-950 shadow' : 'text-slate-700 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800' }}">
                             <span>{{ __('Dashboard') }}</span>
                         </a>
+
+                        <div class="px-3 pt-2.5 pb-1 text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider">{{ __('Projects') }}</div>
                         @can('viewAny', \App\Models\Project::class)
-                        <a href="{{ route('projects.index') }}" class="flex items-center gap-3 px-3 py-2.5 rounded-xl font-bold {{ request()->routeIs('projects.*') ? 'bg-amber-500 text-slate-950 shadow' : 'text-slate-700 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800' }}">
+                        <a href="{{ route('projects.index') }}" class="flex items-center gap-3 px-3 py-2 rounded-xl text-sm font-bold {{ request()->routeIs('projects.*') ? 'bg-amber-500 text-slate-950 shadow' : 'text-slate-700 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800' }}">
                             <span>{{ __('Projects') }}</span>
                         </a>
                         @endcan
                         @can('viewAny', \App\Models\Site::class)
-                        <a href="{{ route('sites.index') }}" class="flex items-center gap-3 px-3 py-2.5 rounded-xl font-bold {{ request()->routeIs('sites.*') ? 'bg-amber-500 text-slate-950 shadow' : 'text-slate-700 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800' }}">
+                        <a href="{{ route('sites.index') }}" class="flex items-center gap-3 px-3 py-2 rounded-xl text-sm font-bold {{ request()->routeIs('sites.*') ? 'bg-amber-500 text-slate-950 shadow' : 'text-slate-700 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800' }}">
                             <span>{{ __('Sites') }}</span>
                         </a>
                         @endcan
                         @can('viewAny', \App\Models\WorkOrder::class)
-                        <a href="{{ route('work_orders.index') }}" class="flex items-center gap-3 px-3 py-2.5 rounded-xl font-bold {{ request()->routeIs('work_orders.*') ? 'bg-amber-500 text-slate-950 shadow' : 'text-slate-700 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800' }}">
+                        <a href="{{ route('work_orders.index') }}" class="flex items-center gap-3 px-3 py-2 rounded-xl text-sm font-bold {{ request()->routeIs('work_orders.*') ? 'bg-amber-500 text-slate-950 shadow' : 'text-slate-700 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800' }}">
                             <span>{{ __('Work Orders') }}</span>
                         </a>
                         @endcan
                         @can('viewAny', \App\Models\Task::class)
-                        <a href="{{ route('tasks.index') }}" class="flex items-center gap-3 px-3 py-2.5 rounded-xl font-bold {{ request()->routeIs('tasks.*') ? 'bg-amber-500 text-slate-950 shadow' : 'text-slate-700 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800' }}">
+                        <a href="{{ route('tasks.index') }}" class="flex items-center gap-3 px-3 py-2 rounded-xl text-sm font-bold {{ request()->routeIs('tasks.*') ? 'bg-amber-500 text-slate-950 shadow' : 'text-slate-700 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800' }}">
                             <span>{{ __('Tasks & Notes') }}</span>
                         </a>
                         @endcan
+
+                        <div class="px-3 pt-2.5 pb-1 text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider">{{ __('People') }}</div>
                         @can('viewAny', \App\Models\Worker::class)
-                        <a href="{{ route('workforce.index') }}" class="flex items-center gap-3 px-3 py-2.5 rounded-xl font-bold {{ request()->routeIs('workforce.*') ? 'bg-amber-500 text-slate-950 shadow' : 'text-slate-700 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800' }}">
+                        <a href="{{ route('workforce.index') }}" class="flex items-center gap-3 px-3 py-2 rounded-xl text-sm font-bold {{ request()->routeIs('workforce.*') ? 'bg-amber-500 text-slate-950 shadow' : 'text-slate-700 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800' }}">
                             <span>{{ __('Employees & Workers') }}</span>
                         </a>
                         @endcan
                         @if(Auth::user()->hasPermission('attendance.view') || Auth::user()->hasPermission('attendance.mark') || Auth::user()->can('viewAny', \App\Models\Worker::class))
-                        <a href="{{ route('attendance.register') }}" class="flex items-center gap-3 px-3 py-2.5 rounded-xl font-bold {{ request()->routeIs('attendance.*') ? 'bg-amber-500 text-slate-950 shadow' : 'text-slate-700 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800' }}">
+                        <a href="{{ route('attendance.register') }}" class="flex items-center gap-3 px-3 py-2 rounded-xl text-sm font-bold {{ request()->routeIs('attendance.*') ? 'bg-amber-500 text-slate-950 shadow' : 'text-slate-700 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800' }}">
                             <span>{{ __('Attendance') }}</span>
                         </a>
                         @endif
+
+                        <div class="px-3 pt-2.5 pb-1 text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider">{{ __('Finance') }}</div>
+                        @if(Auth::user()->hasPermission('ra_bills.view') || Auth::user()->hasPermission('work_orders.view') || Auth::user()->can('viewAny', \App\Models\WorkOrder::class))
+                        <a href="{{ route('work_orders.index', ['billing' => 1]) }}" class="flex items-center gap-3 px-3 py-2 rounded-xl text-sm font-bold {{ request()->routeIs('ra_bills.*') ? 'bg-amber-500 text-slate-950 shadow' : 'text-slate-700 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800' }}">
+                            <span>{{ __('Invoices & RA Bills') }}</span>
+                        </a>
+                        @endif
                         @if(Auth::user()->hasPermission('payroll.view') || Auth::user()->can('viewAny', \App\Models\Worker::class))
-                        <a href="{{ route('payroll.index') }}" class="flex items-center gap-3 px-3 py-2.5 rounded-xl font-bold {{ request()->routeIs('payroll.*') ? 'bg-amber-500 text-slate-950 shadow' : 'text-slate-700 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800' }}">
+                        <a href="{{ route('payroll.index') }}" class="flex items-center gap-3 px-3 py-2 rounded-xl text-sm font-bold {{ request()->routeIs('payroll.*') ? 'bg-amber-500 text-slate-950 shadow' : 'text-slate-700 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800' }}">
                             <span>{{ __('Payroll & Payslips') }}</span>
                         </a>
                         @endif
                         @if(Auth::user()->hasPermission('procurement.requests.view') || Auth::user()->hasPermission('procurement.orders.view') || Auth::user()->hasPermission('inventory.view'))
-                        <a href="{{ route('procurement.requests') }}" class="flex items-center gap-3 px-3 py-2.5 rounded-xl font-bold {{ request()->routeIs('procurement.*') ? 'bg-amber-500 text-slate-950 shadow' : 'text-slate-700 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800' }}">
-                            <span>{{ __('Procurement') }}</span>
+                        <a href="{{ route('procurement.requests') }}" class="flex items-center gap-3 px-3 py-2 rounded-xl text-sm font-bold {{ request()->routeIs('procurement.*') || request()->routeIs('inventory.*') ? 'bg-amber-500 text-slate-950 shadow' : 'text-slate-700 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800' }}">
+                            <span>{{ __('Procurement & Inventory') }}</span>
                         </a>
                         @endif
-                        @if(Auth::user()->hasPermission('inventory.view') || Auth::user()->hasPermission('procurement.orders.view'))
-                        <a href="{{ route('inventory.stocks') }}" class="flex items-center gap-3 px-3 py-2.5 rounded-xl font-bold {{ request()->routeIs('inventory.*') ? 'bg-amber-500 text-slate-950 shadow' : 'text-slate-700 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800' }}">
-                            <span>{{ __('Inventory') }}</span>
+
+                        <div class="px-3 pt-2.5 pb-1 text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider">{{ __('Administration') }}</div>
+                        @if(Auth::user()->hasPermission('reports.view') || Auth::user()->can('viewAny', \App\Models\Worker::class))
+                        <a href="{{ route('reports.multi_site') }}" class="flex items-center gap-3 px-3 py-2 rounded-xl text-sm font-bold {{ request()->routeIs('reports.*') ? 'bg-amber-500 text-slate-950 shadow' : 'text-slate-700 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800' }}">
+                            <span>{{ __('Reports') }}</span>
                         </a>
                         @endif
                         @if(Auth::user()->hasRole(['super_admin', 'company_admin']) || Auth::user()->hasPermission('users.view') || Auth::user()->hasPermission('roles.view'))
-                        <a href="{{ route('admin.users.index') }}" class="flex items-center gap-3 px-3 py-2.5 rounded-xl font-bold {{ request()->routeIs('admin.users.*') || request()->routeIs('admin.roles.*') ? 'bg-amber-500 text-slate-950 shadow' : 'text-slate-700 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800' }}">
+                        <a href="{{ route('admin.users.index') }}" class="flex items-center gap-3 px-3 py-2 rounded-xl text-sm font-bold {{ request()->routeIs('admin.users.*') || request()->routeIs('admin.roles.*') ? 'bg-amber-500 text-slate-950 shadow' : 'text-slate-700 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800' }}">
                             <span>{{ __('Users & Access') }}</span>
-                        </a>
-                        @endif
-                        @if(Auth::user()->hasPermission('reports.view') || Auth::user()->can('viewAny', \App\Models\Worker::class))
-                        <a href="{{ route('reports.multi_site') }}" class="flex items-center gap-3 px-3 py-2.5 rounded-xl font-bold {{ request()->routeIs('reports.*') ? 'bg-amber-500 text-slate-950 shadow' : 'text-slate-700 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800' }}">
-                            <span>{{ __('Reports') }}</span>
                         </a>
                         @endif
                     </nav>
@@ -451,7 +461,7 @@
         </div>
 
         <!-- Main Content Area -->
-        <main class="flex-1 overflow-y-auto bg-slate-100 dark:bg-slate-950 p-4 sm:p-6 lg:p-8 pb-24 sm:pb-24 lg:pb-8 transition-colors duration-200">
+        <main class="flex-1 min-w-0 overflow-y-auto overflow-x-hidden bg-slate-100 dark:bg-slate-950 p-4 sm:p-6 lg:p-8 pb-24 sm:pb-24 lg:pb-8 transition-colors duration-200">
             <div class="max-w-7xl mx-auto space-y-6">
                 <!-- Flash Messages -->
                 @if(session('success') || session('status'))

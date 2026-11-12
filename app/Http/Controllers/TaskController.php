@@ -25,14 +25,21 @@ use Illuminate\View\View;
 
 class TaskController extends Controller
 {
+    protected function hasUnrestrictedTaskSiteAccess(User $user): bool
+    {
+        return $user->hasRole(['super_admin', 'company_admin'])
+            || (!$user->isRestrictedToAssignedSites() && $user->hasRole(['senior_manager', 'office_staff']));
+    }
+
     public function index(Request $request): View
     {
         Gate::authorize('viewAny', Task::class);
 
         $user = Auth::user();
         $companyId = TenantContext::getCompanyId();
+        $hasAllSiteAccess = $this->hasUnrestrictedTaskSiteAccess($user);
 
-        $accessibleSites = $user->hasRole(['super_admin', 'company_admin', 'senior_manager', 'office_staff'])
+        $accessibleSites = $hasAllSiteAccess
             ? Site::where('status', 'active')->orderBy('name')->get()
             : Site::whereIn('id', $user->accessibleSiteIds())->where('status', 'active')->orderBy('name')->get();
 
@@ -42,13 +49,13 @@ class TaskController extends Controller
             ? $request->query('site_id')
             : session('active_site_id');
 
-        if ($selectedSiteId && !$user->isAssignedToSite((int) $selectedSiteId) && !$user->hasRole(['office_staff'])) {
+        if ($selectedSiteId && !$user->isAssignedToSite((int) $selectedSiteId) && !$hasAllSiteAccess) {
             abort(403, 'Unauthorized to view tasks for this site.');
         }
 
         // Base scope for KPIs and task listing (respects company + site + user accessibility)
         $baseScope = Task::query()
-            ->when(!$user->hasRole(['super_admin', 'company_admin', 'senior_manager', 'office_staff']), function ($q) use ($accessibleSiteIds, $user) {
+            ->when(!$hasAllSiteAccess, function ($q) use ($accessibleSiteIds, $user) {
                 $q->where(function ($sub) use ($accessibleSiteIds, $user) {
                     $sub->whereIn('site_id', $accessibleSiteIds)
                         ->orWhere('assigned_to', $user->id);
@@ -62,7 +69,7 @@ class TaskController extends Controller
         $notesBaseScope = Schema::hasTable('site_notes')
             ? SiteNote::query()
                 ->when(!empty($selectedSiteId), fn ($q) => $q->where('site_id', (int) $selectedSiteId))
-                ->when(empty($selectedSiteId) && !$user->hasRole(['super_admin', 'company_admin', 'senior_manager', 'office_staff']), fn ($q) => $q->whereIn('site_id', $accessibleSiteIds))
+                ->when(empty($selectedSiteId) && !$hasAllSiteAccess, fn ($q) => $q->whereIn('site_id', $accessibleSiteIds))
             : null;
 
         $kpis = [
@@ -116,7 +123,7 @@ class TaskController extends Controller
 
         $workers = Worker::where('status', 'active')
             ->when(!empty($selectedSiteId), fn ($q) => $q->where('assigned_site_id', (int) $selectedSiteId))
-            ->when(empty($selectedSiteId) && !$user->hasRole(['super_admin', 'company_admin', 'senior_manager', 'office_staff']), fn ($q) => $q->whereIn('assigned_site_id', $accessibleSiteIds))
+            ->when(empty($selectedSiteId) && !$hasAllSiteAccess, fn ($q) => $q->whereIn('assigned_site_id', $accessibleSiteIds))
             ->orderBy('first_name')
             ->get();
 
@@ -133,7 +140,7 @@ class TaskController extends Controller
         $recentActivity = Schema::hasTable('activity_logs')
             ? AuditLog::where('company_id', $companyId)
                 ->when(!empty($selectedSiteId), fn ($q) => $q->where('site_id', (int) $selectedSiteId))
-                ->when(empty($selectedSiteId) && !$user->hasRole(['super_admin', 'company_admin', 'senior_manager', 'office_staff']), fn ($q) => $q->whereIn('site_id', $accessibleSiteIds))
+                ->when(empty($selectedSiteId) && !$hasAllSiteAccess, fn ($q) => $q->whereIn('site_id', $accessibleSiteIds))
                 ->with(['user', 'site'])
                 ->latest()
                 ->limit(15)
@@ -185,38 +192,42 @@ class TaskController extends Controller
             abort(403, 'Unauthorized to create tasks for an unassigned site.');
         }
 
-        $code = $this->generateNextTaskCode($companyId);
+        $task = DB::transaction(function () use ($companyId, $site, $validated, $user) {
+            $code = $this->generateNextTaskCode((int) $companyId);
 
-        $task = Task::create([
-            'company_id' => $companyId,
-            'project_id' => $site->project_id,
-            'site_id' => $site->id,
-            'code' => $code,
-            'title' => $validated['title'],
-            'description' => $validated['description'] ?? null,
-            'priority' => $validated['priority'],
-            'status' => $validated['status'] ?? 'todo',
-            'due_date' => $validated['due_date'] ?? null,
-            'assigned_to' => $validated['assigned_to'] ?? null,
-            'assigned_worker_id' => $validated['assigned_worker_id'] ?? null,
-            'created_by' => $user->id,
-        ]);
+            $task = Task::create([
+                'company_id' => $companyId,
+                'project_id' => $site->project_id,
+                'site_id' => $site->id,
+                'code' => $code,
+                'title' => $validated['title'],
+                'description' => $validated['description'] ?? null,
+                'priority' => $validated['priority'],
+                'status' => $validated['status'] ?? 'todo',
+                'due_date' => $validated['due_date'] ?? null,
+                'assigned_to' => $validated['assigned_to'] ?? null,
+                'assigned_worker_id' => $validated['assigned_worker_id'] ?? null,
+                'created_by' => $user->id,
+            ]);
 
-        AuditLog::record(
-            'task.created',
-            $task,
-            null,
-            [
-                'code' => $task->code,
-                'title' => $task->title,
-                'site_id' => $task->site_id,
-                'project_id' => $task->project_id,
-                'priority' => $task->priority,
-                'assigned_to' => $task->assigned_to,
-                'assigned_worker_id' => $task->assigned_worker_id,
-            ],
-            "Created task {$task->code}: {$task->title} at {$site->code}"
-        );
+            AuditLog::record(
+                'task.created',
+                $task,
+                null,
+                [
+                    'code' => $task->code,
+                    'title' => $task->title,
+                    'site_id' => $task->site_id,
+                    'project_id' => $task->project_id,
+                    'priority' => $task->priority,
+                    'assigned_to' => $task->assigned_to,
+                    'assigned_worker_id' => $task->assigned_worker_id,
+                ],
+                "Created task {$task->code}: {$task->title} at {$site->code}"
+            );
+
+            return $task;
+        });
 
         if ($task->assigned_to && (int) $task->assigned_to !== (int) $user->id) {
             CrmNotification::notifyUser(
@@ -241,7 +252,7 @@ class TaskController extends Controller
         $user = Auth::user();
         $task->load(['project', 'site', 'assignee', 'assignedWorker', 'creator', 'comments.user']);
 
-        $accessibleSites = $user->hasRole(['super_admin', 'company_admin', 'senior_manager', 'office_staff'])
+        $accessibleSites = $this->hasUnrestrictedTaskSiteAccess($user)
             ? Site::where('status', 'active')->orderBy('name')->get()
             : Site::whereIn('id', $user->accessibleSiteIds())->where('status', 'active')->orderBy('name')->get();
 
@@ -716,11 +727,38 @@ class TaskController extends Controller
 
     private function generateNextTaskCode(int $companyId): string
     {
+        $year = (int) now()->format('Y');
         $nextNum = Task::withoutGlobalScopes()->where('company_id', $companyId)->count() + 1;
-        $code = sprintf('TSK-%s-%04d', now()->format('Y'), $nextNum);
+
+        if (Schema::hasTable('worker_sequences')) {
+            $seq = DB::table('worker_sequences')
+                ->where('company_id', $companyId)
+                ->where('prefix', 'TSK')
+                ->where('year', $year)
+                ->lockForUpdate()
+                ->first();
+
+            if (!$seq) {
+                DB::table('worker_sequences')->insert([
+                    'company_id' => $companyId,
+                    'prefix' => 'TSK',
+                    'year' => $year,
+                    'last_number' => $nextNum,
+                    'created_at' => now(),
+                    'updated_at' => now(),
+                ]);
+            } else {
+                $nextNum = max($nextNum, ((int) $seq->last_number) + 1);
+                DB::table('worker_sequences')
+                    ->where('id', $seq->id)
+                    ->update(['last_number' => $nextNum, 'updated_at' => now()]);
+            }
+        }
+
+        $code = sprintf('TSK-%d-%04d', $year, $nextNum);
         while (Task::withoutGlobalScopes()->where('company_id', $companyId)->where('code', $code)->exists()) {
             $nextNum++;
-            $code = sprintf('TSK-%s-%04d', now()->format('Y'), $nextNum);
+            $code = sprintf('TSK-%d-%04d', $year, $nextNum);
         }
 
         return $code;

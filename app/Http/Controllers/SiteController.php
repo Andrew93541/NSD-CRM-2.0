@@ -33,8 +33,11 @@ class SiteController extends Controller
         $query = Site::with(['project', 'supervisor'])
             ->withCount(['workers', 'workOrders', 'warehouses', 'purchaseRequests']);
 
-        // Enforce server-side site-level visibility for non-executive roles
-        if (!$user->hasRole(['super_admin', 'company_admin', 'senior_manager'])) {
+        // Enforce server-side site-level visibility for site-restricted users
+        $hasUnrestrictedSiteAccess = $user->hasRole(['super_admin', 'company_admin'])
+            || (!$user->isRestrictedToAssignedSites() && $user->hasRole(['senior_manager']));
+
+        if (!$hasUnrestrictedSiteAccess) {
             $accessibleIds = $user->accessibleSiteIds();
             $query->whereIn('sites.id', $accessibleIds);
         }
@@ -70,14 +73,21 @@ class SiteController extends Controller
         return view('sites.index', compact('sites', 'projects', 'hasFilters'));
     }
 
-    public function create(): View
+    public function create(Request $request): View
     {
         Gate::authorize('create', Site::class);
 
         $projects = Project::orderBy('name')->get();
         $supervisors = $this->getCompanySupervisors();
+        $selectedProjectId = $request->query('project_id');
+        $nextNum = Site::count() + 1;
+        $suggestedCode = sprintf('SITE-%03d', $nextNum);
+        while (Site::where('code', $suggestedCode)->exists()) {
+            $nextNum++;
+            $suggestedCode = sprintf('SITE-%03d', $nextNum);
+        }
 
-        return view('sites.create', compact('projects', 'supervisors'));
+        return view('sites.create', compact('projects', 'supervisors', 'selectedProjectId', 'suggestedCode'));
     }
 
     public function store(Request $request): RedirectResponse
@@ -87,12 +97,34 @@ class SiteController extends Controller
         $companyId = TenantContext::getCompanyId();
         $validated = $this->validateSite($request, $companyId);
 
-        $payload = $this->filterPersistableColumns($validated);
-        $payload['company_id'] = $companyId;
+        $site = DB::transaction(function () use ($validated, $companyId) {
+            $payload = $this->filterPersistableColumns($validated);
+            $payload['company_id'] = $companyId;
 
-        $site = Site::create($payload);
+            if (!empty($payload['code']) && preg_match('/^SITE-\d+$/', $payload['code']) && Site::where('company_id', $companyId)->where('code', $payload['code'])->lockForUpdate()->exists()) {
+                $nextNum = Site::where('company_id', $companyId)->count() + 1;
+                $code = sprintf('SITE-%03d', $nextNum);
+                while (Site::where('company_id', $companyId)->where('code', $code)->exists()) {
+                    $nextNum++;
+                    $code = sprintf('SITE-%03d', $nextNum);
+                }
+                $payload['code'] = $code;
+            }
 
-        $this->syncSiteRelations($site);
+            $site = Site::create($payload);
+
+            $this->syncSiteRelations($site);
+
+            \App\Models\AuditLog::record(
+                'site.created',
+                $site,
+                null,
+                ['code' => $site->code, 'name' => $site->name, 'project_id' => $site->project_id, 'status' => $site->status],
+                "Created site {$site->name} ({$site->code})"
+            );
+
+            return $site;
+        });
 
         return redirect()
             ->route('sites.show', $site)
@@ -201,11 +233,23 @@ class SiteController extends Controller
         $companyId = TenantContext::getCompanyId();
         $validated = $this->validateSite($request, $companyId, $site->id);
 
-        $payload = $this->filterPersistableColumns($validated);
-        $site->fill($payload);
-        $site->save();
+        DB::transaction(function () use ($site, $validated) {
+            $oldValues = ['code' => $site->code, 'name' => $site->name, 'status' => $site->status, 'project_id' => $site->project_id];
 
-        $this->syncSiteRelations($site);
+            $payload = $this->filterPersistableColumns($validated);
+            $site->fill($payload);
+            $site->save();
+
+            $this->syncSiteRelations($site);
+
+            \App\Models\AuditLog::record(
+                'site.updated',
+                $site,
+                $oldValues,
+                ['code' => $site->code, 'name' => $site->name, 'status' => $site->status, 'project_id' => $site->project_id],
+                "Updated site {$site->name} ({$site->code})"
+            );
+        });
 
         return redirect()
             ->route('sites.show', $site)
@@ -237,32 +281,34 @@ class SiteController extends Controller
             'transfer_exclusive' => ['nullable', 'boolean'],
         ]);
 
-        if (!empty($validated['user_id'])) {
-            $staffUser = User::findOrFail($validated['user_id']);
-            SiteAssignment::recordUserAssignment(
-                $site,
-                $staffUser,
-                $validated['role_on_site'],
-                $validated['start_date'],
-                Auth::id(),
-                $validated['notes'] ?? null,
-                (bool) ($validated['transfer_exclusive'] ?? false)
-            );
-        }
+        DB::transaction(function () use ($validated, $site) {
+            if (!empty($validated['user_id'])) {
+                $staffUser = User::findOrFail($validated['user_id']);
+                SiteAssignment::recordUserAssignment(
+                    $site,
+                    $staffUser,
+                    $validated['role_on_site'],
+                    $validated['start_date'],
+                    Auth::id(),
+                    $validated['notes'] ?? null,
+                    (bool) ($validated['transfer_exclusive'] ?? false)
+                );
+            }
 
-        if (!empty($validated['worker_id'])) {
-            $worker = Worker::findOrFail($validated['worker_id']);
-            $worker->assigned_site_id = $site->id;
-            $worker->save();
+            if (!empty($validated['worker_id'])) {
+                $worker = Worker::findOrFail($validated['worker_id']);
+                $worker->assigned_site_id = $site->id;
+                $worker->save();
 
-            SiteAssignment::recordWorkerAssignment(
-                $worker,
-                $site->id,
-                $validated['start_date'],
-                Auth::id(),
-                $validated['notes'] ?? 'Transferred to ' . $site->code
-            );
-        }
+                SiteAssignment::recordWorkerAssignment(
+                    $worker,
+                    $site->id,
+                    $validated['start_date'],
+                    Auth::id(),
+                    $validated['notes'] ?? 'Transferred to ' . $site->code
+                );
+            }
+        });
 
         return back()->with('success', 'Dated site assignment recorded successfully.');
     }
@@ -299,6 +345,12 @@ class SiteController extends Controller
 
     protected function validateSite(Request $request, ?int $companyId, ?int $ignoreSiteId = null): array
     {
+        if ($request->filled('code')) {
+            $request->merge([
+                'code' => strtoupper(trim((string) $request->input('code'))),
+            ]);
+        }
+
         $codeUniqueRule = Rule::unique('sites', 'code')->where(fn ($q) => $q->where('company_id', $companyId));
         if ($ignoreSiteId !== null) {
             $codeUniqueRule->ignore($ignoreSiteId);
@@ -339,6 +391,8 @@ class SiteController extends Controller
             'shift_start' => ['nullable', 'string', 'max:8'],
             'shift_end' => ['nullable', 'string', 'max:8'],
             'description' => ['nullable', 'string', 'max:2000'],
+        ], [
+            'code.unique' => 'This Site Code is already in use by another site in your company. Please enter a unique Site Code.',
         ]);
     }
 

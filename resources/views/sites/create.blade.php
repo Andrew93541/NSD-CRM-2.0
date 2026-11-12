@@ -8,7 +8,7 @@
     </div>
 
     <div class="p-6 sm:p-8 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-xl transition-colors duration-200">
-        <form method="POST" action="{{ route('sites.store') }}" class="space-y-5">
+        <form method="POST" action="{{ route('sites.store') }}" class="space-y-5" x-data="{ submitting: false }" @submit="submitting = true">
             @csrf
 
             <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -17,7 +17,7 @@
                     <select name="project_id" required class="w-full rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-slate-800 p-2.5 text-sm text-slate-900 dark:text-white focus:border-amber-500 outline-none">
                         <option value="">{{ __('Select Project...') }}</option>
                         @foreach($projects as $p)
-                            <option value="{{ $p->id }}" {{ (string) old('project_id') === (string) $p->id ? 'selected' : '' }}>
+                            <option value="{{ $p->id }}" {{ (string) old('project_id', $selectedProjectId ?? request('project_id')) === (string) $p->id ? 'selected' : '' }}>
                                 {{ $p->code }} — {{ $p->name }}
                             </option>
                         @endforeach
@@ -26,7 +26,8 @@
 
                 <div>
                     <label class="block text-xs font-bold text-slate-700 dark:text-slate-300 uppercase mb-1">{{ __('Site Code') }} *</label>
-                    <input type="text" name="code" required maxlength="30" placeholder="e.g. SITE-NH48-3" value="{{ old('code') }}" class="w-full rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-slate-800 p-2.5 text-sm font-mono text-slate-900 dark:text-white placeholder-slate-400 dark:placeholder-slate-500 focus:border-amber-500 outline-none">
+                    <input type="text" name="code" required maxlength="30" placeholder="e.g. SITE-NH48-3" value="{{ old('code', $suggestedCode ?? '') }}" class="w-full rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-slate-800 p-2.5 text-sm font-mono text-slate-900 dark:text-white placeholder-slate-400 dark:placeholder-slate-500 focus:border-amber-500 outline-none">
+                    <p class="text-[11px] text-slate-500 mt-1">{{ __('Pre-filled with next available code; you may customize it.') }}</p>
                 </div>
             </div>
 
@@ -77,56 +78,65 @@
                 <input type="text" name="location" placeholder="e.g. Sector 3 km 45-58 Corridor" value="{{ old('location') }}" class="w-full rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-slate-800 p-2.5 text-sm text-slate-900 dark:text-white placeholder-slate-400 dark:placeholder-slate-500 focus:border-amber-500 outline-none">
             </div>
 
-            <div>
-                <label class="block text-xs font-bold text-slate-700 dark:text-slate-300 uppercase mb-1">{{ __('Street Address') }}</label>
-                <input type="text" name="address" placeholder="e.g. Plot 8, NH-48 Interchange Camp" value="{{ old('address') }}" class="w-full rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-slate-800 p-2.5 text-sm text-slate-900 dark:text-white placeholder-slate-400 dark:placeholder-slate-500 focus:border-amber-500 outline-none">
-            </div>
+            <details class="p-4 rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 space-y-4">
+                <summary class="cursor-pointer list-none flex items-center justify-between text-xs font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider">
+                    <span>+ {{ __('Address, GPS Coordinates & Shift Timings (Optional — Pre-filled with Defaults)') }}</span>
+                    <span class="px-2 py-0.5 rounded bg-slate-200/70 dark:bg-slate-800 text-[11px] font-semibold">{{ __('Show / Hide') }}</span>
+                </summary>
 
-            <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                <div>
-                    <label class="block text-xs font-bold text-slate-700 dark:text-slate-300 uppercase mb-1">{{ __('City / District') }}</label>
-                    <input type="text" name="city" placeholder="e.g. Pune" value="{{ old('city') }}" class="w-full rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-slate-800 p-2.5 text-sm text-slate-900 dark:text-white placeholder-slate-400 dark:placeholder-slate-500 focus:border-amber-500 outline-none">
-                </div>
+                <div class="pt-3 border-t border-slate-200 dark:border-slate-800 space-y-4">
+                    <div>
+                        <label class="block text-xs font-bold text-slate-700 dark:text-slate-300 uppercase mb-1">{{ __('Street Address') }}</label>
+                        <input type="text" name="address" placeholder="e.g. Plot 8, NH-48 Interchange Camp" value="{{ old('address') }}" class="w-full rounded-xl bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-800 p-2.5 text-sm text-slate-900 dark:text-white placeholder-slate-400 dark:placeholder-slate-500 focus:border-amber-500 outline-none">
+                    </div>
 
-                <div>
-                    <label class="block text-xs font-bold text-slate-700 dark:text-slate-300 uppercase mb-1">{{ __('State') }}</label>
-                    <input type="text" name="state" placeholder="e.g. Maharashtra" value="{{ old('state') }}" class="w-full rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-slate-800 p-2.5 text-sm text-slate-900 dark:text-white placeholder-slate-400 dark:placeholder-slate-500 focus:border-amber-500 outline-none">
-                </div>
+                    <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                        <div>
+                            <label class="block text-xs font-bold text-slate-700 dark:text-slate-300 uppercase mb-1">{{ __('City / District') }}</label>
+                            <input type="text" name="city" placeholder="e.g. Pune" value="{{ old('city') }}" class="w-full rounded-xl bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-800 p-2.5 text-sm text-slate-900 dark:text-white placeholder-slate-400 dark:placeholder-slate-500 focus:border-amber-500 outline-none">
+                        </div>
 
-                <div>
-                    <label class="block text-xs font-bold text-slate-700 dark:text-slate-300 uppercase mb-1">{{ __('Postal Code') }}</label>
-                    <input type="text" name="postal_code" placeholder="e.g. 411045" value="{{ old('postal_code') }}" class="w-full rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-slate-800 p-2.5 text-sm font-mono text-slate-900 dark:text-white placeholder-slate-400 dark:placeholder-slate-500 focus:border-amber-500 outline-none">
-                </div>
-            </div>
+                        <div>
+                            <label class="block text-xs font-bold text-slate-700 dark:text-slate-300 uppercase mb-1">{{ __('State') }}</label>
+                            <input type="text" name="state" placeholder="e.g. Maharashtra" value="{{ old('state') }}" class="w-full rounded-xl bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-800 p-2.5 text-sm text-slate-900 dark:text-white placeholder-slate-400 dark:placeholder-slate-500 focus:border-amber-500 outline-none">
+                        </div>
 
-            <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div>
-                    <label class="block text-xs font-bold text-slate-700 dark:text-slate-300 uppercase mb-1">{{ __('Latitude') }} (-90 to 90)</label>
-                    <input type="text" name="latitude" placeholder="e.g. 18.520430" value="{{ old('latitude') }}" class="w-full rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-slate-800 p-2.5 text-sm font-mono text-slate-900 dark:text-white placeholder-slate-400 dark:placeholder-slate-500 focus:border-amber-500 outline-none">
-                </div>
+                        <div>
+                            <label class="block text-xs font-bold text-slate-700 dark:text-slate-300 uppercase mb-1">{{ __('Postal Code') }}</label>
+                            <input type="text" name="postal_code" placeholder="e.g. 411045" value="{{ old('postal_code') }}" class="w-full rounded-xl bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-800 p-2.5 text-sm font-mono text-slate-900 dark:text-white placeholder-slate-400 dark:placeholder-slate-500 focus:border-amber-500 outline-none">
+                        </div>
+                    </div>
 
-                <div>
-                    <label class="block text-xs font-bold text-slate-700 dark:text-slate-300 uppercase mb-1">{{ __('Longitude') }} (-180 to 180)</label>
-                    <input type="text" name="longitude" placeholder="e.g. 73.856743" value="{{ old('longitude') }}" class="w-full rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-slate-800 p-2.5 text-sm font-mono text-slate-900 dark:text-white placeholder-slate-400 dark:placeholder-slate-500 focus:border-amber-500 outline-none">
-                </div>
-            </div>
+                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                        <div>
+                            <label class="block text-xs font-bold text-slate-700 dark:text-slate-300 uppercase mb-1">{{ __('Latitude') }} (-90 to 90)</label>
+                            <input type="text" name="latitude" placeholder="e.g. 18.520430" value="{{ old('latitude') }}" class="w-full rounded-xl bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-800 p-2.5 text-sm font-mono text-slate-900 dark:text-white placeholder-slate-400 dark:placeholder-slate-500 focus:border-amber-500 outline-none">
+                        </div>
 
-            <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                <div>
-                    <label class="block text-xs font-bold text-slate-700 dark:text-slate-300 uppercase mb-1">{{ __('Geofence Radius (m)') }}</label>
-                    <input type="number" name="geofence_radius_m" min="25" max="10000" value="{{ old('geofence_radius_m', 200) }}" class="w-full rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-slate-800 p-2.5 text-sm font-mono text-slate-900 dark:text-white focus:border-amber-500 outline-none">
-                </div>
+                        <div>
+                            <label class="block text-xs font-bold text-slate-700 dark:text-slate-300 uppercase mb-1">{{ __('Longitude') }} (-180 to 180)</label>
+                            <input type="text" name="longitude" placeholder="e.g. 73.856743" value="{{ old('longitude') }}" class="w-full rounded-xl bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-800 p-2.5 text-sm font-mono text-slate-900 dark:text-white placeholder-slate-400 dark:placeholder-slate-500 focus:border-amber-500 outline-none">
+                        </div>
+                    </div>
 
-                <div>
-                    <label class="block text-xs font-bold text-slate-700 dark:text-slate-300 uppercase mb-1">{{ __('Shift Start Time') }}</label>
-                    <input type="time" name="shift_start" value="{{ old('shift_start', '09:00') }}" class="w-full rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-slate-800 p-2.5 text-sm font-mono text-slate-900 dark:text-white focus:border-amber-500 outline-none">
-                </div>
+                    <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                        <div>
+                            <label class="block text-xs font-bold text-slate-700 dark:text-slate-300 uppercase mb-1">{{ __('Geofence Radius (m)') }}</label>
+                            <input type="number" name="geofence_radius_m" min="25" max="10000" value="{{ old('geofence_radius_m', 200) }}" class="w-full rounded-xl bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-800 p-2.5 text-sm font-mono text-slate-900 dark:text-white focus:border-amber-500 outline-none">
+                        </div>
 
-                <div>
-                    <label class="block text-xs font-bold text-slate-700 dark:text-slate-300 uppercase mb-1">{{ __('Shift End Time') }}</label>
-                    <input type="time" name="shift_end" value="{{ old('shift_end', '18:00') }}" class="w-full rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-slate-800 p-2.5 text-sm font-mono text-slate-900 dark:text-white focus:border-amber-500 outline-none">
+                        <div>
+                            <label class="block text-xs font-bold text-slate-700 dark:text-slate-300 uppercase mb-1">{{ __('Shift Start Time') }}</label>
+                            <input type="time" name="shift_start" value="{{ old('shift_start', '09:00') }}" class="w-full rounded-xl bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-800 p-2.5 text-sm font-mono text-slate-900 dark:text-white focus:border-amber-500 outline-none">
+                        </div>
+
+                        <div>
+                            <label class="block text-xs font-bold text-slate-700 dark:text-slate-300 uppercase mb-1">{{ __('Shift End Time') }}</label>
+                            <input type="time" name="shift_end" value="{{ old('shift_end', '18:00') }}" class="w-full rounded-xl bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-800 p-2.5 text-sm font-mono text-slate-900 dark:text-white focus:border-amber-500 outline-none">
+                        </div>
+                    </div>
                 </div>
-            </div>
+            </details>
 
             <div>
                 <label class="block text-xs font-bold text-slate-700 dark:text-slate-300 uppercase mb-1">{{ __('Description') }}</label>
@@ -135,7 +145,7 @@
 
             <div class="flex items-center justify-end gap-3 pt-4 border-t border-slate-200 dark:border-slate-800">
                 <a href="{{ route('sites.index') }}" class="px-4 py-2.5 text-xs font-bold rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-200 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700 dark:border-slate-700 transition">{{ __('Cancel') }}</a>
-                <button type="submit" class="px-6 py-2.5 text-xs font-extrabold rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 shadow-lg shadow-amber-500/20 transition">{{ __('Create Site') }}</button>
+                <button type="submit" :disabled="submitting" class="px-6 py-2.5 text-xs font-extrabold rounded-xl bg-amber-500 hover:bg-amber-400 disabled:opacity-60 disabled:cursor-not-allowed text-slate-950 shadow-lg shadow-amber-500/20 transition">{{ __('Create Site') }}</button>
             </div>
         </form>
     </div>

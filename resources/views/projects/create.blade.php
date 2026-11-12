@@ -8,13 +8,14 @@
     </div>
 
     <div class="p-6 sm:p-8 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-xl">
-        <form method="POST" action="{{ route('projects.store') }}" class="space-y-5">
+        <form method="POST" action="{{ route('projects.store') }}" class="space-y-5" x-data="{ submitting: false }" @submit="submitting = true">
             @csrf
 
             <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
                     <label class="block text-xs font-bold text-slate-700 dark:text-slate-300 uppercase mb-1">{{ __('Project Code') }} *</label>
-                    <input type="text" name="code" required maxlength="30" placeholder="e.g. PRJ-NH48-EXP" value="{{ old('code') }}" class="w-full rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-slate-800 p-2.5 text-sm font-mono text-slate-900 dark:text-white outline-none focus:border-amber-500">
+                    <input type="text" name="code" required maxlength="30" placeholder="e.g. PRJ-NH48-EXP" value="{{ old('code', $suggestedCode ?? '') }}" class="w-full rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-slate-800 p-2.5 text-sm font-mono text-slate-900 dark:text-white outline-none focus:border-amber-500">
+                    <p class="text-[11px] text-slate-500 mt-1">{{ __('Pre-filled with next available code; you may customize it.') }}</p>
                 </div>
 
                 <div>
@@ -86,7 +87,7 @@
 
             <div class="flex items-center justify-end gap-3 pt-4 border-t border-slate-200 dark:border-slate-800">
                 <a href="{{ route('projects.index') }}" class="px-4 py-2.5 text-xs font-bold rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 dark:bg-slate-800 dark:text-slate-300 transition">{{ __('Cancel') }}</a>
-                <button type="submit" class="px-6 py-2.5 text-xs font-extrabold rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 shadow-lg shadow-amber-500/20 transition">{{ __('Create Project') }}</button>
+                <button type="submit" :disabled="submitting" class="px-6 py-2.5 text-xs font-extrabold rounded-xl bg-amber-500 hover:bg-amber-400 disabled:opacity-60 disabled:cursor-not-allowed text-slate-950 shadow-lg shadow-amber-500/20 transition">{{ __('Create Project') }}</button>
             </div>
         </form>
     </div>

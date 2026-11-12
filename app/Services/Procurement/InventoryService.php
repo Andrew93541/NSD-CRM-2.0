@@ -19,16 +19,21 @@ class InventoryService
 {
     public function createPurchaseRequest(array $data, array $items, User $requester): PurchaseRequest
     {
-        $companyId = TenantContext::getCompanyId();
-        $year = Carbon::now()->format('Y');
-        $count = PurchaseRequest::withoutGlobalScopes()->where('company_id', $companyId)->count() + 1;
-        $reqNumber = sprintf('PR-NSD-%s-%03d', $year, $count);
+        $companyId = (int) TenantContext::getCompanyId();
 
         if (!empty($data['is_emergency']) && empty($data['emergency_justification'])) {
             throw new InvalidArgumentException('Emergency purchase justification is mandatory for emergency requests.');
         }
 
-        return DB::transaction(function () use ($companyId, $data, $items, $requester, $reqNumber) {
+        return DB::transaction(function () use ($companyId, $data, $items, $requester) {
+            $reqNumber = $this->generateNextDocumentNumber(
+                $companyId,
+                'purchase_request',
+                'PR-NSD',
+                fn (string $code) => PurchaseRequest::withoutGlobalScopes()->where('company_id', $companyId)->where('request_number', $code)->exists(),
+                fn () => PurchaseRequest::withoutGlobalScopes()->where('company_id', $companyId)->count()
+            );
+
             $pr = PurchaseRequest::create([
                 'company_id' => $companyId,
                 'site_id' => $data['site_id'] ?? null,
@@ -42,11 +47,16 @@ class InventoryService
             ]);
 
             foreach ($items as $item) {
+                $qty = (float) ($item['quantity'] ?? 0);
+                if ($qty <= 0) {
+                    throw new InvalidArgumentException('Requested material quantity must be greater than zero.');
+                }
+
                 PurchaseRequestItem::create([
                     'purchase_request_id' => $pr->id,
                     'material_id' => $item['material_id'],
-                    'quantity_requested' => $item['quantity'],
-                    'estimated_unit_cost' => $item['estimated_unit_cost'] ?? 0.00,
+                    'quantity_requested' => $qty,
+                    'estimated_unit_cost' => max(0.00, (float) ($item['estimated_unit_cost'] ?? 0.00)),
                     'purpose_notes' => $item['purpose_notes'] ?? null,
                 ]);
             }
@@ -57,37 +67,59 @@ class InventoryService
 
     public function approvePurchaseRequest(PurchaseRequest $pr, User $approver, ?string $comments = null): PurchaseRequest
     {
-        if ($pr->status !== 'pending') {
-            throw new InvalidArgumentException('Purchase request is not pending approval.');
-        }
+        return DB::transaction(function () use ($pr, $approver, $comments) {
+            $lockedPr = PurchaseRequest::withoutGlobalScopes()
+                ->where('id', $pr->id)
+                ->lockForUpdate()
+                ->firstOrFail();
 
-        $pr->status = 'approved';
-        $pr->approved_by = $approver->id;
-        $pr->approved_at = Carbon::now();
-        $pr->review_comments = $comments;
-        $pr->save();
+            if ($lockedPr->status !== 'pending') {
+                throw new InvalidArgumentException('Purchase request is not pending approval.');
+            }
 
-        return $pr;
+            $lockedPr->status = 'approved';
+            $lockedPr->approved_by = $approver->id;
+            $lockedPr->approved_at = Carbon::now();
+            $lockedPr->review_comments = $comments;
+            $lockedPr->save();
+
+            return $lockedPr;
+        });
     }
 
     public function createPurchaseOrder(PurchaseRequest $pr, array $data, User $creator): PurchaseOrder
     {
-        if ($pr->status !== 'approved') {
-            throw new InvalidArgumentException('Purchase request must be approved before issuing purchase order.');
-        }
+        $companyId = (int) TenantContext::getCompanyId();
 
-        $companyId = TenantContext::getCompanyId();
-        $year = Carbon::now()->format('Y');
-        $count = PurchaseOrder::withoutGlobalScopes()->where('company_id', $companyId)->count() + 1;
-        $poNumber = sprintf('PO-NSD-%s-%03d', $year, $count);
+        return DB::transaction(function () use ($companyId, $pr, $data, $creator) {
+            $lockedPr = PurchaseRequest::withoutGlobalScopes()
+                ->with('items')
+                ->where('id', $pr->id)
+                ->lockForUpdate()
+                ->firstOrFail();
 
-        return DB::transaction(function () use ($companyId, $pr, $data, $creator, $poNumber) {
+            if ($lockedPr->status !== 'approved') {
+                throw new InvalidArgumentException('Purchase request must be approved before issuing purchase order.');
+            }
+
+            $poNumber = $this->generateNextDocumentNumber(
+                $companyId,
+                'purchase_order',
+                'PO-NSD',
+                fn (string $code) => PurchaseOrder::withoutGlobalScopes()->where('company_id', $companyId)->where('po_number', $code)->exists(),
+                fn () => PurchaseOrder::withoutGlobalScopes()->where('company_id', $companyId)->count()
+            );
+
             $totalAmount = 0.00;
             $itemsData = [];
 
-            foreach ($pr->items as $reqItem) {
-                $qty = $reqItem->quantity_requested;
-                $unitPrice = $data['unit_prices'][$reqItem->material_id] ?? $reqItem->estimated_unit_cost;
+            foreach ($lockedPr->items as $reqItem) {
+                $qty = (float) $reqItem->quantity_requested;
+                $unitPrice = (float) ($data['unit_prices'][$reqItem->material_id] ?? $reqItem->estimated_unit_cost);
+                if ($unitPrice < 0) {
+                    throw new InvalidArgumentException('Purchase order unit price cannot be negative.');
+                }
+
                 $totalAmount += ($qty * $unitPrice);
                 $itemsData[] = [
                     'material_id' => $reqItem->material_id,
@@ -99,9 +131,9 @@ class InventoryService
 
             $po = PurchaseOrder::create([
                 'company_id' => $companyId,
-                'purchase_request_id' => $pr->id,
-                'site_id' => $pr->site_id,
-                'warehouse_id' => $pr->warehouse_id,
+                'purchase_request_id' => $lockedPr->id,
+                'site_id' => $lockedPr->site_id,
+                'warehouse_id' => $lockedPr->warehouse_id,
                 'po_number' => $poNumber,
                 'supplier_name' => $data['supplier_name'],
                 'supplier_phone' => $data['supplier_phone'] ?? null,
@@ -118,8 +150,8 @@ class InventoryService
                 PurchaseOrderItem::create($item);
             }
 
-            $pr->status = 'ordered';
-            $pr->save();
+            $lockedPr->status = 'ordered';
+            $lockedPr->save();
 
             return $po;
         });
@@ -127,7 +159,7 @@ class InventoryService
 
     public function recordGoodsReceipt(PurchaseOrder $po, int $destinationWarehouseId, array $receivedQuantities, User $receiver, ?string $challan = null): InventoryTransaction
     {
-        $companyId = TenantContext::getCompanyId();
+        $companyId = (int) TenantContext::getCompanyId();
 
         return DB::transaction(function () use ($companyId, $po, $destinationWarehouseId, $receivedQuantities, $receiver, $challan) {
             // Pessimistic lock on purchase order to prevent concurrent race conditions
@@ -149,9 +181,13 @@ class InventoryService
                 }
             }
 
-            $year = Carbon::now()->format('Y');
-            $count = InventoryTransaction::withoutGlobalScopes()->where('company_id', $companyId)->count() + 1;
-            $txNumber = sprintf('GRN-NSD-%s-%03d', $year, $count);
+            $txNumber = $this->generateNextDocumentNumber(
+                $companyId,
+                'goods_receipt',
+                'GRN-NSD',
+                fn (string $code) => InventoryTransaction::withoutGlobalScopes()->where('company_id', $companyId)->where('transaction_number', $code)->exists(),
+                fn () => InventoryTransaction::withoutGlobalScopes()->where('company_id', $companyId)->count()
+            );
 
             $tx = InventoryTransaction::create([
                 'company_id' => $companyId,
@@ -177,9 +213,13 @@ class InventoryService
 
             foreach ($poItems as $poItem) {
                 $recQty = (float) ($receivedQuantities[$poItem->material_id] ?? 0.00);
+                if ($recQty < 0) {
+                    throw new InvalidArgumentException('Received quantity cannot be negative.');
+                }
+
                 if ($recQty > 0) {
                     $remaining = max(0.00, (float) $poItem->quantity_ordered - (float) $poItem->quantity_received);
-                    if ($recQty > $remaining) {
+                    if ($recQty > $remaining + 0.0001) {
                         throw new InvalidArgumentException(
                             "Received quantity ({$recQty}) exceeds outstanding balance ({$remaining}) for item #{$poItem->material_id}."
                         );
@@ -232,5 +272,52 @@ class InventoryService
 
             return $tx;
         });
+    }
+
+    /**
+     * Generates a concurrency-safe sequential document number inside an active transaction.
+     */
+    private function generateNextDocumentNumber(
+        int $companyId,
+        string $sequenceType,
+        string $prefix,
+        callable $existsCallback,
+        callable $countCallback
+    ): string {
+        $year = Carbon::now()->format('Y');
+        $nextNum = ((int) $countCallback()) + 1;
+
+        if (\Illuminate\Support\Facades\Schema::hasTable('worker_sequences')) {
+            $seq = DB::table('worker_sequences')
+                ->where('company_id', $companyId)
+                ->where('prefix', $prefix)
+                ->where('year', (int) $year)
+                ->lockForUpdate()
+                ->first();
+
+            if (!$seq) {
+                DB::table('worker_sequences')->insert([
+                    'company_id' => $companyId,
+                    'prefix' => $prefix,
+                    'year' => (int) $year,
+                    'last_number' => $nextNum,
+                    'created_at' => now(),
+                    'updated_at' => now(),
+                ]);
+            } else {
+                $nextNum = max($nextNum, ((int) $seq->last_number) + 1);
+                DB::table('worker_sequences')
+                    ->where('id', $seq->id)
+                    ->update(['last_number' => $nextNum, 'updated_at' => now()]);
+            }
+        }
+
+        $code = sprintf('%s-%s-%03d', $prefix, $year, $nextNum);
+        while ($existsCallback($code)) {
+            $nextNum++;
+            $code = sprintf('%s-%s-%03d', $prefix, $year, $nextNum);
+        }
+
+        return $code;
     }
 }

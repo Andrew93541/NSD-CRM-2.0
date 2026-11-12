@@ -315,7 +315,10 @@ class AttendanceController extends Controller
     public function conflicts(): View
     {
         $user = Auth::user();
-        $accessibleSiteIds = $user->hasRole(['super_admin', 'company_admin', 'senior_manager'])
+        $hasAllSiteAccess = $user->hasRole(['super_admin', 'company_admin'])
+            || ($user->hasRole('senior_manager') && ! $user->isRestrictedToAssignedSites());
+
+        $accessibleSiteIds = $hasAllSiteAccess
             ? null
             : $user->accessibleSiteIds();
 
@@ -450,46 +453,75 @@ class AttendanceController extends Controller
             'review_notes' => ['nullable', 'string'],
         ]);
 
-        $correction->status = $validated['action'];
-        $correction->reviewed_by = $user->id;
-        $correction->reviewed_at = Carbon::now();
-        $correction->review_notes = $validated['review_notes'] ?? null;
-        $correction->save();
-
-        if ($validated['action'] === 'approved' && $att) {
-            $att->status = $correction->proposed_status;
-            $att->clock_in = $correction->proposed_clock_in;
-            $att->clock_out = $correction->proposed_clock_out;
-            $att->worked_hours = $correction->proposed_worked_hours;
-            $att->overtime_hours = $correction->proposed_overtime_hours;
-            $att->approved_by = $user->id;
-            $att->approved_at = Carbon::now();
-            $att->approval_status = 'approved';
-            $att->save();
+        if ($correction->status !== 'pending') {
+            return back()->withErrors([
+                'status' => 'This attendance correction request has already been reviewed (' . $correction->status . ').',
+            ]);
         }
 
-        AuditLog::record(
-            'attendance.correction_reviewed',
-            $correction,
-            [
-                'status' => 'pending',
-                'previous_attendance_status' => $correction->previous_status,
-                'previous_clock_in' => $correction->previous_clock_in,
-                'previous_clock_out' => $correction->previous_clock_out,
-                'previous_worked_hours' => (float) $correction->previous_worked_hours,
-            ],
-            [
-                'status' => $correction->status,
-                'proposed_attendance_status' => $correction->proposed_status,
-                'proposed_clock_in' => $correction->proposed_clock_in,
-                'proposed_clock_out' => $correction->proposed_clock_out,
-                'proposed_worked_hours' => (float) $correction->proposed_worked_hours,
-                'reason' => $correction->reason,
-                'review_notes' => $correction->review_notes,
-                'reviewed_by' => $user->id,
-            ],
-            "Attendance correction #{$correction->id} {$correction->status} by {$user->name}"
-        );
+        $alreadyReviewed = false;
+
+        \Illuminate\Support\Facades\DB::transaction(function () use ($correction, $validated, $user, &$att, &$alreadyReviewed) {
+            $lockedCorrection = AttendanceCorrection::where('id', $correction->id)->lockForUpdate()->firstOrFail();
+            if ($lockedCorrection->status !== 'pending') {
+                $alreadyReviewed = true;
+                return;
+            }
+
+            $lockedCorrection->status = $validated['action'];
+            $lockedCorrection->reviewed_by = $user->id;
+            $lockedCorrection->reviewed_at = Carbon::now();
+            $lockedCorrection->review_notes = $validated['review_notes'] ?? null;
+            $lockedCorrection->save();
+
+            $correction->status = $lockedCorrection->status;
+            $correction->reviewed_by = $lockedCorrection->reviewed_by;
+            $correction->reviewed_at = $lockedCorrection->reviewed_at;
+            $correction->review_notes = $lockedCorrection->review_notes;
+
+            if ($validated['action'] === 'approved' && $att) {
+                $lockedAtt = DailyAttendance::where('id', $att->id)->lockForUpdate()->firstOrFail();
+                $lockedAtt->status = $lockedCorrection->proposed_status;
+                $lockedAtt->clock_in = $lockedCorrection->proposed_clock_in;
+                $lockedAtt->clock_out = $lockedCorrection->proposed_clock_out;
+                $lockedAtt->worked_hours = $lockedCorrection->proposed_worked_hours;
+                $lockedAtt->overtime_hours = $lockedCorrection->proposed_overtime_hours;
+                $lockedAtt->approved_by = $user->id;
+                $lockedAtt->approved_at = Carbon::now();
+                $lockedAtt->approval_status = 'approved';
+                $lockedAtt->save();
+                $att = $lockedAtt;
+            }
+
+            AuditLog::record(
+                'attendance.correction_reviewed',
+                $lockedCorrection,
+                [
+                    'status' => 'pending',
+                    'previous_attendance_status' => $lockedCorrection->previous_status,
+                    'previous_clock_in' => $lockedCorrection->previous_clock_in,
+                    'previous_clock_out' => $lockedCorrection->previous_clock_out,
+                    'previous_worked_hours' => (float) $lockedCorrection->previous_worked_hours,
+                ],
+                [
+                    'status' => $lockedCorrection->status,
+                    'proposed_attendance_status' => $lockedCorrection->proposed_status,
+                    'proposed_clock_in' => $lockedCorrection->proposed_clock_in,
+                    'proposed_clock_out' => $lockedCorrection->proposed_clock_out,
+                    'proposed_worked_hours' => (float) $lockedCorrection->proposed_worked_hours,
+                    'reason' => $lockedCorrection->reason,
+                    'review_notes' => $lockedCorrection->review_notes,
+                    'reviewed_by' => $user->id,
+                ],
+                "Attendance correction #{$lockedCorrection->id} {$lockedCorrection->status} by {$user->name}"
+            );
+        });
+
+        if ($alreadyReviewed) {
+            return back()->withErrors([
+                'status' => 'This attendance correction request has already been reviewed.',
+            ]);
+        }
 
         if ($correction->requested_by) {
             \App\Models\CrmNotification::notifyUser(
@@ -590,29 +622,38 @@ class AttendanceController extends Controller
     public function shiftsAndLeaves(Request $request): View
     {
         $user = Auth::user();
-        $accessibleSites = $user->hasRole(['super_admin', 'company_admin', 'senior_manager'])
+        $hasAllSiteAccess = $user->hasRole(['super_admin', 'company_admin'])
+            || ($user->hasRole('senior_manager') && ! $user->isRestrictedToAssignedSites());
+
+        $accessibleSites = $hasAllSiteAccess
             ? Site::where('status', 'active')->orderBy('name')->get()
             : Site::whereIn('id', $user->accessibleSiteIds())->where('status', 'active')->orderBy('name')->get();
 
         $accessibleSiteIds = $accessibleSites->pluck('id')->all();
 
         $shifts = Schema::hasTable('shifts')
-            ? Shift::with('site')->orderBy('name')->get()
+            ? Shift::with('site')
+                ->when(!$hasAllSiteAccess, fn ($q) => $q->where(fn ($sub) => $sub->whereNull('site_id')->orWhereIn('site_id', $accessibleSiteIds)))
+                ->orderBy('name')
+                ->get()
             : collect();
 
         $holidays = Schema::hasTable('holidays')
-            ? Holiday::with('site')->orderBy('holiday_date')->get()
+            ? Holiday::with('site')
+                ->when(!$hasAllSiteAccess, fn ($q) => $q->where(fn ($sub) => $sub->whereNull('site_id')->orWhereIn('site_id', $accessibleSiteIds)))
+                ->orderBy('holiday_date')
+                ->get()
             : collect();
 
         $leaveRequests = Schema::hasTable('leave_requests')
             ? LeaveRequest::with(['worker', 'site', 'requester', 'reviewer'])
-                ->when(!$user->hasRole(['super_admin', 'company_admin', 'senior_manager']), fn ($q) => $q->whereIn('site_id', $accessibleSiteIds))
+                ->when(!$hasAllSiteAccess, fn ($q) => $q->whereIn('site_id', $accessibleSiteIds))
                 ->latest()
                 ->paginate(20)
             : collect();
 
         $workers = Worker::where('status', 'active')
-            ->when(!$user->hasRole(['super_admin', 'company_admin', 'senior_manager']), fn ($q) => $q->whereIn('assigned_site_id', $accessibleSiteIds))
+            ->when(!$hasAllSiteAccess, fn ($q) => $q->whereIn('assigned_site_id', $accessibleSiteIds))
             ->orderBy('first_name')
             ->get();
 
@@ -626,8 +667,13 @@ class AttendanceController extends Controller
             abort(403, 'Unauthorized to configure shifts.');
         }
 
+        $companyId = TenantContext::getCompanyId();
+
         $validated = $request->validate([
-            'site_id' => ['nullable', 'exists:sites,id'],
+            'site_id' => [
+                'nullable',
+                \Illuminate\Validation\Rule::exists('sites', 'id')->where(fn ($q) => $q->where('company_id', $companyId)),
+            ],
             'name' => ['required', 'string', 'max:100'],
             'start_time' => ['required', 'date_format:H:i'],
             'end_time' => ['required', 'date_format:H:i'],
@@ -642,10 +688,12 @@ class AttendanceController extends Controller
             if (!$user->isAssignedToSite($site)) {
                 abort(403, 'Unauthorized to configure shifts for this site.');
             }
+        } elseif ($user->isRestrictedToAssignedSites() || !$user->hasRole(['super_admin', 'company_admin', 'senior_manager'])) {
+            abort(403, 'Site-restricted managers must select an assigned site when configuring shifts.');
         }
 
         Shift::create([
-            'company_id' => TenantContext::getCompanyId(),
+            'company_id' => $companyId,
             'site_id' => $validated['site_id'] ?? null,
             'name' => $validated['name'],
             'start_time' => $validated['start_time'] . ':00',
@@ -667,16 +715,30 @@ class AttendanceController extends Controller
             abort(403, 'Only Senior Managers or Administrators can manage the Holiday Calendar.');
         }
 
+        $companyId = TenantContext::getCompanyId();
+
         $validated = $request->validate([
-            'site_id' => ['nullable', 'exists:sites,id'],
+            'site_id' => [
+                'nullable',
+                \Illuminate\Validation\Rule::exists('sites', 'id')->where(fn ($q) => $q->where('company_id', $companyId)),
+            ],
             'name' => ['required', 'string', 'max:150'],
             'holiday_date' => ['required', 'date'],
             'is_paid' => ['nullable', 'boolean'],
             'notes' => ['nullable', 'string', 'max:255'],
         ]);
 
+        if (!empty($validated['site_id'])) {
+            $site = Site::findOrFail($validated['site_id']);
+            if (!$user->isAssignedToSite($site)) {
+                abort(403, 'Unauthorized to configure holidays for this site.');
+            }
+        } elseif ($user->isRestrictedToAssignedSites()) {
+            abort(403, 'Site-restricted managers must select an assigned site when adding a holiday.');
+        }
+
         Holiday::create([
-            'company_id' => TenantContext::getCompanyId(),
+            'company_id' => $companyId,
             'site_id' => $validated['site_id'] ?? null,
             'name' => $validated['name'],
             'holiday_date' => $validated['holiday_date'],
@@ -746,15 +808,37 @@ class AttendanceController extends Controller
             'review_notes' => ['nullable', 'string', 'max:500'],
         ]);
 
-        $leaveRequest->update([
-            'status' => $validated['action'],
-            'reviewed_by' => $user->id,
-            'reviewed_at' => Carbon::now(),
-            'review_notes' => $validated['review_notes'] ?? null,
-        ]);
+        if ($leaveRequest->status !== 'pending') {
+            return back()->withErrors([
+                'status' => 'This leave request has already been reviewed (' . $leaveRequest->status . ').',
+            ]);
+        }
 
-        if ($validated['action'] === 'approved') {
-            $this->attendanceService->applyApprovedLeave($leaveRequest, $user->id);
+        $alreadyReviewed = false;
+
+        \Illuminate\Support\Facades\DB::transaction(function () use ($leaveRequest, $validated, $user, &$alreadyReviewed) {
+            $lockedLeave = LeaveRequest::where('id', $leaveRequest->id)->lockForUpdate()->firstOrFail();
+            if ($lockedLeave->status !== 'pending') {
+                $alreadyReviewed = true;
+                return;
+            }
+
+            $lockedLeave->update([
+                'status' => $validated['action'],
+                'reviewed_by' => $user->id,
+                'reviewed_at' => Carbon::now(),
+                'review_notes' => $validated['review_notes'] ?? null,
+            ]);
+
+            if ($validated['action'] === 'approved') {
+                $this->attendanceService->applyApprovedLeave($lockedLeave, $user->id);
+            }
+        });
+
+        if ($alreadyReviewed) {
+            return back()->withErrors([
+                'status' => 'This leave request has already been reviewed.',
+            ]);
         }
 
         return back()->with('success', 'Leave request ' . $validated['action'] . ' successfully.');

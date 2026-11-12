@@ -35,6 +35,16 @@
                     {{ __('Take Attendance') }}
                 </a>
             @endcan
+            @can('create', \App\Models\Worker::class)
+                <a href="{{ route('workforce.create', ['site_id' => $site->id]) }}" class="px-3.5 py-2 text-xs font-bold rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-800 border border-slate-200 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700 dark:border-slate-700 transition">
+                    + {{ __('Add Worker') }}
+                </a>
+            @endcan
+            @can('create', \App\Models\WorkOrder::class)
+                <a href="{{ route('work_orders.create', ['site_id' => $site->id, 'project_id' => $site->project_id]) }}" class="px-3.5 py-2 text-xs font-bold rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-800 border border-slate-200 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700 dark:border-slate-700 transition">
+                    + {{ __('Add Work Order') }}
+                </a>
+            @endcan
             @can('update', $site)
                 <a href="{{ route('sites.edit', $site) }}" class="px-4 py-2 text-xs font-extrabold rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 shadow-lg shadow-amber-500/20 transition">
                     {{ __('Edit Site') }}

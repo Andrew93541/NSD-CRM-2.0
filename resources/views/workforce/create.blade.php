@@ -252,7 +252,7 @@
                     <select id="assigned_site_id" name="assigned_site_id" class="w-full rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-slate-800 p-2.5 text-sm text-slate-900 dark:text-white focus:border-amber-500 outline-none">
                         <option value="">{{ __('Unassigned') }}</option>
                         @foreach($sites as $s)
-                            <option value="{{ $s->id }}" {{ old('assigned_site_id') == $s->id ? 'selected' : '' }}>{{ $s->code }} — {{ $s->name }}</option>
+                            <option value="{{ $s->id }}" {{ (string) old('assigned_site_id', request('site_id')) === (string) $s->id ? 'selected' : '' }}>{{ $s->code }} — {{ $s->name }}</option>
                         @endforeach
                     </select>
                 </div>

@@ -26,8 +26,19 @@ class ProcurementController extends Controller
     protected function isGlobalProcurementViewer(): bool
     {
         $user = Auth::user();
+        if (!$user) {
+            return false;
+        }
 
-        return $user && $user->hasRole(['super_admin', 'company_admin', 'senior_manager', 'warehouse_manager', 'office_staff']);
+        if ($user->hasRole(['super_admin', 'company_admin'])) {
+            return true;
+        }
+
+        if ($user->isRestrictedToAssignedSites()) {
+            return false;
+        }
+
+        return $user->hasRole(['senior_manager', 'warehouse_manager', 'office_staff']);
     }
 
     public function requests(): View
@@ -82,6 +93,14 @@ class ProcurementController extends Controller
         $user = Auth::user();
         $companyId = TenantContext::getCompanyId();
 
+        if (!$request->filled('urgency')) {
+            $request->merge([
+                'urgency' => $request->boolean('is_emergency') ? 'emergency' : 'normal',
+            ]);
+        } elseif ($request->boolean('is_emergency')) {
+            $request->merge(['urgency' => 'emergency']);
+        }
+
         $validated = $request->validate([
             'site_id' => [
                 'nullable',
@@ -116,7 +135,19 @@ class ProcurementController extends Controller
             }
         }
 
-        $pr = $this->inventoryService->createPurchaseRequest($validated, $validated['items'], $user);
+        try {
+            $pr = $this->inventoryService->createPurchaseRequest($validated, $validated['items'], $user);
+        } catch (\InvalidArgumentException $e) {
+            return back()->withInput()->withErrors(['items' => $e->getMessage()]);
+        }
+
+        \App\Models\AuditLog::record(
+            'procurement.request.created',
+            $pr,
+            null,
+            ['request_number' => $pr->request_number, 'site_id' => $pr->site_id, 'urgency' => $pr->urgency],
+            "Created purchase request {$pr->request_number}"
+        );
 
         return redirect()->route('procurement.requests')->with('success', "Purchase request {$pr->request_number} created.");
     }
@@ -129,7 +160,19 @@ class ProcurementController extends Controller
             'comments' => ['nullable', 'string'],
         ]);
 
-        $this->inventoryService->approvePurchaseRequest($purchaseRequest, Auth::user(), $validated['comments'] ?? null);
+        try {
+            $pr = $this->inventoryService->approvePurchaseRequest($purchaseRequest, Auth::user(), $validated['comments'] ?? null);
+        } catch (\InvalidArgumentException $e) {
+            return back()->withErrors(['status' => $e->getMessage()]);
+        }
+
+        \App\Models\AuditLog::record(
+            'procurement.request.approved',
+            $pr,
+            ['status' => 'pending'],
+            ['status' => 'approved', 'approved_by' => Auth::id()],
+            "Approved purchase request {$pr->request_number}"
+        );
 
         return back()->with('success', "Purchase request {$purchaseRequest->request_number} approved.");
     }
@@ -150,11 +193,24 @@ class ProcurementController extends Controller
             'supplier_name' => ['required', 'string', 'max:255'],
             'supplier_phone' => ['nullable', 'string', 'max:50'],
             'expected_delivery_date' => ['nullable', 'date'],
-            'unit_prices' => ['required', 'array'],
+            'unit_prices' => ['required', 'array', 'min:1'],
+            'unit_prices.*' => ['required', 'numeric', 'min:0'],
             'notes' => ['nullable', 'string'],
         ]);
 
-        $po = $this->inventoryService->createPurchaseOrder($purchaseRequest, $validated, Auth::user());
+        try {
+            $po = $this->inventoryService->createPurchaseOrder($purchaseRequest, $validated, Auth::user());
+        } catch (\InvalidArgumentException $e) {
+            return back()->withInput()->withErrors(['status' => $e->getMessage()]);
+        }
+
+        \App\Models\AuditLog::record(
+            'procurement.order.created',
+            $po,
+            null,
+            ['po_number' => $po->po_number, 'total_amount' => $po->total_amount, 'supplier_name' => $po->supplier_name],
+            "Issued purchase order {$po->po_number} for {$purchaseRequest->request_number}"
+        );
 
         return redirect()->route('procurement.orders')->with('success', "Purchase Order {$po->po_number} generated.");
     }
@@ -211,7 +267,8 @@ class ProcurementController extends Controller
                 'required',
                 Rule::exists('warehouses', 'id')->where(fn ($q) => $q->where('company_id', $companyId)),
             ],
-            'received' => ['required', 'array'],
+            'received' => ['required', 'array', 'min:1'],
+            'received.*' => ['nullable', 'numeric', 'min:0'],
             'challan_or_invoice_no' => ['nullable', 'string', 'max:100'],
         ]);
 
@@ -220,12 +277,24 @@ class ProcurementController extends Controller
             abort(403, 'You are not authorized to receive goods into an unassigned site warehouse.');
         }
 
-        $tx = $this->inventoryService->recordGoodsReceipt(
-            $purchaseOrder,
-            (int) $validated['destination_warehouse_id'],
-            $validated['received'],
-            $user,
-            $validated['challan_or_invoice_no'] ?? null
+        try {
+            $tx = $this->inventoryService->recordGoodsReceipt(
+                $purchaseOrder,
+                (int) $validated['destination_warehouse_id'],
+                $validated['received'],
+                $user,
+                $validated['challan_or_invoice_no'] ?? null
+            );
+        } catch (\InvalidArgumentException $e) {
+            return back()->withInput()->withErrors(['received' => $e->getMessage()]);
+        }
+
+        \App\Models\AuditLog::record(
+            'procurement.receipt.confirmed',
+            $tx,
+            null,
+            ['transaction_number' => $tx->transaction_number, 'purchase_order_id' => $purchaseOrder->id, 'warehouse_id' => $destWarehouse->id],
+            "Confirmed goods receipt {$tx->transaction_number} for {$purchaseOrder->po_number}"
         );
 
         return redirect()->route('procurement.orders')->with('success', "Goods receipt {$tx->transaction_number} confirmed and stock updated.");

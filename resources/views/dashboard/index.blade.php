@@ -44,13 +44,13 @@
     @if(Auth::user()->hasRole(['super_admin', 'company_admin']))
         <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
             <!-- 1. Company Setup Progress -->
-            <div class="p-5 sm:p-6 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-sm space-y-4">
-                <div class="flex items-center justify-between">
+            <div class="p-4 sm:p-6 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-sm space-y-4">
+                <div class="flex flex-wrap items-center justify-between gap-2">
                     <div>
                         <h2 class="text-base sm:text-lg font-extrabold text-slate-900 dark:text-white">{{ __('Company Setup Progress') }}</h2>
                         <p class="text-xs text-slate-500 dark:text-slate-400 mt-0.5">{{ __('Essential steps to get your company operating smoothly.') }}</p>
                     </div>
-                    <span class="px-3 py-1 rounded-full text-xs font-extrabold {{ ($onboardingCompletedCount ?? 0) === ($onboardingTotalCount ?? 4) ? 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border border-emerald-500/30' : 'bg-amber-500/15 text-amber-700 dark:text-amber-300 border border-amber-500/30' }}">
+                    <span class="px-3 py-1 rounded-full text-xs font-extrabold whitespace-nowrap {{ ($onboardingCompletedCount ?? 0) === ($onboardingTotalCount ?? 4) ? 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border border-emerald-500/30' : 'bg-amber-500/15 text-amber-700 dark:text-amber-300 border border-amber-500/30' }}">
                         {{ $onboardingCompletedCount ?? 0 }} / {{ $onboardingTotalCount ?? 4 }} {{ __('Complete') }}
                     </span>
                 </div>
@@ -70,13 +70,13 @@
             </div>
 
             <!-- 2. Employee & Access Management -->
-            <div class="p-5 sm:p-6 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-sm space-y-4">
-                <div class="flex items-center justify-between">
+            <div class="p-4 sm:p-6 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-sm space-y-4">
+                <div class="flex flex-wrap items-center justify-between gap-2">
                     <div>
                         <h2 class="text-base sm:text-lg font-extrabold text-slate-900 dark:text-white">{{ __('Employee & Access Management') }}</h2>
                         <p class="text-xs text-slate-500 dark:text-slate-400 mt-0.5">{{ __('Manage employee logins, role permissions, and site assignments.') }}</p>
                     </div>
-                    <a href="{{ route('admin.users.create') }}" class="px-3 py-1.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-xs transition">
+                    <a href="{{ route('admin.users.create') }}" class="px-3 py-1.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-xs whitespace-nowrap transition">
                         + {{ __('Add Employee Login') }}
                     </a>
                 </div>
