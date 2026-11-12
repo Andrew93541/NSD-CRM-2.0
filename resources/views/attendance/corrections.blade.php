@@ -9,8 +9,8 @@
                 {{ __('Formal supervisor requests to correct site hours with immutable before/after change tracking.') }}
             </p>
         </div>
-        <a href="{{ route('attendance.muster') }}" class="px-4 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-800 border border-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 dark:text-slate-200 dark:border-slate-700 text-xs font-bold transition">
-            &larr; {{ __('Back to Muster Roll') }}
+        <a href="{{ Auth::user()->hasPermission('attendance.mark') ? route('attendance.muster') : route('attendance.register') }}" class="px-4 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-800 border border-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 dark:text-slate-200 dark:border-slate-700 text-xs font-bold transition">
+            &larr; {{ Auth::user()->hasPermission('attendance.mark') ? __('Back to Muster Roll') : __('Back to Attendance Register') }}
         </a>
     </div>
 
@@ -53,7 +53,7 @@
                                 </span>
                             </td>
                             <td class="py-3 px-4 text-right">
-                                @if($c->status === 'pending')
+                                @if($c->status === 'pending' && Auth::user()->hasPermission('attendance.approve') && (int) $c->requested_by !== (int) Auth::id())
                                     <div class="flex items-center justify-end gap-2">
                                         <form method="POST" action="{{ route('attendance.review_correction', $c) }}">
                                             @csrf
@@ -66,6 +66,8 @@
                                             <button type="submit" class="px-3 py-1.5 text-xs font-bold rounded-lg bg-rose-100 hover:bg-rose-200 text-rose-800 dark:bg-rose-900/60 dark:text-rose-300 dark:hover:bg-rose-800 transition">{{ __('Reject') }}</button>
                                         </form>
                                     </div>
+                                @elseif($c->status === 'pending')
+                                    <span class="text-xs text-slate-500">{{ __('Awaiting Authorized Approval') }}</span>
                                 @else
                                     <span class="text-xs text-slate-500">{{ __('Reviewed') }}</span>
                                 @endif
@@ -104,7 +106,7 @@
                     <div class="text-xs text-slate-700 dark:text-slate-300">
                         <span class="text-slate-500">{{ __('Reason') }}:</span> {{ $c->reason }}
                     </div>
-                    @if($c->status === 'pending')
+                    @if($c->status === 'pending' && Auth::user()->hasPermission('attendance.approve') && (int) $c->requested_by !== (int) Auth::id())
                         <div class="flex items-center gap-2 pt-2 border-t border-slate-200 dark:border-slate-800">
                             <form method="POST" action="{{ route('attendance.review_correction', $c) }}" class="flex-1">
                                 @csrf

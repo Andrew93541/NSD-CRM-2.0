@@ -25,10 +25,15 @@ class WorkerPolicy
             return false;
         }
 
-        if ($user->hasRole(['super_admin', 'company_admin', 'senior_manager', 'office_staff'])
+        if ($user->hasRole(['super_admin', 'company_admin'])) {
+            return true;
+        }
+
+        if (!$user->isRestrictedToAssignedSites() && (
+            $user->hasRole(['senior_manager', 'office_staff'])
             || $user->hasPermission('workforce.manage')
             || $user->hasPermission('workforce.view_all')
-        ) {
+        )) {
             return true;
         }
 
@@ -42,6 +47,10 @@ class WorkerPolicy
     public function viewAny(User $user): bool
     {
         if (!$user->currentCompany()) {
+            return false;
+        }
+
+        if ($user->isExplicitlyDenied('workforce.view')) {
             return false;
         }
 
@@ -59,6 +68,10 @@ class WorkerPolicy
             return false;
         }
 
+        if ($user->isExplicitlyDenied('workforce.view')) {
+            return false;
+        }
+
         return $user->hasRole(['super_admin', 'company_admin', 'senior_manager', 'site_manager', 'site_supervisor', 'office_staff'])
             || $user->hasPermission('workforce.view')
             || $user->hasPermission('workforce.manage')
@@ -72,6 +85,10 @@ class WorkerPolicy
             return false;
         }
 
+        if ($user->isExplicitlyDenied('workforce.create') || $user->isExplicitlyDenied('workforce.manage')) {
+            return false;
+        }
+
         return $user->hasRole(['super_admin', 'company_admin', 'senior_manager', 'site_manager'])
             || $user->hasPermission('workforce.create')
             || $user->hasPermission('workforce.manage');
@@ -80,6 +97,10 @@ class WorkerPolicy
     public function update(User $user, Worker $worker): bool
     {
         if (!$this->canAccessWorkerSite($user, $worker)) {
+            return false;
+        }
+
+        if ($user->isExplicitlyDenied('workforce.update') || $user->isExplicitlyDenied('workforce.manage')) {
             return false;
         }
 

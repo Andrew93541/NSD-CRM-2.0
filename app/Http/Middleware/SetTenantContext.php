@@ -88,7 +88,7 @@ class SetTenantContext
 
                 $currentRole = $user->currentRole($company->id);
 
-                $accessibleSites = $user->hasRole(['company_admin', 'super_admin', 'senior_manager'])
+                $accessibleSites = ($user->hasRole(['company_admin', 'super_admin']) || ($user->hasRole('senior_manager') && ! $user->isRestrictedToAssignedSites($company->id)))
                     ? $company->sites()->where('status', 'active')->orderBy('code')->get()
                     : \App\Models\Site::whereIn('id', $user->accessibleSiteIds())->where('status', 'active')->orderBy('code')->get();
 
@@ -111,6 +111,12 @@ class SetTenantContext
 
                 if ($twoFactorPending && !$request->routeIs('two-factor.*', 'logout', 'switch_locale', 'switch_theme')) {
                     return redirect()->route('two-factor.challenge');
+                }
+
+                if ((bool) ($user->must_change_password ?? false)
+                    && !$request->routeIs('account.password.*', 'two-factor.*', 'logout', 'switch_locale', 'switch_theme')
+                ) {
+                    return redirect()->route('account.password.show');
                 }
             }
         }

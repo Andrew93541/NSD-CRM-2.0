@@ -26,6 +26,8 @@
     <div class="p-6 sm:p-8 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-xl transition-colors duration-200"
          x-data="{
             workerType: '{{ old('worker_type', 'employee') }}',
+            payType: '{{ old('pay_type', 'daily') }}',
+            showExtraRates: false,
             previewCodes: {{ Js::from($previewCodes ?? ['employee' => 'EMP-' . date('Y') . '-0001', 'subcontractor_worker' => 'SUB-' . date('Y') . '-0001', 'direct_labour' => 'SUB-' . date('Y') . '-0001']) }},
             docRows: [],
             submitting: false,
@@ -41,11 +43,11 @@
         <form method="POST" action="{{ route('workforce.store') }}" enctype="multipart/form-data" class="space-y-8" @submit="submitting = true">
             @csrf
 
-            <!-- Dynamic Worker ID Preview Banner -->
+            <!-- Worker ID Preview Banner -->
             <div class="p-4 rounded-xl bg-amber-500/10 border border-amber-500/30 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
                 <div>
-                    <div class="text-xs font-extrabold text-slate-900 dark:text-white uppercase tracking-wider">{{ __('Auto-Generated Dynamic Worker ID') }}</div>
-                    <p class="text-[11px] text-slate-600 dark:text-slate-400">{{ __('Assigned atomically upon save based on worker category and joining year.') }}</p>
+                    <div class="text-xs font-extrabold text-slate-900 dark:text-white uppercase tracking-wider">{{ __('Worker ID Number') }}</div>
+                    <p class="text-[11px] text-slate-600 dark:text-slate-400">{{ __('Automatically assigned when you save this profile.') }}</p>
                 </div>
                 <span class="px-3 py-1.5 rounded-lg bg-white dark:bg-slate-950 border border-amber-500/40 font-mono text-sm font-extrabold text-amber-600 dark:text-amber-400" x-text="previewCodes[workerType] || 'EMP-{{ date('Y') }}-0001'"></span>
             </div>
@@ -198,7 +200,7 @@
                     </div>
                     <div>
                         <label for="pay_type" class="block text-xs font-bold text-slate-700 dark:text-slate-300 uppercase mb-1">{{ __('Compensation / Pay Type') }} *</label>
-                        <select id="pay_type" name="pay_type" class="w-full rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-slate-800 p-2.5 text-sm text-slate-900 dark:text-white focus:border-amber-500 outline-none">
+                        <select id="pay_type" name="pay_type" x-model="payType" class="w-full rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-slate-800 p-2.5 text-sm text-slate-900 dark:text-white focus:border-amber-500 outline-none">
                             @foreach($payTypes ?? \App\Models\Worker::PAY_TYPES as $ptKey => $ptLabel)
                                 <option value="{{ $ptKey }}" {{ old('pay_type', 'daily') === $ptKey ? 'selected' : '' }}>{{ __($ptLabel) }}</option>
                             @endforeach
@@ -206,26 +208,34 @@
                     </div>
                 </div>
 
-                <div class="grid grid-cols-1 sm:grid-cols-5 gap-4">
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 items-end">
                     <div>
                         <label for="daily_rate" class="block text-xs font-bold text-slate-700 dark:text-slate-300 uppercase mb-1">{{ __('Daily Base Rate') }} (₹) *</label>
                         <input id="daily_rate" type="number" step="0.01" min="0" name="daily_rate" required value="{{ old('daily_rate', 700) }}" class="w-full rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-slate-800 p-2.5 text-sm font-mono text-slate-900 dark:text-white focus:border-amber-500 outline-none">
                     </div>
                     <div>
+                        <button type="button" @click="showExtraRates = !showExtraRates" class="px-3.5 py-2.5 rounded-xl bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-xs font-bold text-slate-700 dark:text-slate-300 transition">
+                            <span x-text="showExtraRates ? '{{ __('Hide Overtime & Monthly Rates') }}' : '+ {{ __('Set Monthly, Hourly or Overtime Rates (Optional)') }}'"></span>
+                        </button>
+                    </div>
+                </div>
+
+                <div x-show="showExtraRates || payType !== 'daily'" x-cloak class="grid grid-cols-1 sm:grid-cols-4 gap-4 p-4 rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800">
+                    <div>
                         <label for="monthly_salary" class="block text-xs font-bold text-slate-700 dark:text-slate-300 uppercase mb-1">{{ __('Monthly Salary') }} (₹)</label>
-                        <input id="monthly_salary" type="number" step="0.01" min="0" name="monthly_salary" value="{{ old('monthly_salary', 0) }}" class="w-full rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-slate-800 p-2.5 text-sm font-mono text-slate-900 dark:text-white focus:border-amber-500 outline-none">
+                        <input id="monthly_salary" type="number" step="0.01" min="0" name="monthly_salary" value="{{ old('monthly_salary', 0) }}" class="w-full rounded-xl bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-800 p-2.5 text-sm font-mono text-slate-900 dark:text-white focus:border-amber-500 outline-none">
                     </div>
                     <div>
                         <label for="hourly_rate" class="block text-xs font-bold text-slate-700 dark:text-slate-300 uppercase mb-1">{{ __('Hourly Rate') }} (₹)</label>
-                        <input id="hourly_rate" type="number" step="0.01" min="0" name="hourly_rate" value="{{ old('hourly_rate', 0) }}" class="w-full rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-slate-800 p-2.5 text-sm font-mono text-slate-900 dark:text-white focus:border-amber-500 outline-none">
+                        <input id="hourly_rate" type="number" step="0.01" min="0" name="hourly_rate" value="{{ old('hourly_rate', 0) }}" class="w-full rounded-xl bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-800 p-2.5 text-sm font-mono text-slate-900 dark:text-white focus:border-amber-500 outline-none">
                     </div>
                     <div>
                         <label for="contract_rate" class="block text-xs font-bold text-slate-700 dark:text-slate-300 uppercase mb-1">{{ __('Contract / Fixed') }} (₹)</label>
-                        <input id="contract_rate" type="number" step="0.01" min="0" name="contract_rate" value="{{ old('contract_rate', 0) }}" class="w-full rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-slate-800 p-2.5 text-sm font-mono text-slate-900 dark:text-white focus:border-amber-500 outline-none">
+                        <input id="contract_rate" type="number" step="0.01" min="0" name="contract_rate" value="{{ old('contract_rate', 0) }}" class="w-full rounded-xl bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-800 p-2.5 text-sm font-mono text-slate-900 dark:text-white focus:border-amber-500 outline-none">
                     </div>
                     <div>
                         <label for="overtime_rate" class="block text-xs font-bold text-slate-700 dark:text-slate-300 uppercase mb-1">{{ __('Overtime Rate / Hr') }} (₹)</label>
-                        <input id="overtime_rate" type="number" step="0.01" min="0" name="overtime_rate" value="{{ old('overtime_rate', 0) }}" class="w-full rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-slate-800 p-2.5 text-sm font-mono text-slate-900 dark:text-white focus:border-amber-500 outline-none">
+                        <input id="overtime_rate" type="number" step="0.01" min="0" name="overtime_rate" value="{{ old('overtime_rate', 0) }}" class="w-full rounded-xl bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-800 p-2.5 text-sm font-mono text-slate-900 dark:text-white focus:border-amber-500 outline-none">
                     </div>
                 </div>
             </section>

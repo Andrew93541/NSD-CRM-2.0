@@ -130,7 +130,14 @@
                                     </a>
                                 @else
                                     <div class="text-sm font-bold text-slate-700 dark:text-slate-300">{{ __('No construction sites are currently assigned or registered.') }}</div>
-                                    <p class="text-xs text-slate-500 dark:text-slate-400 mt-1">{{ __('Sites will appear here once created or assigned to your account.') }}</p>
+                                    <p class="text-xs text-slate-500 dark:text-slate-400 mt-1">{{ __('Add your first construction site to assign workers, mark attendance, and track work orders.') }}</p>
+                                    @can('create', \App\Models\Site::class)
+                                        <div class="pt-3">
+                                            <a href="{{ route('sites.create') }}" class="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 text-xs font-extrabold shadow-sm transition">
+                                                + {{ __('Add Your First Site') }}
+                                            </a>
+                                        </div>
+                                    @endcan
                                 @endif
                             </td>
                         </tr>

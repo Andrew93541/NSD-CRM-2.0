@@ -14,12 +14,23 @@
                 </p>
             </div>
             <div class="flex flex-wrap items-center gap-2">
+                <a href="{{ route('reports.multi_site') }}" class="px-3.5 py-2 text-xs font-extrabold rounded-xl bg-amber-500 text-slate-950 shadow-sm">
+                    {{ __('Site Comparison') }}
+                </a>
                 <a href="{{ route('reports.workforce') }}" class="px-3.5 py-2 text-xs font-bold rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 transition">
-                    {{ __('Date & Month Attendance Register') }}
+                    {{ __('Attendance Register') }}
                 </a>
-                <a href="{{ route('reports.audit_logs') }}" class="px-3.5 py-2 text-xs font-bold rounded-xl bg-indigo-500/10 hover:bg-indigo-500/20 text-indigo-700 dark:text-indigo-300 border border-indigo-500/30 transition">
-                    {{ __('Security & Audit Logs') }}
+                <a href="{{ route('reports.work_orders') }}" class="px-3.5 py-2 text-xs font-bold rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 transition">
+                    {{ __('Work Orders Summary') }}
                 </a>
+                <a href="{{ route('reports.inventory') }}" class="px-3.5 py-2 text-xs font-bold rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 transition">
+                    {{ __('Stock Valuation') }}
+                </a>
+                @if(Auth::user()->hasPermission('reports.view') || Auth::user()->hasPermission('users.view'))
+                    <a href="{{ route('reports.audit_logs') }}" class="px-3.5 py-2 text-xs font-bold rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 transition">
+                        {{ __('Audit History') }}
+                    </a>
+                @endif
             </div>
         </div>
 

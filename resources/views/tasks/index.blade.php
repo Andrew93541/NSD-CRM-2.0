@@ -4,8 +4,9 @@
 @php
     $reopenTaskDrawer = $errors->any() && old('form_context') === 'create_task';
     $reopenNoteDrawer = $errors->any() && old('form_context') === 'create_note';
+    $hasTaskFilters = request()->hasAny(['site_id', 'project_id', 'priority', 'status', 'overdue', 'my_tasks', 'note_category']);
 @endphp
-<div class="space-y-6" x-data="{ showNewTask: {{ $reopenTaskDrawer ? 'true' : 'false' }}, showNewNote: {{ $reopenNoteDrawer ? 'true' : 'false' }} }">
+<div class="space-y-6" x-data="{ showNewTask: {{ $reopenTaskDrawer ? 'true' : 'false' }}, showNewNote: {{ $reopenNoteDrawer ? 'true' : 'false' }}, showTaskFilters: {{ $hasTaskFilters ? 'true' : 'false' }} }">
     @if ($errors->any())
         <div class="p-4 rounded-2xl bg-rose-50 dark:bg-rose-950/70 border border-rose-300 dark:border-rose-500/40 text-rose-800 dark:text-rose-200 text-xs space-y-1">
             <div class="font-extrabold uppercase tracking-wider">{{ __('Please correct the following errors:') }}</div>
@@ -17,42 +18,31 @@
         </div>
     @endif
 
-    <!-- KPI Summary Strip -->
-    <div class="grid grid-cols-2 sm:grid-cols-4 xl:grid-cols-7 gap-3">
+    <!-- Focused 4-Card Summary Strip -->
+    <div class="grid grid-cols-2 lg:grid-cols-4 gap-3.5">
         <a href="{{ route('tasks.index', array_merge(request()->except(['status', 'overdue', 'my_tasks']), ['view' => $viewMode === 'notes' ? 'board' : $viewMode])) }}"
-           class="p-3.5 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 hover:border-amber-500/50 transition shadow-sm">
-            <div class="text-[10px] font-bold uppercase tracking-wider text-slate-500">{{ __('Total Active') }}</div>
-            <div class="text-xl font-extrabold text-slate-900 dark:text-white mt-1">{{ $kpis['total_active'] ?? 0 }}</div>
+           class="p-4 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 hover:border-amber-500/50 transition shadow-sm">
+            <div class="text-[11px] font-bold uppercase tracking-wider text-slate-500">{{ __('Total Active') }}</div>
+            <div class="text-2xl font-extrabold text-slate-900 dark:text-white mt-1">{{ $kpis['total_active'] ?? 0 }}</div>
+            <div class="text-[11px] text-slate-500 mt-0.5">{{ __('My Tasks') }}: {{ $kpis['my_tasks'] ?? 0 }}</div>
         </a>
         <a href="{{ route('tasks.index', array_merge(request()->except(['overdue', 'my_tasks']), ['status' => 'in_progress', 'view' => $viewMode === 'notes' ? 'board' : $viewMode])) }}"
-           class="p-3.5 rounded-2xl bg-white dark:bg-slate-900 border {{ request('status') === 'in_progress' ? 'border-sky-500 ring-1 ring-sky-500/30' : 'border-slate-200 dark:border-slate-800' }} hover:border-sky-500/50 transition shadow-sm">
-            <div class="text-[10px] font-bold uppercase tracking-wider text-sky-600 dark:text-sky-400">{{ __('In Progress') }}</div>
-            <div class="text-xl font-extrabold text-slate-900 dark:text-white mt-1">{{ $kpis['in_progress'] ?? 0 }}</div>
-        </a>
-        <a href="{{ route('tasks.index', array_merge(request()->except(['overdue', 'my_tasks']), ['status' => 'review', 'view' => $viewMode === 'notes' ? 'board' : $viewMode])) }}"
-           class="p-3.5 rounded-2xl bg-white dark:bg-slate-900 border {{ request('status') === 'review' ? 'border-amber-500 ring-1 ring-amber-500/30' : 'border-slate-200 dark:border-slate-800' }} hover:border-amber-500/50 transition shadow-sm">
-            <div class="text-[10px] font-bold uppercase tracking-wider text-amber-600 dark:text-amber-400">{{ __('In Review') }}</div>
-            <div class="text-xl font-extrabold text-slate-900 dark:text-white mt-1">{{ $kpis['in_review'] ?? 0 }}</div>
-        </a>
-        <a href="{{ route('tasks.index', array_merge(request()->except(['overdue', 'my_tasks']), ['status' => 'blocked', 'view' => $viewMode === 'notes' ? 'board' : $viewMode])) }}"
-           class="p-3.5 rounded-2xl bg-white dark:bg-slate-900 border {{ request('status') === 'blocked' ? 'border-rose-500 ring-1 ring-rose-500/30' : 'border-slate-200 dark:border-slate-800' }} hover:border-rose-500/50 transition shadow-sm">
-            <div class="text-[10px] font-bold uppercase tracking-wider text-rose-600 dark:text-rose-400">{{ __('Blocked') }}</div>
-            <div class="text-xl font-extrabold text-rose-600 dark:text-rose-400 mt-1">{{ $kpis['blocked'] ?? 0 }}</div>
+           class="p-4 rounded-2xl bg-white dark:bg-slate-900 border {{ request('status') === 'in_progress' ? 'border-sky-500 ring-1 ring-sky-500/30' : 'border-slate-200 dark:border-slate-800' }} hover:border-sky-500/50 transition shadow-sm">
+            <div class="text-[11px] font-bold uppercase tracking-wider text-sky-600 dark:text-sky-400">{{ __('In Progress') }}</div>
+            <div class="text-2xl font-extrabold text-slate-900 dark:text-white mt-1">{{ $kpis['in_progress'] ?? 0 }}</div>
+            <div class="text-[11px] text-slate-500 mt-0.5">{{ __('In Review') }}: {{ $kpis['in_review'] ?? 0 }}</div>
         </a>
         <a href="{{ route('tasks.index', array_merge(request()->except(['status', 'my_tasks']), ['overdue' => 1, 'view' => $viewMode === 'notes' ? 'board' : $viewMode])) }}"
-           class="p-3.5 rounded-2xl bg-white dark:bg-slate-900 border {{ request()->boolean('overdue') ? 'border-rose-500 ring-1 ring-rose-500/30' : 'border-slate-200 dark:border-slate-800' }} hover:border-rose-500/50 transition shadow-sm">
-            <div class="text-[10px] font-bold uppercase tracking-wider text-rose-600 dark:text-rose-400">{{ __('Overdue') }}</div>
-            <div class="text-xl font-extrabold text-rose-600 dark:text-rose-400 mt-1">{{ $kpis['overdue'] ?? 0 }}</div>
-        </a>
-        <a href="{{ route('tasks.index', array_merge(request()->except(['status', 'overdue']), ['my_tasks' => 1, 'view' => $viewMode === 'notes' ? 'board' : $viewMode])) }}"
-           class="p-3.5 rounded-2xl bg-white dark:bg-slate-900 border {{ request()->boolean('my_tasks') ? 'border-emerald-500 ring-1 ring-emerald-500/30' : 'border-slate-200 dark:border-slate-800' }} hover:border-emerald-500/50 transition shadow-sm">
-            <div class="text-[10px] font-bold uppercase tracking-wider text-emerald-600 dark:text-emerald-400">{{ __('My Tasks') }}</div>
-            <div class="text-xl font-extrabold text-slate-900 dark:text-white mt-1">{{ $kpis['my_tasks'] ?? 0 }}</div>
+           class="p-4 rounded-2xl bg-white dark:bg-slate-900 border {{ request()->boolean('overdue') ? 'border-rose-500 ring-1 ring-rose-500/30' : 'border-slate-200 dark:border-slate-800' }} hover:border-rose-500/50 transition shadow-sm">
+            <div class="text-[11px] font-bold uppercase tracking-wider text-rose-600 dark:text-rose-400">{{ __('Overdue') }}</div>
+            <div class="text-2xl font-extrabold text-rose-600 dark:text-rose-400 mt-1">{{ $kpis['overdue'] ?? 0 }}</div>
+            <div class="text-[11px] text-slate-500 mt-0.5">{{ __('Blocked') }}: {{ $kpis['blocked'] ?? 0 }}</div>
         </a>
         <a href="{{ route('tasks.index', array_merge(request()->query(), ['view' => 'notes'])) }}"
-           class="p-3.5 rounded-2xl bg-white dark:bg-slate-900 border {{ $viewMode === 'notes' ? 'border-sky-500 ring-1 ring-sky-500/30' : 'border-slate-200 dark:border-slate-800' }} hover:border-sky-500/50 transition shadow-sm">
-            <div class="text-[10px] font-bold uppercase tracking-wider text-sky-600 dark:text-sky-400">{{ __('Pinned Site Notes') }}</div>
-            <div class="text-xl font-extrabold text-slate-900 dark:text-white mt-1">{{ $kpis['pinned_notes'] ?? 0 }}</div>
+           class="p-4 rounded-2xl bg-white dark:bg-slate-900 border {{ $viewMode === 'notes' ? 'border-sky-500 ring-1 ring-sky-500/30' : 'border-slate-200 dark:border-slate-800' }} hover:border-sky-500/50 transition shadow-sm">
+            <div class="text-[11px] font-bold uppercase tracking-wider text-sky-600 dark:text-sky-400">{{ __('Site Notes') }}</div>
+            <div class="text-2xl font-extrabold text-slate-900 dark:text-white mt-1">{{ $siteNotes->count() }}</div>
+            <div class="text-[11px] text-slate-500 mt-0.5">{{ __('Pinned') }}: {{ $kpis['pinned_notes'] ?? 0 }}</div>
         </a>
     </div>
 
@@ -61,38 +51,43 @@
         <div class="flex flex-col md:flex-row md:items-center justify-between gap-4">
             <div>
                 <h1 class="text-xl sm:text-2xl font-extrabold text-slate-900 dark:text-white tracking-tight">
-                    {{ __('Site Tasks, Field Notes & Activity Log') }}
+                    {{ __('Site Tasks & Daily Notes') }}
                 </h1>
                 <p class="text-xs sm:text-sm text-slate-600 dark:text-slate-400 mt-1">
-                    {{ __('Every task and note carries a site and project scope. Track progress via Kanban Board, Table List, or Field Notes & Handover.') }}
+                    {{ __('Assign site work, update progress, and record shift handover notes.') }}
                 </p>
             </div>
             <div class="flex flex-wrap items-center gap-2">
-                <a href="{{ route('tasks.index', array_merge(request()->query(), ['view' => 'board'])) }}"
-                    class="px-3.5 py-2 rounded-xl text-xs font-bold border transition {{ $viewMode === 'board' ? 'bg-amber-500 text-slate-950 border-amber-500 shadow' : 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border-slate-200 dark:border-slate-700' }}">
-                    {{ __('Kanban Board') }}
-                </a>
-                <a href="{{ route('tasks.index', array_merge(request()->query(), ['view' => 'list'])) }}"
-                    class="px-3.5 py-2 rounded-xl text-xs font-bold border transition {{ $viewMode === 'list' ? 'bg-amber-500 text-slate-950 border-amber-500 shadow' : 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border-slate-200 dark:border-slate-700' }}">
-                    {{ __('Table List') }}
-                </a>
-                <a href="{{ route('tasks.index', array_merge(request()->query(), ['view' => 'notes'])) }}"
-                    class="px-3.5 py-2 rounded-xl text-xs font-bold border transition {{ $viewMode === 'notes' ? 'bg-amber-500 text-slate-950 border-amber-500 shadow' : 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border-slate-200 dark:border-slate-700' }}">
-                    {{ __('Field Notes & Handover') }} ({{ $siteNotes->count() }})
-                </a>
+                <div class="inline-flex rounded-xl bg-slate-100 dark:bg-slate-800 p-1 border border-slate-200 dark:border-slate-700">
+                    <a href="{{ route('tasks.index', array_merge(request()->query(), ['view' => 'board'])) }}"
+                        class="px-3 py-1.5 rounded-lg text-xs font-bold transition {{ $viewMode === 'board' ? 'bg-white dark:bg-slate-900 text-slate-900 dark:text-white shadow-sm' : 'text-slate-600 dark:text-slate-400' }}">
+                        {{ __('Board') }}
+                    </a>
+                    <a href="{{ route('tasks.index', array_merge(request()->query(), ['view' => 'list'])) }}"
+                        class="px-3 py-1.5 rounded-lg text-xs font-bold transition {{ $viewMode === 'list' ? 'bg-white dark:bg-slate-900 text-slate-900 dark:text-white shadow-sm' : 'text-slate-600 dark:text-slate-400' }}">
+                        {{ __('Table List') }}
+                    </a>
+                    <a href="{{ route('tasks.index', array_merge(request()->query(), ['view' => 'notes'])) }}"
+                        class="px-3 py-1.5 rounded-lg text-xs font-bold transition {{ $viewMode === 'notes' ? 'bg-white dark:bg-slate-900 text-slate-900 dark:text-white shadow-sm' : 'text-slate-600 dark:text-slate-400' }}">
+                        {{ __('Site Notes') }} ({{ $siteNotes->count() }})
+                    </a>
+                </div>
+                <button type="button" @click="showTaskFilters = !showTaskFilters" class="px-3 py-2 rounded-xl text-xs font-bold bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 transition">
+                    <span x-text="showTaskFilters ? '{{ __('Hide Filters') }}' : '{{ __('Filters') }}'">{{ __('Filters') }}</span>
+                </button>
                 @can('create', \App\Models\Task::class)
-                    <button type="button" @click="showNewNote = !showNewNote; if (showNewNote) showNewTask = false;" class="px-3.5 py-2 rounded-xl text-xs font-bold bg-sky-500/10 hover:bg-sky-500/20 text-sky-600 dark:text-sky-400 border border-sky-500/30 transition">
+                    <button type="button" @click="showNewNote = !showNewNote; if (showNewNote) showNewTask = false;" class="px-3.5 py-2 rounded-xl text-xs font-semibold bg-white dark:bg-slate-900 hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700 transition">
                         + {{ __('Log Site Note') }}
                     </button>
-                    <button type="button" @click="showNewTask = !showNewTask; if (showNewTask) showNewNote = false;" class="px-4 py-2 rounded-xl text-xs font-extrabold bg-amber-500 hover:bg-amber-400 text-slate-950 shadow transition">
+                    <button type="button" @click="showNewTask = !showNewTask; if (showNewTask) showNewNote = false;" class="px-4 py-2 rounded-xl text-xs font-extrabold bg-amber-500 hover:bg-amber-400 text-slate-950 shadow-sm transition">
                         + {{ __('New Site Task') }}
                     </button>
                 @endcan
             </div>
         </div>
 
-        <!-- Filters -->
-        <form method="GET" action="{{ route('tasks.index') }}" class="grid grid-cols-1 sm:grid-cols-5 gap-3 pt-3 border-t border-slate-200 dark:border-slate-800">
+        <!-- Collapsible Filters -->
+        <form x-show="showTaskFilters" x-cloak method="GET" action="{{ route('tasks.index') }}" class="grid grid-cols-1 sm:grid-cols-5 gap-3 pt-3 border-t border-slate-200 dark:border-slate-800">
             <input type="hidden" name="view" value="{{ $viewMode }}">
             <div>
                 <label class="block text-[10px] font-bold text-slate-500 uppercase mb-1">{{ __('Site') }}</label>
@@ -540,9 +535,9 @@
         </div>
 
         @if($viewMode !== 'notes')
-        <!-- Append-Only Activity Log -->
+        <!-- Recent Site Activity -->
         <div class="p-6 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 space-y-4 shadow-sm">
-            <h2 class="text-sm font-extrabold text-slate-900 dark:text-white uppercase tracking-wider">{{ __('Append-Only Site Activity Log') }}</h2>
+            <h2 class="text-sm font-extrabold text-slate-900 dark:text-white uppercase tracking-wider">{{ __('Recent Site Activity') }}</h2>
             <div class="divide-y divide-slate-200 dark:divide-slate-800 text-xs">
                 @forelse($recentActivity as $act)
                     <div class="py-2.5 flex items-start justify-between gap-3">

@@ -31,13 +31,22 @@ class PayrollController extends Controller
         }
 
         if ($requireWrite) {
-            if (!$user->hasRole(['super_admin', 'company_admin', 'senior_manager', 'site_manager', 'office_staff'])) {
+            if ($user->isExplicitlyDenied('payroll.manage')) {
+                abort(403, 'You are not authorized to modify payroll records.');
+            }
+            if (!$user->canPerform('payroll.manage', ['super_admin', 'company_admin', 'senior_manager', 'site_manager', 'office_staff'])) {
                 abort(403, 'You are not authorized to modify payroll records.');
             }
             return;
         }
 
-        if (!$user->hasRole(['super_admin', 'company_admin', 'senior_manager', 'site_manager', 'site_supervisor', 'office_staff'])) {
+        if ($user->isExplicitlyDenied('payroll.view')) {
+            abort(403, 'You are not authorized to access the Payroll module.');
+        }
+
+        if (!$user->canPerform('payroll.view', ['super_admin', 'company_admin', 'senior_manager', 'site_manager', 'site_supervisor', 'office_staff'])
+            && !$user->hasPermission('payroll.manage')
+        ) {
             abort(403, 'You are not authorized to access the Payroll module.');
         }
     }

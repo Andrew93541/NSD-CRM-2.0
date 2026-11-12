@@ -19,12 +19,16 @@ class User extends Authenticatable
         'email',
         'password',
         'is_active',
+        'must_change_password',
+        'password_changed_at',
         'two_factor_enabled',
         'two_factor_secret',
         'two_factor_code',
         'two_factor_expires_at',
         'two_factor_verified_at',
         'two_factor_last_step',
+        'last_login_at',
+        'last_login_ip',
     ];
 
     protected $hidden = [
@@ -40,10 +44,13 @@ class User extends Authenticatable
             'email_verified_at' => 'datetime',
             'password' => 'hashed',
             'is_active' => 'boolean',
+            'must_change_password' => 'boolean',
+            'password_changed_at' => 'datetime',
             'two_factor_enabled' => 'boolean',
             'two_factor_expires_at' => 'datetime',
             'two_factor_verified_at' => 'datetime',
             'two_factor_last_step' => 'integer',
+            'last_login_at' => 'datetime',
         ];
     }
 
@@ -105,6 +112,36 @@ class User extends Authenticatable
         return Role::find($roleId);
     }
 
+    /**
+     * Return the user's assigned Role in the given or current company (regardless of active/inactive status).
+     */
+    public function roleInCompany(?int $companyId = null): ?Role
+    {
+        $pivot = $this->companyPivotRow($companyId);
+        if (! $pivot || empty($pivot->role_id)) {
+            return null;
+        }
+
+        return Role::find((int) $pivot->role_id);
+    }
+
+    /**
+     * Determine whether the user is active both globally and within the given/current company.
+     */
+    public function isActiveInCompany(?int $companyId = null): bool
+    {
+        if (isset($this->is_active) && ! (bool) $this->is_active) {
+            return false;
+        }
+
+        $pivot = $this->companyPivotRow($companyId);
+        if (! $pivot) {
+            return false;
+        }
+
+        return ($pivot->status ?? 'active') === 'active';
+    }
+
     public function hasRole(string|array $roleSlugs): bool
     {
         $role = $this->currentRole();
@@ -128,14 +165,237 @@ class User extends Authenticatable
         return in_array($role->slug, $slugs, true);
     }
 
-    public function hasPermission(string $permission): bool
+    /**
+     * Return the user's company_user row for the given or current company.
+     */
+    public function companyPivotRow(?int $companyId = null): ?object
     {
-        $role = $this->currentRole();
-        if (!$role) {
+        $targetCompanyId = $companyId ?? TenantContext::getCompanyId();
+        if (! $targetCompanyId) {
+            return null;
+        }
+
+        return \Illuminate\Support\Facades\DB::table('company_user')
+            ->where('company_id', $targetCompanyId)
+            ->where('user_id', $this->id)
+            ->first();
+    }
+
+    /**
+     * Return individual permission overrides ['perm.key' => 'allow'|'deny'] for the current/given company.
+     *
+     * @return array<string, string>
+     */
+    public function permissionOverrides(?int $companyId = null): array
+    {
+        $row = $this->companyPivotRow($companyId);
+        if (! $row || ! property_exists($row, 'permission_overrides') || empty($row->permission_overrides)) {
+            return [];
+        }
+
+        $decoded = is_string($row->permission_overrides)
+            ? json_decode($row->permission_overrides, true)
+            : (array) $row->permission_overrides;
+
+        if (! is_array($decoded)) {
+            return [];
+        }
+
+        $clean = [];
+        foreach ($decoded as $key => $mode) {
+            if (is_string($key) && in_array($mode, ['allow', 'deny'], true)) {
+                $clean[$key] = $mode;
+            }
+        }
+
+        return $clean;
+    }
+
+    public function permissionOverrideFor(string $permission, ?int $companyId = null): ?string
+    {
+        $overrides = $this->permissionOverrides($companyId);
+        if (empty($overrides)) {
+            return null;
+        }
+
+        $aliases = \App\Services\Security\PermissionCatalog::expandAliases($permission);
+
+        // Explicit deny on the exact key or any equivalent alias always wins first
+        foreach ($aliases as $key) {
+            if (($overrides[$key] ?? null) === 'deny') {
+                return 'deny';
+            }
+        }
+
+        foreach ($aliases as $key) {
+            if (($overrides[$key] ?? null) === 'allow') {
+                return 'allow';
+            }
+        }
+
+        return null;
+    }
+
+    public function isExplicitlyDenied(string $permission, ?int $companyId = null): bool
+    {
+        return $this->permissionOverrideFor($permission, $companyId) === 'deny';
+    }
+
+    /**
+     * Evaluate effective permission with strict precedence:
+     * 1. Explicit user deny override (including aliases) -> false
+     * 2. Explicit user allow override (including aliases) -> true
+     * 3. Inherited role permission -> role->hasPermission($permission)
+     */
+    public function hasPermission(string $permission, ?int $companyId = null): bool
+    {
+        $role = $this->currentRole($companyId);
+        if (! $role) {
             return false;
         }
 
+        $override = $this->permissionOverrideFor($permission, $companyId);
+        if ($override === 'deny') {
+            return false;
+        }
+
+        if ($override === 'allow') {
+            return true;
+        }
+
         return $role->hasPermission($permission);
+    }
+
+    /**
+     * Unified helper for policies and controllers that checks effective permission first
+     * (honoring explicit user deny overrides) before falling back to predefined role slugs.
+     */
+    public function canPerform(string $permission, string|array $fallbackRoles = []): bool
+    {
+        if ($this->isExplicitlyDenied($permission)) {
+            return false;
+        }
+
+        if ($this->hasPermission($permission)) {
+            return true;
+        }
+
+        if (in_array($permission, \App\Services\Security\PermissionCatalog::WILDCARD_EXCLUDED_ATTENDANCE_PERMISSIONS, true)) {
+            return false;
+        }
+
+        if (! empty($fallbackRoles)) {
+            return $this->hasRole($fallbackRoles);
+        }
+
+        return false;
+    }
+
+    /**
+     * Inspect detailed permission state for UI matrices:
+     * returns ['effective' => bool, 'source' => 'system_admin'|'explicit_allow'|'explicit_deny'|'inherited_allow'|'inherited_deny', 'inherited' => bool, 'override' => ?string]
+     *
+     * @return array{effective: bool, source: string, inherited: bool, override: ?string}
+     */
+    public function permissionState(string $permission, ?int $companyId = null): array
+    {
+        $role = $this->currentRole($companyId);
+        if (! $role) {
+            return [
+                'effective' => false,
+                'source' => 'inherited_deny',
+                'inherited' => false,
+                'override' => null,
+            ];
+        }
+
+        $inherited = $role->hasPermission($permission);
+        $override = $this->permissionOverrideFor($permission, $companyId);
+
+        if ($override === 'deny') {
+            return [
+                'effective' => false,
+                'source' => 'explicit_deny',
+                'inherited' => $inherited,
+                'override' => 'deny',
+            ];
+        }
+
+        if ($override === 'allow') {
+            return [
+                'effective' => true,
+                'source' => 'explicit_allow',
+                'inherited' => $inherited,
+                'override' => 'allow',
+            ];
+        }
+
+        if ($role->isProtectedAdminRole() && $inherited) {
+            return [
+                'effective' => true,
+                'source' => 'system_admin',
+                'inherited' => true,
+                'override' => null,
+            ];
+        }
+
+        return [
+            'effective' => $inherited,
+            'source' => $inherited ? 'inherited_allow' : 'inherited_deny',
+            'inherited' => $inherited,
+            'override' => null,
+        ];
+    }
+
+    public function isRestrictedToAssignedSites(?int $companyId = null): bool
+    {
+        $role = $this->currentRole($companyId);
+        if ($role && $role->isProtectedAdminRole()) {
+            return false;
+        }
+
+        $row = $this->companyPivotRow($companyId);
+        if ($row && property_exists($row, 'restrict_to_assigned_sites') && (bool) $row->restrict_to_assigned_sites) {
+            return true;
+        }
+
+        return false;
+    }
+
+    /**
+     * Determine whether this user is the last active Company Administrator in the given company.
+     */
+    public function isLastActiveCompanyAdmin(int $companyId): bool
+    {
+        if (! $this->is_active) {
+            return false;
+        }
+
+        $role = $this->currentRole($companyId);
+        if (! $role || ! in_array($role->slug, ['company_admin', 'super_admin'], true)) {
+            return false;
+        }
+
+        $adminRoleIds = Role::withoutGlobalScopes()
+            ->where('company_id', $companyId)
+            ->whereIn('slug', ['company_admin', 'super_admin'])
+            ->pluck('id')
+            ->all();
+
+        if (empty($adminRoleIds)) {
+            return false;
+        }
+
+        $otherActiveAdminsCount = \Illuminate\Support\Facades\DB::table('company_user')
+            ->join('users', 'users.id', '=', 'company_user.user_id')
+            ->where('company_user.company_id', $companyId)
+            ->whereIn('company_user.role_id', $adminRoleIds)
+            ->where('company_user.status', 'active')
+            ->where('users.is_active', true)
+            ->where('users.id', '!=', $this->id)
+            ->count();
+
+        return $otherActiveAdminsCount === 0;
     }
 
     public function isAssignedToSite(int|Site $site): bool
@@ -150,8 +410,13 @@ class User extends Authenticatable
             return false;
         }
 
-        // Company admins, super admins, and senior managers have organization-wide site access within their company
-        if ($this->hasRole(['super_admin', 'company_admin', 'senior_manager'])) {
+        // Company admins and super admins always have organization-wide site access within their company
+        if ($this->hasRole(['super_admin', 'company_admin'])) {
+            return true;
+        }
+
+        // Senior managers have organization-wide access unless explicitly restricted to assigned sites
+        if ($this->hasRole('senior_manager') && ! $this->isRestrictedToAssignedSites($currentCompanyId)) {
             return true;
         }
 
@@ -193,7 +458,11 @@ class User extends Authenticatable
         }
 
         $sites = Site::where('company_id', $companyId)->get();
-        if ($this->hasRole(['super_admin', 'company_admin', 'senior_manager'])) {
+        if ($this->hasRole(['super_admin', 'company_admin'])) {
+            return $sites->pluck('id')->all();
+        }
+
+        if ($this->hasRole('senior_manager') && ! $this->isRestrictedToAssignedSites($companyId)) {
             return $sites->pluck('id')->all();
         }
 
@@ -252,6 +521,11 @@ class User extends Authenticatable
         }
 
         return false;
+    }
+
+    public function requiresTwoFactor(?int $companyId = null): bool
+    {
+        return $this->requiresTwoFactorChallenge($companyId);
     }
 
     /**

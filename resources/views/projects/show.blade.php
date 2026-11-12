@@ -122,12 +122,12 @@
                                 <span class="text-sm font-bold text-slate-900 dark:text-white">{{ $s->name }}</span>
                             </div>
                             <div class="text-xs text-slate-500 dark:text-slate-400 mt-1">
-                                {{ $s->location ?: ($s->city ?: __('No landmark')) }} &bull; {{ __('Geofence') }}: {{ $s->geofence_radius_m ?? 200 }}m
+                                {{ $s->location ?: ($s->city ?: __('No landmark')) }}
                             </div>
                         </div>
                         @can('view', $s)
                             <a href="{{ route('sites.show', $s) }}" class="px-3 py-1.5 rounded-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-xs font-bold text-slate-800 dark:text-slate-200 hover:border-amber-500 transition">
-                                {{ __('Inspect') }} &rarr;
+                                {{ __('Open Site') }} &rarr;
                             </a>
                         @endcan
                     </div>
@@ -139,12 +139,19 @@
     </div>
 
     <!-- Tab 3: Milestones -->
-    <div class="{{ $activeTab === 'milestones' || $activeTab === 'overview' ? 'block' : 'hidden' }} space-y-4">
+    <div class="{{ $activeTab === 'milestones' ? 'block' : 'hidden' }} space-y-4" x-data="{ showAddMilestone: false }">
         <div class="p-6 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 space-y-5 shadow-sm">
-            <h2 class="text-sm font-bold text-slate-900 dark:text-white uppercase tracking-wider">{{ __('Project Milestones') }} ({{ $project->milestones->count() }})</h2>
+            <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                <h2 class="text-sm font-bold text-slate-900 dark:text-white uppercase tracking-wider">{{ __('Project Milestones') }} ({{ $project->milestones->count() }})</h2>
+                @can('manageMilestones', $project)
+                    <button type="button" @click="showAddMilestone = !showAddMilestone" class="self-start sm:self-auto px-3.5 py-1.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 text-xs font-extrabold transition">
+                        + <span x-text="showAddMilestone ? '{{ __('Cancel') }}' : '{{ __('Add Milestone') }}'">{{ __('Add Milestone') }}</span>
+                    </button>
+                @endcan
+            </div>
 
             @can('manageMilestones', $project)
-                <form method="POST" action="{{ route('projects.milestones.store', $project) }}" class="p-4 rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 space-y-3">
+                <form x-show="showAddMilestone" x-cloak method="POST" action="{{ route('projects.milestones.store', $project) }}" class="p-4 rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 space-y-3">
                     @csrf
                     <div class="text-xs font-bold text-slate-800 dark:text-slate-200 uppercase">{{ __('Add Project Milestone') }}</div>
                     <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
@@ -213,16 +220,23 @@
         </div>
     </div>
 
-    <!-- Tab 4: Versioned Project Documents -->
-    <div class="{{ $activeTab === 'documents' || $activeTab === 'overview' ? 'block' : 'hidden' }} space-y-4">
+    <!-- Tab 4: Project Documents -->
+    <div class="{{ $activeTab === 'documents' ? 'block' : 'hidden' }} space-y-4" x-data="{ showUploadDoc: false }">
         <div class="p-6 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 space-y-5 shadow-sm">
-            <div>
-                <h2 class="text-sm font-bold text-slate-900 dark:text-white uppercase tracking-wider">{{ __('Versioned Project Documents') }} ({{ $visibleDocuments->count() }})</h2>
-                <p class="text-xs text-slate-500 dark:text-slate-400 mt-0.5">{{ __('Uploading a document with an existing title and type automatically increments its version (v1, v2, v3...).') }}</p>
+            <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                <div>
+                    <h2 class="text-sm font-bold text-slate-900 dark:text-white uppercase tracking-wider">{{ __('Project Documents & Drawings') }} ({{ $visibleDocuments->count() }})</h2>
+                    <p class="text-xs text-slate-500 dark:text-slate-400 mt-0.5">{{ __('Drawings, BOQs, and contracts. Uploading an updated file with the same title saves a new version automatically.') }}</p>
+                </div>
+                @can('uploadDocument', $project)
+                    <button type="button" @click="showUploadDoc = !showUploadDoc" class="self-start sm:self-auto px-3.5 py-1.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 text-xs font-extrabold transition">
+                        + <span x-text="showUploadDoc ? '{{ __('Cancel') }}' : '{{ __('Upload Document') }}'">{{ __('Upload Document') }}</span>
+                    </button>
+                @endcan
             </div>
 
             @can('uploadDocument', $project)
-                <form method="POST" action="{{ route('projects.documents.store', $project) }}" enctype="multipart/form-data" class="p-4 rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 space-y-3">
+                <form x-show="showUploadDoc" x-cloak method="POST" action="{{ route('projects.documents.store', $project) }}" enctype="multipart/form-data" class="p-4 rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 space-y-3">
                     @csrf
                     <div class="text-xs font-bold text-slate-800 dark:text-slate-200 uppercase">{{ __('Upload Project Drawing / BOQ / Document') }}</div>
                     <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">

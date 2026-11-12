@@ -208,6 +208,11 @@ class RaBillController extends Controller
     {
         Gate::authorize('view', $workOrder);
 
+        $user = request()->user();
+        if ($user && $user->isExplicitlyDenied('ra_bills.view')) {
+            abort(403, 'You are not authorized to view RA Bills.');
+        }
+
         if ((int) $raBill->work_order_id !== (int) $workOrder->id) {
             abort(404);
         }
@@ -322,9 +327,33 @@ class RaBillController extends Controller
         return back()->with('status', __('RA Bill rejected and measurement entries released.'));
     }
 
+    protected function authorizeBillExport(\App\Models\User $user, string $exportType = 'ra_bill'): void
+    {
+        if ($exportType === 'tax_invoice') {
+            if ($user->isExplicitlyDenied('invoices.export') || $user->isExplicitlyDenied('ra_bills.export')) {
+                abort(403, 'You are not authorized to export Tax Invoices.');
+            }
+            if (!$user->canPerform('invoices.export', ['super_admin', 'company_admin', 'senior_manager', 'site_manager', 'office_staff'])
+                && !$user->hasPermission('ra_bills.export')
+            ) {
+                abort(403, 'You are not authorized to export Tax Invoices.');
+            }
+            return;
+        }
+
+        if ($user->isExplicitlyDenied('ra_bills.export')) {
+            abort(403, 'You are not authorized to export RA Bills.');
+        }
+
+        if (!$user->canPerform('ra_bills.export', ['super_admin', 'company_admin', 'senior_manager', 'site_manager', 'office_staff'])) {
+            abort(403, 'You are not authorized to export RA Bills.');
+        }
+    }
+
     public function exportPdf(Request $request, WorkOrder $workOrder, RaBill $raBill, string $exportType): StreamedResponse
     {
         Gate::authorize('view', $workOrder);
+        $this->authorizeBillExport($request->user(), $exportType);
 
         if ((int) $raBill->work_order_id !== (int) $workOrder->id) {
             abort(404);
@@ -338,6 +367,7 @@ class RaBillController extends Controller
     public function exportXlsx(Request $request, WorkOrder $workOrder, RaBill $raBill): StreamedResponse
     {
         Gate::authorize('view', $workOrder);
+        $this->authorizeBillExport($request->user(), 'xlsx');
 
         if ((int) $raBill->work_order_id !== (int) $workOrder->id) {
             abort(404);
@@ -351,6 +381,7 @@ class RaBillController extends Controller
     public function downloadExport(WorkOrder $workOrder, RaBill $raBill, int $exportId): StreamedResponse
     {
         Gate::authorize('view', $workOrder);
+        $this->authorizeBillExport(request()->user(), 'download');
 
         if ((int) $raBill->work_order_id !== (int) $workOrder->id) {
             abort(404);

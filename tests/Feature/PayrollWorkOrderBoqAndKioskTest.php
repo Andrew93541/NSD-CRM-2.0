@@ -321,6 +321,12 @@ class PayrollWorkOrderBoqAndKioskTest extends TestCase
         $token = $this->site->ensureKioskToken();
         $this->assertNotEmpty($token);
 
+        // By default in the normal CRM interface, direct kiosk routes are disabled (404)
+        $this->get(route('kiosk.terminal', $token))->assertNotFound();
+
+        // Enable legacy kiosk flag to verify underlying stateless punch preservation
+        config(['app.kiosk_enabled' => true]);
+
         $worker = Worker::create([
             'company_id' => $this->company->id,
             'worker_type' => 'employee',

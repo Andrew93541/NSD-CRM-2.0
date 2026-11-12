@@ -34,20 +34,20 @@
         </div>
 
         <div class="flex flex-wrap items-center gap-2">
-            <a href="{{ route('work_orders.ra_bills.export_pdf', [$workOrder, $raBill, 'tax_invoice_pdf']) }}" class="px-3.5 py-2 text-xs font-extrabold rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 shadow-sm transition">
-                {{ __('Tax Invoice PDF (INV)') }} &darr;
-            </a>
-            <a href="{{ route('work_orders.ra_bills.export_pdf', [$workOrder, $raBill, 'abstract_pdf']) }}" class="px-3.5 py-2 text-xs font-extrabold rounded-xl bg-indigo-500 hover:bg-indigo-400 text-white shadow-sm transition">
-                {{ __('Abstract PDF (ABSTRACT)') }} &darr;
-            </a>
-            <a href="{{ route('work_orders.ra_bills.export_pdf', [$workOrder, $raBill, 'combined_pdf']) }}" class="px-3.5 py-2 text-xs font-bold rounded-xl bg-slate-800 hover:bg-slate-700 text-white transition">
-                {{ __('Combined PDF') }} &darr;
-            </a>
-            <a href="{{ route('work_orders.ra_bills.export_xlsx', [$workOrder, $raBill]) }}" class="px-3.5 py-2 text-xs font-extrabold rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 shadow-sm transition">
-                {{ __('Excel (.xlsx with Live Formulas)') }} &darr;
-            </a>
             <a href="{{ route('work_orders.show', $workOrder) }}" class="px-3.5 py-2 text-xs font-bold rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-800 border border-slate-200 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700 dark:border-slate-700 transition">
                 &larr; {{ __('Back to Work Order') }}
+            </a>
+            <a href="{{ route('work_orders.ra_bills.export_pdf', [$workOrder, $raBill, 'abstract_pdf']) }}" class="px-3 py-2 text-xs font-semibold rounded-xl bg-white dark:bg-slate-900 hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-800 transition">
+                {{ __('Abstract PDF (ABSTRACT)') }} &darr;
+            </a>
+            <a href="{{ route('work_orders.ra_bills.export_pdf', [$workOrder, $raBill, 'combined_pdf']) }}" class="px-3 py-2 text-xs font-semibold rounded-xl bg-white dark:bg-slate-900 hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-800 transition">
+                {{ __('Combined PDF') }} &darr;
+            </a>
+            <a href="{{ route('work_orders.ra_bills.export_xlsx', [$workOrder, $raBill]) }}" class="px-3 py-2 text-xs font-semibold rounded-xl bg-white dark:bg-slate-900 hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-800 transition">
+                {{ __('Excel (.xlsx with Live Formulas)') }} &darr;
+            </a>
+            <a href="{{ route('work_orders.ra_bills.export_pdf', [$workOrder, $raBill, 'tax_invoice_pdf']) }}" class="px-4 py-2 text-xs font-extrabold rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 shadow-sm transition">
+                {{ __('Tax Invoice PDF (INV)') }} &darr;
             </a>
         </div>
     </div>
@@ -56,9 +56,9 @@
     <div class="p-5 sm:p-6 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 space-y-4 shadow-sm">
         <div class="flex flex-wrap items-center justify-between gap-4">
             <div>
-                <h3 class="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">{{ __('RA Bill Two-Tier Certification & Quantity Cap Status') }}</h3>
+                <h3 class="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">{{ __('RA Bill Approval & Quantity Limit Check') }}</h3>
                 <p class="text-[11px] text-slate-500 mt-0.5">
-                    {{ __('Rule: Effective Claimed = max(0, Claimed - Hold); Billable = min(Effective Claimed, Ordered - Previous); Excess is held until a Work Order Revision increases Ordered Quantity.') }}
+                    {{ __('Billable quantities are automatically capped at the remaining ordered quantity. Any excess work is held until a work order revision is approved.') }}
                 </p>
             </div>
             <div class="flex flex-wrap items-center gap-2">

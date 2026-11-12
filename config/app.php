@@ -56,6 +56,8 @@ return [
 
     'force_https' => filter_var(env('FORCE_HTTPS', false), FILTER_VALIDATE_BOOL),
 
+    'kiosk_enabled' => filter_var(env('FEATURE_SITE_KIOSK_ENABLED', false), FILTER_VALIDATE_BOOL),
+
     'demo' => [
         'company_code' => env('DEMO_COMPANY_CODE', 'DEMO-NSD'),
         'company_name' => env('DEMO_COMPANY_NAME', 'NSD Demo Infrastructure Pvt Ltd'),

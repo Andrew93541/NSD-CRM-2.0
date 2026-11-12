@@ -9,16 +9,28 @@ class SitePolicy
 {
     public function viewAny(User $user): bool
     {
+        if ($user->isExplicitlyDenied('sites.view')) {
+            return false;
+        }
+
         return $user->currentCompany() !== null;
     }
 
     public function view(User $user, Site $site): bool
     {
+        if ($user->isExplicitlyDenied('sites.view')) {
+            return false;
+        }
+
         return $user->isAssignedToSite($site);
     }
 
     public function create(User $user): bool
     {
+        if ($user->isExplicitlyDenied('sites.create') || $user->isExplicitlyDenied('sites.manage')) {
+            return false;
+        }
+
         return $user->hasPermission('sites.create')
             || $user->hasPermission('sites.manage')
             || $user->hasRole(['super_admin', 'company_admin', 'senior_manager']);
@@ -30,6 +42,10 @@ class SitePolicy
             return false;
         }
 
+        if ($user->isExplicitlyDenied('sites.update') || $user->isExplicitlyDenied('sites.manage')) {
+            return false;
+        }
+
         return $user->hasPermission('sites.update')
             || $user->hasPermission('sites.manage')
             || $user->hasRole(['super_admin', 'company_admin', 'senior_manager', 'site_manager']);
@@ -37,6 +53,10 @@ class SitePolicy
 
     public function recordAttendance(User $user, Site $site): bool
     {
+        if ($user->isExplicitlyDenied('attendance.record')) {
+            return false;
+        }
+
         return ($user->hasPermission('attendance.record') || $user->hasRole(['site_supervisor', 'site_manager', 'company_admin', 'super_admin']))
             && $user->isAssignedToSite($site);
     }
@@ -48,6 +68,10 @@ class SitePolicy
         }
 
         if (!$site->canBeDeleted()) {
+            return false;
+        }
+
+        if ($user->isExplicitlyDenied('sites.delete') || $user->isExplicitlyDenied('sites.manage')) {
             return false;
         }
 

@@ -26,12 +26,29 @@ class ReportsController extends Controller
     {
     }
 
+    protected function hasUnrestrictedReportSiteAccess(\App\Models\User $user, array $roles = ['super_admin', 'company_admin', 'senior_manager', 'office_staff']): bool
+    {
+        if ($user->hasRole(['super_admin', 'company_admin'])) {
+            return true;
+        }
+
+        if ($user->isRestrictedToAssignedSites()) {
+            return false;
+        }
+
+        return $user->hasRole($roles);
+    }
+
     public function workforce(Request $request): View
     {
         Gate::authorize('viewAny', Worker::class);
 
         $user = Auth::user();
-        $hasAllSiteAccess = $user->hasRole(['super_admin', 'company_admin', 'senior_manager', 'office_staff']);
+        if ($user->isExplicitlyDenied('reports.view')) {
+            abort(403, 'Unauthorized to view operational reports.');
+        }
+
+        $hasAllSiteAccess = $this->hasUnrestrictedReportSiteAccess($user);
 
         $accessibleSiteIds = $hasAllSiteAccess
             ? null
@@ -103,7 +120,11 @@ class ReportsController extends Controller
         Gate::authorize('viewAny', WorkOrder::class);
 
         $user = Auth::user();
-        $hasAllSiteAccess = $user->hasRole(['super_admin', 'company_admin', 'senior_manager', 'office_staff']);
+        if ($user->isExplicitlyDenied('reports.view')) {
+            abort(403, 'Unauthorized to view operational reports.');
+        }
+
+        $hasAllSiteAccess = $this->hasUnrestrictedReportSiteAccess($user);
 
         $baseQuery = WorkOrder::query();
         if (!$hasAllSiteAccess) {
@@ -125,6 +146,10 @@ class ReportsController extends Controller
     public function inventory(): View
     {
         $user = Auth::user();
+        if ($user->isExplicitlyDenied('reports.view') || $user->isExplicitlyDenied('inventory.view')) {
+            abort(403, 'Unauthorized to view inventory reports.');
+        }
+
         if (!$user->hasRole(['super_admin', 'company_admin', 'senior_manager', 'site_manager', 'site_supervisor', 'warehouse_manager', 'office_staff'])
             && !$user->hasPermission('inventory.view')
             && !$user->hasPermission('reports.view')
@@ -132,7 +157,7 @@ class ReportsController extends Controller
             abort(403, 'Unauthorized to view inventory reports.');
         }
 
-        $hasAllSiteAccess = $user->hasRole(['super_admin', 'company_admin', 'senior_manager', 'warehouse_manager', 'office_staff']);
+        $hasAllSiteAccess = $this->hasUnrestrictedReportSiteAccess($user, ['super_admin', 'company_admin', 'senior_manager', 'warehouse_manager', 'office_staff']);
         $accessibleSiteIds = $hasAllSiteAccess ? null : $user->accessibleSiteIds();
 
         $stocks = InventoryStock::with(['material.category', 'warehouse'])
@@ -157,7 +182,11 @@ class ReportsController extends Controller
     public function multiSiteComparison(Request $request): View
     {
         $user = Auth::user();
-        $hasAllSiteAccess = $user->hasRole(['super_admin', 'company_admin', 'senior_manager', 'office_staff']);
+        if ($user->isExplicitlyDenied('reports.view')) {
+            abort(403, 'Unauthorized to view operational reports.');
+        }
+
+        $hasAllSiteAccess = $this->hasUnrestrictedReportSiteAccess($user);
 
         $sites = $hasAllSiteAccess
             ? Site::with('project')->where('status', 'active')->orderBy('code')->get()
@@ -233,12 +262,12 @@ class ReportsController extends Controller
     public function auditLogs(Request $request): View
     {
         $user = Auth::user();
-        if (!$user->hasRole(['super_admin', 'company_admin', 'senior_manager', 'site_manager', 'office_staff'])) {
+        if (!$user->canPerform('audit_logs.view', ['super_admin', 'company_admin', 'senior_manager', 'site_manager', 'office_staff'])) {
             abort(403, 'Unauthorized to view operational audit logs.');
         }
 
         $companyId = \App\Services\Security\TenantContext::getCompanyId();
-        $hasAllSiteAccess = $user->hasRole(['super_admin', 'company_admin', 'senior_manager', 'office_staff']);
+        $hasAllSiteAccess = $this->hasUnrestrictedReportSiteAccess($user);
         $accessibleSiteIds = $hasAllSiteAccess ? null : $user->accessibleSiteIds();
 
         $eventFilter = $request->query('event');
@@ -295,12 +324,18 @@ class ReportsController extends Controller
     public function exportAuditLogsCsv(Request $request): StreamedResponse
     {
         $user = Auth::user();
-        if (!$user->hasRole(['super_admin', 'company_admin', 'senior_manager', 'office_staff'])) {
+        if ($user->isExplicitlyDenied('audit_logs.export') || $user->isExplicitlyDenied('audit_logs.view')) {
+            abort(403, 'Unauthorized to export audit logs.');
+        }
+
+        if (!$user->canPerform('audit_logs.export', ['super_admin', 'company_admin', 'senior_manager', 'office_staff'])
+            && !$user->hasPermission('audit_logs.view')
+        ) {
             abort(403, 'Unauthorized to export audit logs.');
         }
 
         $companyId = \App\Services\Security\TenantContext::getCompanyId();
-        $hasAllSiteAccess = $user->hasRole(['super_admin', 'company_admin', 'senior_manager', 'office_staff']);
+        $hasAllSiteAccess = $this->hasUnrestrictedReportSiteAccess($user);
         $accessibleSiteIds = $hasAllSiteAccess ? null : $user->accessibleSiteIds();
 
         $eventFilter = $request->query('event');

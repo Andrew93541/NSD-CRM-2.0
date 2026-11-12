@@ -13,8 +13,11 @@ use App\Models\Material;
 use App\Models\Project;
 use App\Models\PurchaseOrder;
 use App\Models\PurchaseRequest;
+use App\Models\Role;
 use App\Models\Site;
 use App\Models\Task;
+use App\Models\User;
+use App\Models\Worker;
 use App\Models\WorkOrder;
 use App\Models\WorkerDocument;
 use App\Services\Security\TenantContext;
@@ -161,8 +164,47 @@ class DashboardController extends Controller
                 ->get()
             : collect();
 
+        // 9. Company Admin Setup Progress & Employee Access Summary
+        $totalWorkersCount = Worker::where('status', 'active')
+            ->when($scopedSiteIds !== null, fn ($q) => $q->whereIn('site_id', $scopedSiteIds))
+            ->count();
+
+        $totalUsersCount = User::whereHas('companies', fn ($q) => $q->where('companies.id', $companyId))->count();
+        $activeUsersCount = User::where('is_active', true)
+            ->whereHas('companies', fn ($q) => $q->where('companies.id', $companyId)->where('company_user.status', 'active'))
+            ->count();
+        $customRolesCount = Role::where('company_id', $companyId)
+            ->whereNotIn('slug', ['super_admin', 'company_admin', 'senior_manager', 'site_manager', 'site_supervisor', 'supervisor', 'office_staff', 'warehouse_manager'])
+            ->count();
+
+        $onboardingSteps = [
+            [
+                'label' => __('Add your first Project'),
+                'completed' => $activeProjectsCount > 0,
+                'route' => route('projects.index'),
+            ],
+            [
+                'label' => __('Add your first Construction Site'),
+                'completed' => $activeSitesCount > 0,
+                'route' => route('sites.index'),
+            ],
+            [
+                'label' => __('Create Employee Login Accounts'),
+                'completed' => $totalUsersCount > 1,
+                'route' => route('admin.users.index'),
+            ],
+            [
+                'label' => __('Register Workers in Directory'),
+                'completed' => $totalWorkersCount > 0,
+                'route' => route('workforce.index'),
+            ],
+        ];
+        $onboardingCompletedCount = collect($onboardingSteps)->where('completed', true)->count();
+        $onboardingTotalCount = count($onboardingSteps);
+
         return view('dashboard.index', compact(
             'uniqueWorkersToday',
+            'totalWorkersCount',
             'totalHoursToday',
             'conflictsToday',
             'activeProjectsCount',
@@ -186,7 +228,13 @@ class DashboardController extends Controller
             'pendingAttendanceCorrectionsCount',
             'pendingLeavesCount',
             'expiringDocumentsCount',
-            'recentActivityLogs'
+            'recentActivityLogs',
+            'totalUsersCount',
+            'activeUsersCount',
+            'customRolesCount',
+            'onboardingSteps',
+            'onboardingCompletedCount',
+            'onboardingTotalCount'
         ));
     }
 }

@@ -22,12 +22,21 @@ class KioskController extends Controller
         protected AttendanceService $attendanceService
     ) {}
 
+    protected function ensureKioskEnabled(): void
+    {
+        if (! (bool) config('app.kiosk_enabled', false)) {
+            abort(404, 'Site Kiosk mode is disabled.');
+        }
+    }
+
     /**
      * Authenticated Kiosk Management Hub (/attendance/kiosk).
      * Lets authorized supervisors/managers launch or rotate site-bound kiosk tokens.
      */
     public function hub(Request $request): View
     {
+        $this->ensureKioskEnabled();
+
         $user = Auth::user();
         if (!$user || (
             !$user->hasRole(['super_admin', 'company_admin', 'senior_manager', 'site_manager', 'site_supervisor'])
@@ -53,6 +62,8 @@ class KioskController extends Controller
      */
     public function rotateToken(Request $request, Site $site): RedirectResponse
     {
+        $this->ensureKioskEnabled();
+
         $user = Auth::user();
         if (!$user || !$user->hasRole(['super_admin', 'company_admin', 'senior_manager', 'site_manager'])) {
             abort(403, 'Only management roles can rotate site kiosk tokens.');
@@ -81,6 +92,8 @@ class KioskController extends Controller
      */
     public function terminal(Request $request, string $token): View
     {
+        $this->ensureKioskEnabled();
+
         $site = Site::withoutGlobalScopes()
             ->with('company')
             ->where('kiosk_token', $token)
@@ -108,6 +121,8 @@ class KioskController extends Controller
      */
     public function punch(Request $request, string $token): RedirectResponse
     {
+        $this->ensureKioskEnabled();
+
         $rateKey = 'kiosk-punch:' . $request->ip() . ':' . substr($token, 0, 16);
         if (RateLimiter::tooManyAttempts($rateKey, 20)) {
             $seconds = RateLimiter::availableIn($rateKey);

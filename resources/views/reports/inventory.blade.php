@@ -2,6 +2,13 @@
 
 @section('content')
 <div class="space-y-6">
+    <div class="flex flex-wrap items-center gap-2 border-b border-slate-200 dark:border-slate-800 pb-3">
+        <a href="{{ route('reports.multi_site') }}" class="px-3.5 py-2 text-xs font-bold rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200 transition">{{ __('Site Comparison') }}</a>
+        <a href="{{ route('reports.work_orders') }}" class="px-3.5 py-2 text-xs font-bold rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200 transition">{{ __('Work Orders Summary') }}</a>
+        <a href="{{ route('reports.inventory') }}" class="px-3.5 py-2 text-xs font-extrabold rounded-xl bg-amber-500 text-slate-950 shadow-sm">{{ __('Stock Valuation') }}</a>
+        <a href="{{ route('inventory.stocks') }}" class="px-3.5 py-2 text-xs font-bold rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200 transition">{{ __('Warehouse Stock') }} &rarr;</a>
+    </div>
+
     <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-slate-200 dark:border-slate-800">
         <div>
             <h1 class="text-2xl font-extrabold text-slate-900 dark:text-white tracking-tight">{{ __('Material Valuation & Inventory Report') }}</h1>

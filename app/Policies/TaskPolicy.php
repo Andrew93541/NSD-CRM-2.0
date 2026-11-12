@@ -10,7 +10,7 @@ class TaskPolicy
 {
     public function viewAny(User $user): bool
     {
-        return $user->hasRole([
+        return $user->canPerform('tasks.view', [
             'super_admin',
             'company_admin',
             'senior_manager',
@@ -27,7 +27,15 @@ class TaskPolicy
             return false;
         }
 
-        if ($user->hasRole(['super_admin', 'company_admin', 'senior_manager', 'office_staff'])) {
+        if ($user->isExplicitlyDenied('tasks.view')) {
+            return false;
+        }
+
+        if ($user->hasRole(['super_admin', 'company_admin'])) {
+            return true;
+        }
+
+        if (!$user->isRestrictedToAssignedSites() && $user->hasRole(['senior_manager', 'office_staff'])) {
             return true;
         }
 
@@ -40,7 +48,7 @@ class TaskPolicy
 
     public function create(User $user): bool
     {
-        return $user->hasRole([
+        return $user->canPerform('tasks.create', [
             'super_admin',
             'company_admin',
             'senior_manager',
@@ -56,8 +64,12 @@ class TaskPolicy
             return false;
         }
 
-        // Office staff and warehouse managers have read-only or no access to task mutations
-        if (!$this->create($user)) {
+        if ($user->isExplicitlyDenied('tasks.update')) {
+            return false;
+        }
+
+        // Office staff and warehouse managers have read-only or no access to task mutations unless explicitly granted
+        if (!$user->hasPermission('tasks.update') && !$this->create($user)) {
             return false;
         }
 
@@ -74,11 +86,15 @@ class TaskPolicy
             return false;
         }
 
-        if (!$this->create($user)) {
+        if ($user->isExplicitlyDenied('tasks.delete')) {
             return false;
         }
 
-        if ($user->hasRole(['super_admin', 'company_admin', 'senior_manager'])) {
+        if (!$user->hasPermission('tasks.delete') && !$this->create($user)) {
+            return false;
+        }
+
+        if ($user->hasRole(['super_admin', 'company_admin']) || ($user->hasRole('senior_manager') && !$user->isRestrictedToAssignedSites())) {
             return true;
         }
 
@@ -86,6 +102,12 @@ class TaskPolicy
             return false;
         }
 
-        return $user->hasRole('site_manager') || (int) $task->created_by === (int) $user->id;
+        if ($user->hasRole(['site_supervisor', 'supervisor'])) {
+            return (int) $task->created_by === (int) $user->id;
+        }
+
+        return $user->hasRole('site_manager')
+            || (int) $task->created_by === (int) $user->id
+            || $user->hasPermission('tasks.delete');
     }
 }

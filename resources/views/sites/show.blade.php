@@ -58,27 +58,30 @@
     @endif
 
     @if(isset($workOrderSummary))
-        <div class="p-4 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-sm">
-            <div class="text-[11px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-3">Per-Site Work Order & Manpower Summary</div>
-            <div class="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
+        <details class="p-4 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-sm group">
+            <summary class="cursor-pointer list-none flex items-center justify-between text-xs font-bold uppercase tracking-wider text-slate-600 dark:text-slate-300">
+                <span>{{ __('Site Billing & Manpower Summary') }}</span>
+                <span class="px-2.5 py-1 rounded-lg bg-slate-100 dark:bg-slate-800 text-[11px] font-semibold">{{ __('Show / Hide') }}</span>
+            </summary>
+            <div class="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs pt-3 mt-3 border-t border-slate-200 dark:border-slate-800">
                 <div class="p-3 rounded-xl bg-slate-50 dark:bg-slate-950">
-                    <div class="text-slate-500">Manpower Days (Attendance)</div>
+                    <div class="text-slate-500">{{ __('Manpower Days (Attendance)') }}</div>
                     <div class="text-lg font-extrabold text-slate-900 dark:text-white mt-0.5">{{ $workOrderSummary['manpower_days'] }}</div>
                 </div>
                 <div class="p-3 rounded-xl bg-slate-50 dark:bg-slate-950">
-                    <div class="text-slate-500">Total Measured Quantity</div>
+                    <div class="text-slate-500">{{ __('Total Measured Quantity') }}</div>
                     <div class="text-lg font-extrabold text-sky-600 dark:text-sky-400 mt-0.5">{{ number_format($workOrderSummary['measured_quantity'], 3) }}</div>
                 </div>
                 <div class="p-3 rounded-xl bg-slate-50 dark:bg-slate-950">
-                    <div class="text-slate-500">Total Billed Amount</div>
+                    <div class="text-slate-500">{{ __('Total Billed Amount') }}</div>
                     <div class="text-lg font-extrabold text-amber-600 dark:text-amber-400 mt-0.5">₹{{ number_format($workOrderSummary['billed_amount'], 2) }}</div>
                 </div>
                 <div class="p-3 rounded-xl bg-slate-50 dark:bg-slate-950">
-                    <div class="text-slate-500">Remaining Order Balance</div>
+                    <div class="text-slate-500">{{ __('Remaining Order Balance') }}</div>
                     <div class="text-lg font-extrabold text-emerald-600 dark:text-emerald-400 mt-0.5">₹{{ number_format($workOrderSummary['balance_amount'], 2) }}</div>
                 </div>
             </div>
-        </div>
+        </details>
     @endif
 
     <!-- Real Operational Summary Cards -->
@@ -376,17 +379,22 @@
         </div>
     </div>
 
-    <!-- Dated Site Assignment & Transfer History -->
-    <div class="p-5 sm:p-6 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 space-y-5 shadow-sm">
+    <!-- Site Assignment & Transfer History -->
+    <div class="p-5 sm:p-6 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 space-y-5 shadow-sm" x-data="{ showAssignForm: false }">
         <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
             <div>
-                <h2 class="text-sm font-bold text-slate-900 dark:text-white uppercase tracking-wider">{{ __('Dated Site Assignments & Transfer History') }}</h2>
-                <p class="text-xs text-slate-500 dark:text-slate-400 mt-0.5">{{ __('Tracks staff and worker assignments to this site with start and end dates. Transfers automatically close prior site assignments.') }}</p>
+                <h2 class="text-sm font-bold text-slate-900 dark:text-white uppercase tracking-wider">{{ __('Site Assignments & Transfer History') }}</h2>
+                <p class="text-xs text-slate-500 dark:text-slate-400 mt-0.5">{{ __('History of staff and workers assigned to this site.') }}</p>
             </div>
+            @can('update', $site)
+                <button type="button" @click="showAssignForm = !showAssignForm" class="self-start sm:self-auto px-3.5 py-2 rounded-xl bg-amber-500/15 hover:bg-amber-500/25 text-amber-700 dark:text-amber-300 border border-amber-500/30 text-xs font-extrabold transition">
+                    + <span x-text="showAssignForm ? '{{ __('Cancel') }}' : '{{ __('Assign Worker or Staff') }}'">{{ __('Assign Worker or Staff') }}</span>
+                </button>
+            @endcan
         </div>
 
         @can('update', $site)
-            <form method="POST" action="{{ route('sites.assignments.store', $site) }}" class="p-4 rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 space-y-4">
+            <form x-show="showAssignForm" x-cloak method="POST" action="{{ route('sites.assignments.store', $site) }}" class="p-4 rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 space-y-4">
                 @csrf
                 <div class="text-xs font-bold text-slate-800 dark:text-slate-200 uppercase">{{ __('Assign or Transfer Staff / Worker to This Site') }}</div>
                 <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">

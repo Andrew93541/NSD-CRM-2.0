@@ -9,20 +9,29 @@
             <p class="text-xs sm:text-sm text-slate-600 dark:text-slate-400 mt-1">{{ __('Live tracking for active projects, muster roll, and 2-tier approval workflows.') }}</p>
         </div>
         <div class="flex flex-wrap items-center gap-2 sm:gap-3">
-            <a href="{{ route('attendance.register') }}" class="inline-flex items-center gap-2 px-3.5 sm:px-4 py-2 sm:py-2.5 rounded-xl bg-emerald-500/15 hover:bg-emerald-500/25 text-emerald-700 dark:text-emerald-300 border border-emerald-500/30 font-bold text-xs sm:text-sm transition">
-                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg>
-                {{ __('Date & Month Attendance') }}
-            </a>
-            <a href="{{ route('attendance.muster') }}" class="inline-flex items-center gap-2 px-3.5 sm:px-4 py-2 sm:py-2.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-xs sm:text-sm shadow-lg shadow-amber-500/20 transition">
-                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4"/></svg>
-                {{ __('Take Muster Roll') }}
-            </a>
-            @if(Auth::user()->hasRole('warehouse_manager'))
+            @if(Auth::user()->hasPermission('attendance.view') || Auth::user()->hasPermission('attendance.mark'))
+                <a href="{{ route('attendance.register', ['mode' => 'month']) }}" class="inline-flex items-center gap-2 px-3.5 sm:px-4 py-2 sm:py-2.5 rounded-xl bg-emerald-500/15 hover:bg-emerald-500/25 text-emerald-700 dark:text-emerald-300 border border-emerald-500/30 font-bold text-xs sm:text-sm transition">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg>
+                    {{ __('Date & Month Attendance') }}
+                </a>
+            @endif
+            @if(Auth::user()->hasPermission('attendance.mark'))
+                <a href="{{ route('attendance.muster') }}" class="inline-flex items-center gap-2 px-3.5 sm:px-4 py-2 sm:py-2.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-xs sm:text-sm shadow-lg shadow-amber-500/20 transition">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4"/></svg>
+                    {{ __('Take Muster Roll') }}
+                </a>
+            @endif
+            @if(Auth::user()->hasRole(['super_admin', 'company_admin']))
+                <a href="{{ route('admin.users.index') }}" class="inline-flex items-center gap-2 px-3.5 sm:px-4 py-2 sm:py-2.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-xs sm:text-sm shadow-lg shadow-amber-500/20 transition">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z"/></svg>
+                    {{ __('Users & Access') }}
+                </a>
+            @elseif(Auth::user()->hasRole('warehouse_manager'))
                 <a href="{{ route('procurement.orders') }}" class="inline-flex items-center gap-2 px-3.5 sm:px-4 py-2 sm:py-2.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-800 border border-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 dark:text-white dark:border-slate-700 font-bold text-xs sm:text-sm transition">
                     <svg class="w-4 h-4 text-cyan-600 dark:text-cyan-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4"/></svg>
                     {{ __('Receive Goods') }}
                 </a>
-            @else
+            @elseif(Auth::user()->can('create', \App\Models\WorkOrder::class))
                 <a href="{{ route('work_orders.create') }}" class="inline-flex items-center gap-2 px-3.5 sm:px-4 py-2 sm:py-2.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-800 border border-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 dark:text-white dark:border-slate-700 font-bold text-xs sm:text-sm transition">
                     <svg class="w-4 h-4 text-amber-500 dark:text-amber-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
                     {{ __('Raise Work Order') }}
@@ -30,6 +39,74 @@
             @endif
         </div>
     </div>
+
+    {{-- COMPANY ADMIN FOCUSED DASHBOARD (5 KEY AREAS) --}}
+    @if(Auth::user()->hasRole(['super_admin', 'company_admin']))
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            <!-- 1. Company Setup Progress -->
+            <div class="p-5 sm:p-6 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-sm space-y-4">
+                <div class="flex items-center justify-between">
+                    <div>
+                        <h2 class="text-base sm:text-lg font-extrabold text-slate-900 dark:text-white">{{ __('Company Setup Progress') }}</h2>
+                        <p class="text-xs text-slate-500 dark:text-slate-400 mt-0.5">{{ __('Essential steps to get your company operating smoothly.') }}</p>
+                    </div>
+                    <span class="px-3 py-1 rounded-full text-xs font-extrabold {{ ($onboardingCompletedCount ?? 0) === ($onboardingTotalCount ?? 4) ? 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border border-emerald-500/30' : 'bg-amber-500/15 text-amber-700 dark:text-amber-300 border border-amber-500/30' }}">
+                        {{ $onboardingCompletedCount ?? 0 }} / {{ $onboardingTotalCount ?? 4 }} {{ __('Complete') }}
+                    </span>
+                </div>
+
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                    @foreach($onboardingSteps ?? [] as $step)
+                        <a href="{{ $step['route'] }}" class="p-3 rounded-xl border transition flex items-center justify-between gap-2 {{ $step['completed'] ? 'bg-emerald-500/5 border-emerald-500/30 text-emerald-800 dark:text-emerald-300' : 'bg-slate-50 dark:bg-slate-950/70 border-slate-200 dark:border-slate-800 hover:border-amber-500/40 text-slate-800 dark:text-slate-200' }}">
+                            <span class="text-xs font-bold">{{ $step['label'] }}</span>
+                            @if($step['completed'])
+                                <span class="text-xs font-extrabold text-emerald-600 dark:text-emerald-400">&#10003;</span>
+                            @else
+                                <span class="text-[11px] font-bold text-amber-600 dark:text-amber-400">{{ __('Start') }} &rarr;</span>
+                            @endif
+                        </a>
+                    @endforeach
+                </div>
+            </div>
+
+            <!-- 2. Employee & Access Management -->
+            <div class="p-5 sm:p-6 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-sm space-y-4">
+                <div class="flex items-center justify-between">
+                    <div>
+                        <h2 class="text-base sm:text-lg font-extrabold text-slate-900 dark:text-white">{{ __('Employee & Access Management') }}</h2>
+                        <p class="text-xs text-slate-500 dark:text-slate-400 mt-0.5">{{ __('Manage employee logins, role permissions, and site assignments.') }}</p>
+                    </div>
+                    <a href="{{ route('admin.users.create') }}" class="px-3 py-1.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-xs transition">
+                        + {{ __('Add Employee Login') }}
+                    </a>
+                </div>
+
+                <div class="grid grid-cols-3 gap-3">
+                    <div class="p-3.5 rounded-xl bg-slate-50 dark:bg-slate-950/70 border border-slate-200 dark:border-slate-800">
+                        <span class="text-[11px] font-bold text-slate-500 uppercase">{{ __('Active Logins') }}</span>
+                        <div class="text-2xl font-extrabold text-slate-900 dark:text-white mt-1">{{ $activeUsersCount ?? 1 }}</div>
+                    </div>
+                    <div class="p-3.5 rounded-xl bg-slate-50 dark:bg-slate-950/70 border border-slate-200 dark:border-slate-800">
+                        <span class="text-[11px] font-bold text-slate-500 uppercase">{{ __('Registered Workers') }}</span>
+                        <div class="text-2xl font-extrabold text-slate-900 dark:text-white mt-1">{{ $totalWorkersCount ?? 0 }}</div>
+                    </div>
+                    <div class="p-3.5 rounded-xl bg-slate-50 dark:bg-slate-950/70 border border-slate-200 dark:border-slate-800">
+                        <span class="text-[11px] font-bold text-slate-500 uppercase">{{ __('Custom Roles') }}</span>
+                        <div class="text-2xl font-extrabold text-slate-900 dark:text-white mt-1">{{ $customRolesCount ?? 0 }}</div>
+                    </div>
+                </div>
+
+                <div class="flex flex-wrap items-center gap-2 pt-1">
+                    <a href="{{ route('admin.users.index') }}" class="px-3 py-1.5 text-xs font-bold rounded-lg bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 transition">
+                        {{ __('All Employee Accounts') }} &rarr;
+                    </a>
+                    <a href="{{ route('admin.roles.index') }}" class="px-3 py-1.5 text-xs font-bold rounded-lg bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 transition">
+                        {{ __('Roles & Permission Matrix') }} &rarr;
+                    </a>
+                </div>
+            </div>
+        </div>
+    @endif
 
     {{-- ROLE-ADAPTIVE FOCUS SECTION --}}
     @if(Auth::user()->hasRole('site_supervisor'))
@@ -161,6 +238,27 @@
                         {{ __('No purchase orders awaiting delivery confirmation.') }}
                     </div>
                 @endforelse
+            </div>
+        </div>
+
+    @elseif(Auth::user()->hasRole('office_staff'))
+        <!-- Office Staff Finance, Payroll & Records Banner -->
+        <div class="p-5 sm:p-6 rounded-2xl bg-gradient-to-r from-emerald-500/10 via-emerald-500/5 to-transparent dark:from-emerald-500/10 dark:via-slate-900 dark:to-slate-900 border border-emerald-500/30 dark:border-emerald-500/20 space-y-4">
+            <div class="flex items-center justify-between">
+                <div class="flex items-center gap-3">
+                    <div class="w-10 h-10 rounded-xl bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 flex items-center justify-center">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+                    </div>
+                    <div>
+                        <h2 class="text-base sm:text-lg font-bold text-slate-900 dark:text-white">{{ __('Office & Finance Operations') }} &mdash; {{ __('Office Staff') }}</h2>
+                        <p class="text-xs text-slate-600 dark:text-slate-400">{{ __('Manage payroll cycles, RA bills, purchase orders, and read-only attendance records.') }}</p>
+                    </div>
+                </div>
+                <div class="flex items-center gap-2">
+                    <a href="{{ route('payroll.index') }}" class="px-3 py-1.5 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-slate-950 text-xs font-bold transition">
+                        {{ __('Payroll & Payslips') }} &rarr;
+                    </a>
+                </div>
             </div>
         </div>
     @endif
@@ -379,7 +477,7 @@
                     </span>
                 </a>
 
-                <a href="{{ route('attendance.approvals') }}" class="p-3.5 rounded-xl bg-slate-50 dark:bg-slate-950/70 border border-slate-200 dark:border-slate-800 hover:border-amber-500/40 flex items-center justify-between transition">
+                <a href="{{ Auth::user()->hasPermission('attendance.approve') ? route('attendance.approvals') : route('attendance.corrections') }}" class="p-3.5 rounded-xl bg-slate-50 dark:bg-slate-950/70 border border-slate-200 dark:border-slate-800 hover:border-amber-500/40 flex items-center justify-between transition">
                     <div>
                         <div class="font-bold text-slate-900 dark:text-white">{{ __('Attendance Anomaly Flags & Queue') }}</div>
                         <div class="text-[11px] text-slate-500 dark:text-slate-400">

@@ -2,14 +2,29 @@
 
 @section('content')
 <div class="space-y-6">
+    <!-- Materials & Stock Sub-Navigation -->
+    <div class="flex flex-wrap items-center gap-2 border-b border-slate-200 dark:border-slate-800 pb-3">
+        <a href="{{ route('procurement.requests') }}" class="px-3.5 py-2 rounded-xl text-xs font-extrabold bg-amber-500 text-slate-950 shadow-sm">
+            {{ __('Purchase Requests') }}
+        </a>
+        <a href="{{ route('procurement.orders') }}" class="px-3.5 py-2 rounded-xl text-xs font-bold bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-800 hover:border-amber-500/40 transition">
+            {{ __('Purchase Orders & GRN') }}
+        </a>
+        <a href="{{ route('inventory.stocks') }}" class="px-3.5 py-2 rounded-xl text-xs font-bold bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-800 hover:border-amber-500/40 transition">
+            {{ __('Warehouse & Yard Stock') }}
+        </a>
+        <a href="{{ route('inventory.transactions') }}" class="px-3.5 py-2 rounded-xl text-xs font-bold bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-800 hover:border-amber-500/40 transition">
+            {{ __('Stock Movement Ledger') }}
+        </a>
+    </div>
+
     <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-slate-200 dark:border-slate-800">
         <div>
             <h1 class="text-2xl font-extrabold text-slate-900 dark:text-white tracking-tight">{{ __('Purchase Requests') }}</h1>
-            <p class="text-sm text-slate-600 dark:text-slate-400 mt-1">{{ __('Site-level and warehouse material procurement requisitions requiring manager approval.') }}</p>
+            <p class="text-sm text-slate-600 dark:text-slate-400 mt-1">{{ __('Request materials for your site or warehouse and track manager approvals.') }}</p>
         </div>
-        <a href="{{ route('procurement.create_request') }}" class="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-sm shadow-lg shadow-amber-500/20 transition">
-            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
-            {{ __('New Purchase Request') }}
+        <a href="{{ route('procurement.create_request') }}" class="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-extrabold text-xs shadow-sm transition">
+            + {{ __('New Purchase Request') }}
         </a>
     </div>
 
@@ -76,7 +91,15 @@
                         </tr>
                     @empty
                         <tr>
-                            <td colspan="6" class="py-8 text-center text-slate-500">{{ __('No pending purchase requests.') }}</td>
+                            <td colspan="6" class="py-12 px-4 text-center space-y-2">
+                                <div class="text-sm font-bold text-slate-800 dark:text-slate-200">{{ __('No pending purchase requests.') }}</div>
+                                <p class="text-xs text-slate-500 dark:text-slate-400">{{ __('When a site needs materials or tools, raise a purchase request here for approval.') }}</p>
+                                <div class="pt-1">
+                                    <a href="{{ route('procurement.create_request') }}" class="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 text-xs font-extrabold shadow-sm transition">
+                                        + {{ __('Raise Your First Purchase Request') }}
+                                    </a>
+                                </div>
+                            </td>
                         </tr>
                     @endforelse
                 </tbody>

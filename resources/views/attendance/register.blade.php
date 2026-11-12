@@ -43,24 +43,32 @@
                     </a>
                 </div>
 
-                <a href="{{ route('attendance.muster', array_filter(['site_id' => $siteId, 'date' => $date])) }}"
-                   class="px-3.5 py-2 text-xs font-bold rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 dark:text-slate-200 dark:border-slate-700 transition">
-                    {{ __('Mark Daily Muster') }}
-                </a>
+                @if(Auth::user()->hasPermission('attendance.mark'))
+                    <a href="{{ route('attendance.muster', array_filter(['site_id' => $siteId, 'date' => $date])) }}"
+                       class="px-3.5 py-2 text-xs font-bold rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 dark:text-slate-200 dark:border-slate-700 transition">
+                        {{ __('Mark Daily Muster') }}
+                    </a>
+                @else
+                    <span class="px-3 py-1.5 text-[11px] font-bold rounded-xl bg-slate-100 text-slate-600 border border-slate-200 dark:bg-slate-800 dark:text-slate-300 dark:border-slate-700">
+                        {{ __('Read-Only Attendance View') }}
+                    </span>
+                @endif
 
-                <a href="{{ route('reports.multi_site') }}"
-                   class="px-3.5 py-2 text-xs font-bold rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 dark:text-slate-200 dark:border-slate-700 transition">
-                    {{ __('Multi-Site Report') }}
-                </a>
+                @if(Auth::user()->hasPermission('reports.view'))
+                    <a href="{{ route('reports.multi_site') }}"
+                       class="px-3.5 py-2 text-xs font-bold rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 dark:text-slate-200 dark:border-slate-700 transition">
+                        {{ __('Multi-Site Report') }}
+                    </a>
+                @endif
 
-                @if(Auth::user()->hasRole(['super_admin', 'company_admin', 'senior_manager', 'site_manager', 'office_staff']))
+                @if(Auth::user()->hasPermission('audit_logs.view'))
                     <a href="{{ route('reports.audit_logs') }}"
                        class="px-3.5 py-2 text-xs font-bold rounded-xl bg-indigo-500/10 hover:bg-indigo-500/20 text-indigo-700 dark:text-indigo-300 border border-indigo-500/30 transition">
                         {{ __('Audit Trail') }}
                     </a>
                 @endif
 
-                @if(Auth::user()->hasRole(['super_admin', 'company_admin', 'senior_manager', 'site_manager', 'office_staff']))
+                @if(Auth::user()->hasPermission('attendance.export'))
                     <a href="{{ route('attendance.export_payroll', array_filter(['site_id' => $siteId, 'start_date' => $exportStartDate, 'end_date' => $exportEndDate])) }}"
                        class="px-3.5 py-2 text-xs font-bold rounded-xl bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-700 dark:text-emerald-400 border border-emerald-500/30 transition flex items-center gap-1.5">
                         <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/></svg>
@@ -346,7 +354,7 @@
                                         <span class="px-2 py-0.5 rounded text-[10px] font-bold uppercase {{ in_array($row['lock_stage'], ['site_locked', 'payroll_locked']) ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400' : 'bg-slate-100 dark:bg-slate-800 text-slate-500' }}">
                                             {{ str_replace('_', ' ', $row['lock_stage']) }}
                                         </span>
-                                        @if($row['assigned_site'])
+                                        @if($row['assigned_site'] && Auth::user()->hasPermission('attendance.mark'))
                                             <a href="{{ route('attendance.muster', ['site_id' => $row['assigned_site']->id, 'date' => $dateRegister['date']]) }}"
                                                class="text-[11px] font-bold text-amber-600 dark:text-amber-400 hover:underline">
                                                 {{ __('Muster') }}

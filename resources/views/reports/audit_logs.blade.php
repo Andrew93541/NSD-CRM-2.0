@@ -9,16 +9,19 @@
                     {{ __('Append-Only Security & Operational Audit Trail') }}
                 </h1>
                 <p class="text-xs sm:text-sm text-slate-600 dark:text-slate-400 mt-1">
-                    {{ __('Immutable record of authentication, attendance locks, site transfers, task progressions, and administrative actions.') }}
+                    {{ __('Complete history of logins, attendance changes, site transfers, and user permission updates.') }}
                 </p>
             </div>
             <div class="flex flex-wrap items-center gap-2">
                 <a href="{{ route('reports.multi_site') }}" class="px-3.5 py-2 text-xs font-bold rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 transition">
-                    {{ __('Multi-Site Comparison') }}
+                    {{ __('Site Comparison') }}
+                </a>
+                <a href="{{ route('reports.workforce') }}" class="px-3.5 py-2 text-xs font-bold rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 transition">
+                    {{ __('Attendance Register') }}
                 </a>
                 @if(Auth::user()->hasRole(['super_admin', 'company_admin', 'senior_manager', 'office_staff']))
                     <a href="{{ route('reports.audit_logs.export', array_filter(['event' => $eventFilter, 'site_id' => $siteId])) }}"
-                       class="px-3.5 py-2 text-xs font-bold rounded-xl bg-emerald-500/15 hover:bg-emerald-500/25 text-emerald-700 dark:text-emerald-300 border border-emerald-500/30 transition">
+                       class="px-4 py-2 text-xs font-extrabold rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 shadow-sm transition">
                         {{ __('Export Audit CSV') }}
                     </a>
                 @endif

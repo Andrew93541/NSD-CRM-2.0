@@ -35,13 +35,26 @@ class WorkOrderController extends Controller
     ) {
     }
 
+    protected function hasUnrestrictedWorkOrderSiteAccess(\App\Models\User $user): bool
+    {
+        if ($user->hasRole(['super_admin', 'company_admin'])) {
+            return true;
+        }
+
+        if ($user->isRestrictedToAssignedSites()) {
+            return false;
+        }
+
+        return $user->hasRole('senior_manager')
+            || ($user->hasRole('office_staff') && !$user->sites()->exists());
+    }
+
     public function index(Request $request): View
     {
         Gate::authorize('viewAny', WorkOrder::class);
 
         $user = Auth::user();
-        $hasAllSiteAccess = $user->hasRole(['super_admin', 'company_admin', 'senior_manager'])
-            || ($user->hasRole('office_staff') && !$user->sites()->exists());
+        $hasAllSiteAccess = $this->hasUnrestrictedWorkOrderSiteAccess($user);
 
         $query = WorkOrder::with(['client', 'project', 'site', 'creator', 'siteManager', 'seniorManager', 'items', 'raBills']);
 
@@ -89,8 +102,7 @@ class WorkOrderController extends Controller
         Gate::authorize('create', WorkOrder::class);
 
         $user = Auth::user();
-        $hasAllSiteAccess = $user->hasRole(['super_admin', 'company_admin', 'senior_manager'])
-            || ($user->hasRole('office_staff') && !$user->sites()->exists());
+        $hasAllSiteAccess = $this->hasUnrestrictedWorkOrderSiteAccess($user);
 
         $projects = Project::where('status', 'active')->get();
         $sites = $hasAllSiteAccess
@@ -202,8 +214,7 @@ class WorkOrderController extends Controller
 
         if (!empty($validated['site_id'])) {
             $siteId = (int) $validated['site_id'];
-            $hasAllSiteAccess = $user->hasRole(['super_admin', 'company_admin', 'senior_manager'])
-                || ($user->hasRole('office_staff') && !$user->sites()->exists());
+            $hasAllSiteAccess = $this->hasUnrestrictedWorkOrderSiteAccess($user);
             if (!$hasAllSiteAccess && !$user->isAssignedToSite($siteId)) {
                 abort(403, 'You are not authorized to create a work order for this site.');
             }
@@ -268,9 +279,18 @@ class WorkOrderController extends Controller
     {
         Gate::authorize('view', $workOrder);
 
+        $user = $request->user();
+        if ($user->isExplicitlyDenied('work_orders.export')) {
+            abort(403, 'You are not authorized to export Work Orders.');
+        }
+
+        if (!$user->canPerform('work_orders.export', ['super_admin', 'company_admin', 'senior_manager', 'site_manager', 'office_staff'])) {
+            abort(403, 'You are not authorized to export Work Orders.');
+        }
+
         $export = app(\App\Services\Operations\RaBillExportService::class)->exportWorkOrderPdf(
             $workOrder,
-            $request->user()
+            $user
         );
 
         return Storage::disk('local')->download($export->file_path, $export->file_name);

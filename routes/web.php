@@ -10,8 +10,10 @@ use App\Http\Controllers\ProcurementController;
 use App\Http\Controllers\ProjectController;
 use App\Http\Controllers\RaBillController;
 use App\Http\Controllers\ReportsController;
+use App\Http\Controllers\RoleManagementController;
 use App\Http\Controllers\SiteController;
 use App\Http\Controllers\TaskController;
+use App\Http\Controllers\UserManagementController;
 use App\Http\Controllers\WorkerPortalController;
 use App\Http\Controllers\WorkforceController;
 use App\Http\Controllers\WorkOrderController;
@@ -60,6 +62,37 @@ Route::middleware('auth')->group(function () {
     Route::post('/users/{user}/toggle-2fa', [AuthController::class, 'toggleTwoFactor'])->name('users.toggle_2fa');
     Route::post('/users/{user}/reset-2fa', [AuthController::class, 'resetTwoFactor'])->name('users.reset_2fa');
     Route::post('/users/{user}/toggle-active', [AuthController::class, 'toggleUserActive'])->name('users.toggle_active');
+
+    // Mandatory / Voluntary Password Update
+    Route::get('/account/password', [UserManagementController::class, 'showPasswordChange'])->name('account.password.show');
+    Route::post('/account/password', [UserManagementController::class, 'updateOwnPassword'])->name('account.password.update');
+
+    // Enterprise User, Role & Access Management (Company Admin / Authorized Access)
+    Route::prefix('admin')->name('admin.')->group(function () {
+        // Users & Access
+        Route::get('/users', [UserManagementController::class, 'index'])->name('users.index');
+        Route::get('/users/create', [UserManagementController::class, 'create'])->name('users.create');
+        Route::post('/users', [UserManagementController::class, 'store'])->name('users.store');
+        Route::get('/users/{user}', [UserManagementController::class, 'show'])->name('users.show');
+        Route::get('/users/{user}/edit', [UserManagementController::class, 'edit'])->name('users.edit');
+        Route::put('/users/{user}', [UserManagementController::class, 'update'])->name('users.update');
+        Route::put('/users/{user}/permissions', [UserManagementController::class, 'updatePermissions'])->name('users.permissions.update');
+        Route::post('/users/{user}/permissions/reset', [UserManagementController::class, 'resetPermissions'])->name('users.permissions.reset');
+        Route::put('/users/{user}/sites', [UserManagementController::class, 'updateSites'])->name('users.sites.update');
+        Route::post('/users/{user}/reset-password', [UserManagementController::class, 'resetPassword'])->name('users.password.reset');
+
+        // Roles & Permission Matrix
+        Route::get('/roles', [RoleManagementController::class, 'index'])->name('roles.index');
+        Route::get('/roles/create', [RoleManagementController::class, 'create'])->name('roles.create');
+        Route::post('/roles', [RoleManagementController::class, 'store'])->name('roles.store');
+        Route::get('/roles/matrix', [RoleManagementController::class, 'matrix'])->name('roles.matrix');
+        Route::put('/roles/matrix', [RoleManagementController::class, 'updateMatrix'])->name('roles.matrix.update');
+        Route::get('/roles/{role}/edit', [RoleManagementController::class, 'edit'])->name('roles.edit');
+        Route::put('/roles/{role}', [RoleManagementController::class, 'update'])->name('roles.update');
+        Route::post('/roles/{role}/duplicate', [RoleManagementController::class, 'duplicate'])->name('roles.duplicate');
+        Route::post('/roles/{role}/toggle-active', [RoleManagementController::class, 'toggleActive'])->name('roles.toggle_active');
+        Route::delete('/roles/{role}', [RoleManagementController::class, 'destroy'])->name('roles.destroy');
+    });
 
     // Dashboard
     Route::get('/', [DashboardController::class, 'index'])->name('home');

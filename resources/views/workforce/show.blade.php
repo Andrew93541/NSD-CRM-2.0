@@ -252,15 +252,18 @@
                 </dl>
             </div>
 
-            <!-- QR Attendance Badge & Worker Portal PIN -->
-            <div class="p-6 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-sm space-y-4">
-                <div class="pb-3 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between">
-                    <h2 class="text-sm font-extrabold text-slate-900 dark:text-white uppercase tracking-wider">{{ __('QR Attendance Badge & Portal Credentials') }}</h2>
-                    <span class="px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 text-[10px] font-bold uppercase">{{ __('Verified Token') }}</span>
-                </div>
-                <div class="text-xs space-y-3">
+            <!-- Worker ID Badge & Portal PIN (Collapsible) -->
+            <details class="p-6 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-sm group">
+                <summary class="cursor-pointer list-none flex items-center justify-between">
                     <div>
-                        <div class="text-slate-500 dark:text-slate-400 font-semibold mb-1">{{ __('Cryptographic QR Badge Token') }}</div>
+                        <h2 class="text-sm font-extrabold text-slate-900 dark:text-white uppercase tracking-wider">{{ __('Worker ID Badge & Portal PIN') }}</h2>
+                        <p class="text-xs text-slate-500 dark:text-slate-400 mt-0.5">{{ __('View worker badge code or set a 6-digit self-service PIN.') }}</p>
+                    </div>
+                    <span class="px-2.5 py-1 rounded-lg bg-slate-100 dark:bg-slate-800 text-xs font-bold text-slate-600 dark:text-slate-300">{{ __('Manage') }}</span>
+                </summary>
+                <div class="text-xs space-y-3 pt-4 mt-3 border-t border-slate-200 dark:border-slate-800">
+                    <div>
+                        <div class="text-slate-500 dark:text-slate-400 font-semibold mb-1">{{ __('Worker Badge Code') }}</div>
                         <div class="p-2.5 rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 font-mono text-xs text-amber-600 dark:text-amber-400 break-all">
                             {{ $worker->qr_token ?? $worker->code }}
                         </div>
@@ -282,21 +285,26 @@
                         @endif
                     @endcan
                 </div>
-            </div>
+            </details>
         </div>
     </div>
 
-    <!-- 6. Worker Documents Management Section (Point 3 Integrated) -->
-    <div id="worker-documents" class="p-6 sm:p-8 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-sm space-y-6 transition-colors duration-200">
+    <!-- 6. Worker Documents Management Section -->
+    <div id="worker-documents" class="p-6 sm:p-8 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-sm space-y-5 transition-colors duration-200" x-data="{ showUploadForm: false }">
         <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-4 border-b border-slate-200 dark:border-slate-800">
             <div>
                 <h2 class="text-base font-extrabold text-slate-900 dark:text-white tracking-tight">{{ __('Worker Documents & Identity Records') }} ({{ $documents->count() }})</h2>
-                <p class="text-xs text-slate-500 dark:text-slate-400 mt-0.5">{{ __('Stored in encrypted/isolated private storage. Never exposed via public links.') }}</p>
+                <p class="text-xs text-slate-500 dark:text-slate-400 mt-0.5">{{ __('Identity cards, skill certificates, and employment documents.') }}</p>
             </div>
+            @can('uploadDocument', $worker)
+                <button type="button" @click="showUploadForm = !showUploadForm" class="self-start sm:self-auto px-3.5 py-2 rounded-xl bg-amber-500/15 hover:bg-amber-500/25 text-amber-700 dark:text-amber-300 border border-amber-500/30 text-xs font-extrabold transition">
+                    + <span x-text="showUploadForm ? '{{ __('Hide Upload Form') }}' : '{{ __('Upload Document') }}'">{{ __('Upload Document') }}</span>
+                </button>
+            @endcan
         </div>
 
         @can('uploadDocument', $worker)
-            <form method="POST" action="{{ route('workforce.documents.store', $worker) }}" enctype="multipart/form-data"
+            <form x-show="showUploadForm" x-cloak method="POST" action="{{ route('workforce.documents.store', $worker) }}" enctype="multipart/form-data"
                   x-data="{
                       rows: [{ id: 1, type: 'aadhaar_identity', title: '' }],
                       uploading: false,
@@ -414,15 +422,22 @@
         </div>
     </div>
 
-    <!-- 7. Dated Site Assignment & Transfer History -->
-    <div id="worker-site-assignments" class="p-6 sm:p-8 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-sm space-y-5 transition-colors duration-200">
-        <div>
-            <h2 class="text-base font-extrabold text-slate-900 dark:text-white tracking-tight">{{ __('Dated Site Assignments & Transfer History') }}</h2>
-            <p class="text-xs text-slate-500 dark:text-slate-400 mt-0.5">{{ __('Full historical ledger of every site this worker has been deployed to. Transferring to a new site automatically closes the previous active assignment.') }}</p>
+    <!-- 7. Site Assignment & Transfer History -->
+    <div id="worker-site-assignments" class="p-6 sm:p-8 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-sm space-y-5 transition-colors duration-200" x-data="{ showTransferForm: false }">
+        <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+            <div>
+                <h2 class="text-base font-extrabold text-slate-900 dark:text-white tracking-tight">{{ __('Site Assignment & Transfer History') }}</h2>
+                <p class="text-xs text-slate-500 dark:text-slate-400 mt-0.5">{{ __('History of sites where this worker has worked.') }}</p>
+            </div>
+            @can('update', $worker)
+                <button type="button" @click="showTransferForm = !showTransferForm" class="self-start sm:self-auto px-3.5 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-200 text-xs font-bold transition">
+                    <span x-text="showTransferForm ? '{{ __('Cancel Transfer') }}' : '{{ __('Transfer to Another Site') }}'">{{ __('Transfer to Another Site') }}</span>
+                </button>
+            @endcan
         </div>
 
         @can('update', $worker)
-            <form method="POST" action="{{ route('workforce.transfer', $worker) }}" class="p-4 rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 space-y-3">
+            <form x-show="showTransferForm" x-cloak method="POST" action="{{ route('workforce.transfer', $worker) }}" class="p-4 rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 space-y-3">
                 @csrf
                 <div class="text-xs font-bold text-slate-800 dark:text-slate-200 uppercase">{{ __('Transfer Worker to Another Site') }}</div>
                 <div class="grid grid-cols-1 sm:grid-cols-4 gap-3">

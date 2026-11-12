@@ -433,14 +433,28 @@ class Phase3AttendanceEngineTest extends TestCase
         $correction = AttendanceCorrection::where('daily_attendance_id', $att->id)->first();
         $this->assertNotNull($correction);
 
-        // Site Manager CANNOT approve their own correction request (403)
+        // Without explicit attendance.approve grant, Senior Manager cannot approve (403)
+        $this->actingAs($this->seniorManager)
+            ->withSession(['active_company_id' => $this->company->id])
+            ->post("/attendance/corrections/{$correction->id}/review", [
+                'action' => 'approved',
+                'review_notes' => 'Attempt without explicit permission',
+            ])->assertStatus(403);
+
+        // Explicitly grant attendance.approve to Site Manager and Senior Manager
+        \Illuminate\Support\Facades\DB::table('company_user')
+            ->where('company_id', $this->company->id)
+            ->whereIn('user_id', [$this->siteManager->id, $this->seniorManager->id])
+            ->update(['permission_overrides' => json_encode(['attendance.approve' => 'allow'])]);
+
+        // Even with attendance.approve, Site Manager CANNOT approve their own correction request (403)
         $this->actingAs($this->siteManager)
             ->withSession(['active_company_id' => $this->company->id])
             ->post("/attendance/corrections/{$correction->id}/review", [
                 'action' => 'approved',
             ])->assertStatus(403);
 
-        // Senior Manager (different user) CAN approve the correction
+        // Explicitly authorized Senior Manager (different user) CAN approve the correction
         $this->actingAs($this->seniorManager)
             ->withSession(['active_company_id' => $this->company->id])
             ->post("/attendance/corrections/{$correction->id}/review", [

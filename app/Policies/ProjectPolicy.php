@@ -12,6 +12,10 @@ class ProjectPolicy
 {
     public function viewAny(User $user): bool
     {
+        if ($user->isExplicitlyDenied('projects.view')) {
+            return false;
+        }
+
         return $user->currentCompany() !== null;
     }
 
@@ -22,7 +26,15 @@ class ProjectPolicy
             return false;
         }
 
-        if ($user->hasRole(['super_admin', 'company_admin', 'senior_manager', 'office_staff'])) {
+        if ($user->isExplicitlyDenied('projects.view')) {
+            return false;
+        }
+
+        if ($user->hasRole(['super_admin', 'company_admin'])) {
+            return true;
+        }
+
+        if (!$user->isRestrictedToAssignedSites() && ($user->hasRole(['senior_manager', 'office_staff']) || $user->hasPermission('projects.manage'))) {
             return true;
         }
 
@@ -49,6 +61,10 @@ class ProjectPolicy
 
     public function create(User $user): bool
     {
+        if ($user->isExplicitlyDenied('projects.create') || $user->isExplicitlyDenied('projects.manage')) {
+            return false;
+        }
+
         return $user->hasPermission('projects.create')
             || $user->hasPermission('projects.manage')
             || $user->hasRole(['super_admin', 'company_admin', 'senior_manager']);
@@ -57,6 +73,10 @@ class ProjectPolicy
     public function update(User $user, Project $project): bool
     {
         if (!$this->view($user, $project)) {
+            return false;
+        }
+
+        if ($user->isExplicitlyDenied('projects.update') || $user->isExplicitlyDenied('projects.manage')) {
             return false;
         }
 

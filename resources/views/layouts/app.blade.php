@@ -172,23 +172,29 @@
     </header>
 
     <div class="flex-1 flex overflow-hidden">
-        <!-- Desktop Sidebar (Simplified 6 Main Sections) -->
+        <!-- Desktop Sidebar (Simplified 5 Plain-Language Sections) -->
         <aside class="hidden lg:flex lg:flex-col w-64 bg-white border-r border-slate-200 dark:bg-slate-900 dark:border-slate-800 flex-shrink-0 transition-colors duration-200">
             <div class="p-4 border-b border-slate-200 dark:border-slate-800/60">
-                <span class="text-[11px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">{{ __('Daily Operations') }}</span>
+                <span class="text-[11px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">{{ __('Overview') }}</span>
             </div>
 
             <nav class="flex-1 p-3 space-y-1.5 overflow-y-auto">
-                <!-- 1. Home -->
+                <!-- SECTION 1: OVERVIEW -->
                 <a href="{{ route('dashboard') }}" class="group flex items-start gap-3.5 px-3 py-2.5 rounded-xl transition {{ request()->routeIs('dashboard') || request()->routeIs('home') ? 'bg-amber-500/10 text-amber-600 border border-amber-500/30 font-bold dark:bg-amber-500/10 dark:text-amber-400 dark:border-amber-500/30' : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900 font-medium dark:text-slate-300 dark:hover:bg-slate-800/60 dark:hover:text-white' }}">
                     <svg class="w-5 h-5 flex-shrink-0 mt-0.5 text-amber-500 dark:text-amber-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6"/></svg>
                     <div>
-                        <div class="text-sm leading-tight">{{ __('Home') }}</div>
+                        <div class="text-sm leading-tight">{{ __('Dashboard') }}</div>
                         <div class="text-[11px] text-slate-500 dark:text-slate-400 font-normal mt-0.5">{{ __('Daily Overview') }}</div>
                     </div>
                 </a>
 
-                <!-- 2. Projects -->
+                <!-- SECTION 2: PROJECTS -->
+                @if(Auth::user()->can('viewAny', \App\Models\Project::class) || Auth::user()->can('viewAny', \App\Models\Site::class) || Auth::user()->can('viewAny', \App\Models\WorkOrder::class) || Auth::user()->can('viewAny', \App\Models\Task::class))
+                <div class="pt-3 mt-2 border-t border-slate-200 dark:border-slate-800/60">
+                    <span class="px-3 text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider">{{ __('Projects') }}</span>
+                </div>
+                @endif
+
                 @can('viewAny', \App\Models\Project::class)
                 <a href="{{ route('projects.index') }}" class="group flex items-start gap-3.5 px-3 py-2.5 rounded-xl transition {{ request()->routeIs('projects.*') ? 'bg-amber-500/10 text-amber-600 border border-amber-500/30 font-bold dark:bg-amber-500/10 dark:text-amber-400 dark:border-amber-500/30' : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900 font-medium dark:text-slate-300 dark:hover:bg-slate-800/60 dark:hover:text-white' }}">
                     <svg class="w-5 h-5 flex-shrink-0 mt-0.5 text-sky-600 dark:text-sky-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4"/></svg>
@@ -199,7 +205,6 @@
                 </a>
                 @endcan
 
-                <!-- 3. Sites -->
                 @can('viewAny', \App\Models\Site::class)
                 <a href="{{ route('sites.index') }}" class="group flex items-start gap-3.5 px-3 py-2.5 rounded-xl transition {{ request()->routeIs('sites.*') ? 'bg-amber-500/10 text-amber-600 border border-amber-500/30 font-bold dark:bg-amber-500/10 dark:text-amber-400 dark:border-amber-500/30' : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900 font-medium dark:text-slate-300 dark:hover:bg-slate-800/60 dark:hover:text-white' }}">
                     <svg class="w-5 h-5 flex-shrink-0 mt-0.5 text-orange-600 dark:text-orange-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 11a3 3 0 11-6 0 3 3 0 016 0z"/></svg>
@@ -210,45 +215,6 @@
                 </a>
                 @endcan
 
-                <!-- 2. Workers -->
-                @can('viewAny', \App\Models\Worker::class)
-                <a href="{{ route('workforce.index') }}" class="group flex items-start gap-3.5 px-3 py-2.5 rounded-xl transition {{ request()->routeIs('workforce.*') ? 'bg-amber-500/10 text-amber-600 border border-amber-500/30 font-bold dark:bg-amber-500/10 dark:text-amber-400 dark:border-amber-500/30' : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900 font-medium dark:text-slate-300 dark:hover:bg-slate-800/60 dark:hover:text-white' }}">
-                    <svg class="w-5 h-5 flex-shrink-0 mt-0.5 text-emerald-600 dark:text-emerald-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z"/></svg>
-                    <div>
-                        <div class="text-sm leading-tight">{{ __('Workers') }}</div>
-                        <div class="text-[11px] text-slate-500 dark:text-slate-400 font-normal mt-0.5">{{ __('People and details') }}</div>
-                    </div>
-                </a>
-                @endcan
-
-                <!-- 3. Attendance -->
-                @can('viewAny', \App\Models\Worker::class)
-                <a href="{{ route('attendance.muster') }}" class="group flex items-start gap-3.5 px-3 py-2.5 rounded-xl transition {{ request()->routeIs('attendance.muster') || request()->routeIs('attendance.register') ? 'bg-amber-500/10 text-amber-600 border border-amber-500/30 font-bold dark:bg-amber-500/10 dark:text-amber-400 dark:border-amber-500/30' : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900 font-medium dark:text-slate-300 dark:hover:bg-slate-800/60 dark:hover:text-white' }}">
-                    <svg class="w-5 h-5 flex-shrink-0 mt-0.5 text-indigo-600 dark:text-indigo-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4"/></svg>
-                    <div>
-                        <div class="text-sm leading-tight">{{ __('Attendance') }}</div>
-                        <div class="text-[11px] text-slate-500 dark:text-slate-400 font-normal mt-0.5">{{ __('Daily muster & shifts') }}</div>
-                    </div>
-                </a>
-
-                <a href="{{ route('attendance.kiosk') }}" class="group flex items-start gap-3.5 px-3 py-2.5 rounded-xl transition {{ request()->routeIs('attendance.kiosk*') ? 'bg-amber-500/10 text-amber-600 border border-amber-500/30 font-bold dark:bg-amber-500/10 dark:text-amber-400 dark:border-amber-500/30' : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900 font-medium dark:text-slate-300 dark:hover:bg-slate-800/60 dark:hover:text-white' }}">
-                    <svg class="w-5 h-5 flex-shrink-0 mt-0.5 text-cyan-600 dark:text-cyan-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v1m6 11h2m-6 0h-2v4m0-11v3m0 0h.01M12 12h4.01M16 20h4M4 12h4m12 0h.01M5 8h2a1 1 0 001-1V5a1 1 0 00-1-1H5a1 1 0 00-1 1v2a1 1 0 001 1zm12 0h2a1 1 0 001-1V5a1 1 0 00-1-1h-2a1 1 0 00-1 1v2a1 1 0 001 1zM5 20h2a1 1 0 001-1v-2a1 1 0 00-1-1H5a1 1 0 00-1 1v2a1 1 0 001 1z"/></svg>
-                    <div>
-                        <div class="text-sm leading-tight">{{ __('Site Kiosk') }}</div>
-                        <div class="text-[11px] text-slate-500 dark:text-slate-400 font-normal mt-0.5">{{ __('Gate QR & PIN terminal') }}</div>
-                    </div>
-                </a>
-
-                <a href="{{ route('payroll.index') }}" class="group flex items-start gap-3.5 px-3 py-2.5 rounded-xl transition {{ request()->routeIs('payroll.*') ? 'bg-amber-500/10 text-amber-600 border border-amber-500/30 font-bold dark:bg-amber-500/10 dark:text-amber-400 dark:border-amber-500/30' : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900 font-medium dark:text-slate-300 dark:hover:bg-slate-800/60 dark:hover:text-white' }}">
-                    <svg class="w-5 h-5 flex-shrink-0 mt-0.5 text-teal-600 dark:text-teal-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
-                    <div>
-                        <div class="text-sm leading-tight">{{ __('Payroll & Payslips') }}</div>
-                        <div class="text-[11px] text-slate-500 dark:text-slate-400 font-normal mt-0.5">{{ __('Periods, advances & pay') }}</div>
-                    </div>
-                </a>
-                @endcan
-
-                <!-- 4. Work Orders -->
                 @can('viewAny', \App\Models\WorkOrder::class)
                 <a href="{{ route('work_orders.index') }}" class="group flex items-start gap-3.5 px-3 py-2.5 rounded-xl transition {{ request()->routeIs('work_orders.*') ? 'bg-amber-500/10 text-amber-600 border border-amber-500/30 font-bold dark:bg-amber-500/10 dark:text-amber-400 dark:border-amber-500/30' : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900 font-medium dark:text-slate-300 dark:hover:bg-slate-800/60 dark:hover:text-white' }}">
                     <svg class="w-5 h-5 flex-shrink-0 mt-0.5 text-amber-600 dark:text-amber-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
@@ -259,36 +225,126 @@
                 </a>
                 @endcan
 
-                <!-- 4b. Site Tasks & Notes -->
                 @can('viewAny', \App\Models\Task::class)
                 <a href="{{ route('tasks.index') }}" class="group flex items-start gap-3.5 px-3 py-2.5 rounded-xl transition {{ request()->routeIs('tasks.*') ? 'bg-amber-500/10 text-amber-600 border border-amber-500/30 font-bold dark:bg-amber-500/10 dark:text-amber-400 dark:border-amber-500/30' : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900 font-medium dark:text-slate-300 dark:hover:bg-slate-800/60 dark:hover:text-white' }}">
                     <svg class="w-5 h-5 flex-shrink-0 mt-0.5 text-rose-600 dark:text-rose-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01"/></svg>
                     <div>
-                        <div class="text-sm leading-tight">{{ __('Site Tasks & Notes') }}</div>
-                        <div class="text-[11px] text-slate-500 dark:text-slate-400 font-normal mt-0.5">{{ __('Kanban board & logs') }}</div>
+                        <div class="text-sm leading-tight">{{ __('Tasks & Notes') }}</div>
+                        <div class="text-[11px] text-slate-500 dark:text-slate-400 font-normal mt-0.5">{{ __('Site tasks & daily logs') }}</div>
                     </div>
                 </a>
                 @endcan
 
-                <!-- 5. Materials & Deliveries -->
-                <a href="{{ route('procurement.requests') }}" class="group flex items-start gap-3.5 px-3 py-2.5 rounded-xl transition {{ request()->routeIs('procurement.*') || request()->routeIs('inventory.*') ? 'bg-amber-500/10 text-amber-600 border border-amber-500/30 font-bold dark:bg-amber-500/10 dark:text-amber-400 dark:border-amber-500/30' : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900 font-medium dark:text-slate-300 dark:hover:bg-slate-800/60 dark:hover:text-white' }}">
+                <!-- SECTION 3: PEOPLE -->
+                @if(Auth::user()->can('viewAny', \App\Models\Worker::class) || Auth::user()->hasPermission('attendance.view') || Auth::user()->hasPermission('attendance.mark'))
+                <div class="pt-3 mt-2 border-t border-slate-200 dark:border-slate-800/60">
+                    <span class="px-3 text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider">{{ __('People') }}</span>
+                </div>
+                @endif
+
+                @can('viewAny', \App\Models\Worker::class)
+                <a href="{{ route('workforce.index') }}" class="group flex items-start gap-3.5 px-3 py-2.5 rounded-xl transition {{ request()->routeIs('workforce.*') ? 'bg-amber-500/10 text-amber-600 border border-amber-500/30 font-bold dark:bg-amber-500/10 dark:text-amber-400 dark:border-amber-500/30' : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900 font-medium dark:text-slate-300 dark:hover:bg-slate-800/60 dark:hover:text-white' }}">
+                    <svg class="w-5 h-5 flex-shrink-0 mt-0.5 text-emerald-600 dark:text-emerald-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z"/></svg>
+                    <div>
+                        <div class="text-sm leading-tight">{{ __('Employees & Workers') }}</div>
+                        <div class="text-[11px] text-slate-500 dark:text-slate-400 font-normal mt-0.5">{{ __('Workers') }} &middot; {{ __('People and details') }}</div>
+                    </div>
+                </a>
+                @endcan
+
+                @if(Auth::user()->hasPermission('attendance.view') || Auth::user()->hasPermission('attendance.mark') || Auth::user()->can('viewAny', \App\Models\Worker::class))
+                <a href="{{ route('attendance.register') }}" class="group flex items-start gap-3.5 px-3 py-2.5 rounded-xl transition {{ request()->routeIs('attendance.*') ? 'bg-amber-500/10 text-amber-600 border border-amber-500/30 font-bold dark:bg-amber-500/10 dark:text-amber-400 dark:border-amber-500/30' : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900 font-medium dark:text-slate-300 dark:hover:bg-slate-800/60 dark:hover:text-white' }}">
+                    <svg class="w-5 h-5 flex-shrink-0 mt-0.5 text-indigo-600 dark:text-indigo-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4"/></svg>
+                    <div>
+                        <div class="text-sm leading-tight">{{ __('Attendance') }}</div>
+                        <div class="text-[11px] text-slate-500 dark:text-slate-400 font-normal mt-0.5">{{ __('Monthly & daily records') }}</div>
+                    </div>
+                </a>
+                @endif
+
+                <!-- SECTION 4: FINANCE -->
+                @if(Auth::user()->hasPermission('invoices.view') || Auth::user()->hasPermission('work_orders.view') || Auth::user()->hasPermission('payroll.view') || Auth::user()->hasPermission('procurement.requests.view') || Auth::user()->hasPermission('procurement.orders.view') || Auth::user()->hasPermission('inventory.view'))
+                <div class="pt-3 mt-2 border-t border-slate-200 dark:border-slate-800/60">
+                    <span class="px-3 text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider">{{ __('Finance') }}</span>
+                </div>
+                @endif
+
+                @if(Auth::user()->hasPermission('invoices.view') || Auth::user()->can('viewAny', \App\Models\WorkOrder::class))
+                <a href="{{ route('work_orders.index') }}" class="group flex items-start gap-3.5 px-3 py-2.5 rounded-xl transition {{ request()->routeIs('work_orders.boq*') ? 'bg-amber-500/10 text-amber-600 border border-amber-500/30 font-bold dark:bg-amber-500/10 dark:text-amber-400 dark:border-amber-500/30' : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900 font-medium dark:text-slate-300 dark:hover:bg-slate-800/60 dark:hover:text-white' }}">
+                    <svg class="w-5 h-5 flex-shrink-0 mt-0.5 text-emerald-600 dark:text-emerald-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 14l6-6m-5.5.5h.01m4.99 5h.01M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16l3.5-2 3.5 2 3.5-2 3.5 2z"/></svg>
+                    <div>
+                        <div class="text-sm leading-tight">{{ __('Invoices & RA Bills') }}</div>
+                        <div class="text-[11px] text-slate-500 dark:text-slate-400 font-normal mt-0.5">{{ __('BOQ & progress billing') }}</div>
+                    </div>
+                </a>
+                @endif
+
+                @if(Auth::user()->hasPermission('payroll.view') || Auth::user()->can('viewAny', \App\Models\Worker::class))
+                <a href="{{ route('payroll.index') }}" class="group flex items-start gap-3.5 px-3 py-2.5 rounded-xl transition {{ request()->routeIs('payroll.*') ? 'bg-amber-500/10 text-amber-600 border border-amber-500/30 font-bold dark:bg-amber-500/10 dark:text-amber-400 dark:border-amber-500/30' : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900 font-medium dark:text-slate-300 dark:hover:bg-slate-800/60 dark:hover:text-white' }}">
+                    <svg class="w-5 h-5 flex-shrink-0 mt-0.5 text-teal-600 dark:text-teal-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+                    <div>
+                        <div class="text-sm leading-tight">{{ __('Payroll & Payslips') }}</div>
+                        <div class="text-[11px] text-slate-500 dark:text-slate-400 font-normal mt-0.5">{{ __('Periods, advances & pay') }}</div>
+                    </div>
+                </a>
+                @endif
+
+                @if(Auth::user()->hasPermission('procurement.requests.view') || Auth::user()->hasPermission('procurement.orders.view') || Auth::user()->hasPermission('inventory.view'))
+                <a href="{{ route('procurement.requests') }}" class="group flex items-start gap-3.5 px-3 py-2.5 rounded-xl transition {{ request()->routeIs('procurement.*') ? 'bg-amber-500/10 text-amber-600 border border-amber-500/30 font-bold dark:bg-amber-500/10 dark:text-amber-400 dark:border-amber-500/30' : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900 font-medium dark:text-slate-300 dark:hover:bg-slate-800/60 dark:hover:text-white' }}">
                     <svg class="w-5 h-5 flex-shrink-0 mt-0.5 text-cyan-600 dark:text-cyan-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4"/></svg>
                     <div>
-                        <div class="text-sm leading-tight">{{ __('Materials & Deliveries') }}</div>
-                        <div class="text-[11px] text-slate-500 dark:text-slate-400 font-normal mt-0.5">{{ __('Requests, orders & stock') }}</div>
+                        <div class="text-sm leading-tight">{{ __('Procurement') }}</div>
+                        <div class="text-[11px] text-slate-500 dark:text-slate-400 font-normal mt-0.5">{{ __('Materials & Deliveries') }}</div>
                     </div>
                 </a>
+                @endif
 
-                <!-- 6. Reports -->
-                @can('viewAny', \App\Models\Worker::class)
-                <a href="{{ route('reports.workforce') }}" class="group flex items-start gap-3.5 px-3 py-2.5 rounded-xl transition {{ request()->routeIs('reports.*') || request()->routeIs('attendance.register') ? 'bg-amber-500/10 text-amber-600 border border-amber-500/30 font-bold dark:bg-amber-500/10 dark:text-amber-400 dark:border-amber-500/30' : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900 font-medium dark:text-slate-300 dark:hover:bg-slate-800/60 dark:hover:text-white' }}">
+                @if(Auth::user()->hasPermission('inventory.view') || Auth::user()->hasPermission('procurement.orders.view'))
+                <a href="{{ route('inventory.stocks') }}" class="group flex items-start gap-3.5 px-3 py-2.5 rounded-xl transition {{ request()->routeIs('inventory.*') ? 'bg-amber-500/10 text-amber-600 border border-amber-500/30 font-bold dark:bg-amber-500/10 dark:text-amber-400 dark:border-amber-500/30' : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900 font-medium dark:text-slate-300 dark:hover:bg-slate-800/60 dark:hover:text-white' }}">
+                    <svg class="w-5 h-5 flex-shrink-0 mt-0.5 text-blue-600 dark:text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 8h14M5 8a2 2 0 110-4h14a2 2 0 110 4M5 8v10a2 2 0 002 2h10a2 2 0 002-2V8m-9 4h4"/></svg>
+                    <div>
+                        <div class="text-sm leading-tight">{{ __('Inventory') }}</div>
+                        <div class="text-[11px] text-slate-500 dark:text-slate-400 font-normal mt-0.5">{{ __('Warehouse & yard stock') }}</div>
+                    </div>
+                </a>
+                @endif
+
+                <!-- SECTION 5: ADMINISTRATION -->
+                @if(Auth::user()->hasRole(['super_admin', 'company_admin']) || Auth::user()->hasPermission('users.view') || Auth::user()->hasPermission('roles.view') || Auth::user()->hasPermission('reports.view') || Auth::user()->hasPermission('audit_logs.view'))
+                <div class="pt-3 mt-2 border-t border-slate-200 dark:border-slate-800/60">
+                    <span class="px-3 text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider">{{ __('Administration') }}</span>
+                </div>
+                @endif
+
+                @if(Auth::user()->hasRole(['super_admin', 'company_admin']) || Auth::user()->hasPermission('users.view') || Auth::user()->hasPermission('roles.view'))
+                <a href="{{ route('admin.users.index') }}" class="group flex items-start gap-3.5 px-3 py-2.5 rounded-xl transition {{ request()->routeIs('admin.users.*') || request()->routeIs('admin.roles.*') ? 'bg-amber-500/10 text-amber-600 border border-amber-500/30 font-bold dark:bg-amber-500/10 dark:text-amber-400 dark:border-amber-500/30' : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900 font-medium dark:text-slate-300 dark:hover:bg-slate-800/60 dark:hover:text-white' }}">
+                    <svg class="w-5 h-5 flex-shrink-0 mt-0.5 text-amber-500 dark:text-amber-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z"/></svg>
+                    <div>
+                        <div class="text-sm leading-tight">{{ __('Users & Access') }}</div>
+                        <div class="text-[11px] text-slate-500 dark:text-slate-400 font-normal mt-0.5">{{ __('Logins, roles & permissions') }}</div>
+                    </div>
+                </a>
+                @endif
+
+                @if(Auth::user()->hasPermission('reports.view') || Auth::user()->can('viewAny', \App\Models\Worker::class))
+                <a href="{{ route('reports.multi_site') }}" class="group flex items-start gap-3.5 px-3 py-2.5 rounded-xl transition {{ request()->routeIs('reports.multi_site') || request()->routeIs('reports.workforce') || request()->routeIs('reports.work_orders') || request()->routeIs('reports.inventory') ? 'bg-amber-500/10 text-amber-600 border border-amber-500/30 font-bold dark:bg-amber-500/10 dark:text-amber-400 dark:border-amber-500/30' : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900 font-medium dark:text-slate-300 dark:hover:bg-slate-800/60 dark:hover:text-white' }}">
                     <svg class="w-5 h-5 flex-shrink-0 mt-0.5 text-violet-600 dark:text-violet-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/></svg>
                     <div>
-                        <div class="text-sm leading-tight">{{ __('Attendance Register') }}</div>
-                        <div class="text-[11px] text-slate-500 dark:text-slate-400 font-normal mt-0.5">{{ __('Date & month present view') }}</div>
+                        <div class="text-sm leading-tight">{{ __('Reports') }}</div>
+                        <div class="text-[11px] text-slate-500 dark:text-slate-400 font-normal mt-0.5">{{ __('Records and summaries') }}</div>
                     </div>
                 </a>
-                @endcan
+                @endif
+
+                @if(Auth::user()->hasPermission('audit_logs.view'))
+                <a href="{{ route('reports.audit_logs') }}" class="group flex items-start gap-3.5 px-3 py-2.5 rounded-xl transition {{ request()->routeIs('reports.audit_logs') ? 'bg-amber-500/10 text-amber-600 border border-amber-500/30 font-bold dark:bg-amber-500/10 dark:text-amber-400 dark:border-amber-500/30' : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900 font-medium dark:text-slate-300 dark:hover:bg-slate-800/60 dark:hover:text-white' }}">
+                    <svg class="w-5 h-5 flex-shrink-0 mt-0.5 text-slate-600 dark:text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
+                    <div>
+                        <div class="text-sm leading-tight">{{ __('Audit History') }}</div>
+                        <div class="text-[11px] text-slate-500 dark:text-slate-400 font-normal mt-0.5">{{ __('Immutable Audit Trail') }}</div>
+                    </div>
+                </a>
+                @endif
             </nav>
 
             <div class="p-4 border-t border-slate-200 dark:border-slate-800/60 bg-slate-50 dark:bg-slate-950/50">
@@ -308,7 +364,7 @@
         <div x-show="mobileMenu" class="fixed inset-0 z-50 lg:hidden flex" style="display: none;">
             <div @click="mobileMenu = false" class="fixed inset-0 bg-slate-950/70 backdrop-blur-sm transition-opacity"></div>
 
-            <div class="relative w-72 bg-white text-slate-800 border-r border-slate-200 dark:bg-slate-900 dark:text-slate-200 dark:border-slate-800 p-5 flex flex-col justify-between shadow-2xl">
+            <div class="relative w-72 bg-white text-slate-800 border-r border-slate-200 dark:bg-slate-900 dark:text-slate-200 dark:border-slate-800 p-5 flex flex-col justify-between shadow-2xl overflow-y-auto">
                 <div>
                     <div class="flex items-center justify-between pb-4 border-b border-slate-200 dark:border-slate-800">
                         <div class="flex items-center gap-2">
@@ -320,41 +376,65 @@
                         </button>
                     </div>
 
-                    <nav class="mt-4 space-y-2">
-                        <a href="{{ route('dashboard') }}" class="flex items-center gap-3 px-3 py-3 rounded-xl font-bold {{ request()->routeIs('dashboard') ? 'bg-amber-500 text-slate-950 shadow' : 'text-slate-700 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800' }}">
-                            <span>{{ __('Home') }}</span>
+                    <nav class="mt-4 space-y-1.5">
+                        <a href="{{ route('dashboard') }}" class="flex items-center gap-3 px-3 py-2.5 rounded-xl font-bold {{ request()->routeIs('dashboard') ? 'bg-amber-500 text-slate-950 shadow' : 'text-slate-700 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800' }}">
+                            <span>{{ __('Dashboard') }}</span>
                         </a>
                         @can('viewAny', \App\Models\Project::class)
-                        <a href="{{ route('projects.index') }}" class="flex items-center gap-3 px-3 py-3 rounded-xl font-bold {{ request()->routeIs('projects.*') ? 'bg-amber-500 text-slate-950 shadow' : 'text-slate-700 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800' }}">
+                        <a href="{{ route('projects.index') }}" class="flex items-center gap-3 px-3 py-2.5 rounded-xl font-bold {{ request()->routeIs('projects.*') ? 'bg-amber-500 text-slate-950 shadow' : 'text-slate-700 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800' }}">
                             <span>{{ __('Projects') }}</span>
                         </a>
                         @endcan
                         @can('viewAny', \App\Models\Site::class)
-                        <a href="{{ route('sites.index') }}" class="flex items-center gap-3 px-3 py-3 rounded-xl font-bold {{ request()->routeIs('sites.*') ? 'bg-amber-500 text-slate-950 shadow' : 'text-slate-700 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800' }}">
+                        <a href="{{ route('sites.index') }}" class="flex items-center gap-3 px-3 py-2.5 rounded-xl font-bold {{ request()->routeIs('sites.*') ? 'bg-amber-500 text-slate-950 shadow' : 'text-slate-700 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800' }}">
                             <span>{{ __('Sites') }}</span>
                         </a>
                         @endcan
-                        @can('viewAny', \App\Models\Worker::class)
-                        <a href="{{ route('workforce.index') }}" class="flex items-center gap-3 px-3 py-3 rounded-xl font-bold {{ request()->routeIs('workforce.*') ? 'bg-amber-500 text-slate-950 shadow' : 'text-slate-700 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800' }}">
-                            <span>{{ __('Workers') }}</span>
-                        </a>
-                        <a href="{{ route('attendance.muster') }}" class="flex items-center gap-3 px-3 py-3 rounded-xl font-bold {{ request()->routeIs('attendance.*') ? 'bg-amber-500 text-slate-950 shadow' : 'text-slate-700 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800' }}">
-                            <span>{{ __('Attendance') }}</span>
-                        </a>
-                        @endcan
                         @can('viewAny', \App\Models\WorkOrder::class)
-                        <a href="{{ route('work_orders.index') }}" class="flex items-center gap-3 px-3 py-3 rounded-xl font-bold {{ request()->routeIs('work_orders.*') ? 'bg-amber-500 text-slate-950 shadow' : 'text-slate-700 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800' }}">
+                        <a href="{{ route('work_orders.index') }}" class="flex items-center gap-3 px-3 py-2.5 rounded-xl font-bold {{ request()->routeIs('work_orders.*') ? 'bg-amber-500 text-slate-950 shadow' : 'text-slate-700 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800' }}">
                             <span>{{ __('Work Orders') }}</span>
                         </a>
                         @endcan
-                        <a href="{{ route('procurement.requests') }}" class="flex items-center gap-3 px-3 py-3 rounded-xl font-bold {{ request()->routeIs('procurement.*') || request()->routeIs('inventory.*') ? 'bg-amber-500 text-slate-950 shadow' : 'text-slate-700 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800' }}">
-                            <span>{{ __('Materials') }}</span>
-                        </a>
-                        @can('viewAny', \App\Models\Worker::class)
-                        <a href="{{ route('reports.workforce') }}" class="flex items-center gap-3 px-3 py-3 rounded-xl font-bold {{ request()->routeIs('reports.*') ? 'bg-amber-500 text-slate-950 shadow' : 'text-slate-700 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800' }}">
-                            <span>{{ __('Reports') }}</span>
+                        @can('viewAny', \App\Models\Task::class)
+                        <a href="{{ route('tasks.index') }}" class="flex items-center gap-3 px-3 py-2.5 rounded-xl font-bold {{ request()->routeIs('tasks.*') ? 'bg-amber-500 text-slate-950 shadow' : 'text-slate-700 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800' }}">
+                            <span>{{ __('Tasks & Notes') }}</span>
                         </a>
                         @endcan
+                        @can('viewAny', \App\Models\Worker::class)
+                        <a href="{{ route('workforce.index') }}" class="flex items-center gap-3 px-3 py-2.5 rounded-xl font-bold {{ request()->routeIs('workforce.*') ? 'bg-amber-500 text-slate-950 shadow' : 'text-slate-700 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800' }}">
+                            <span>{{ __('Employees & Workers') }}</span>
+                        </a>
+                        @endcan
+                        @if(Auth::user()->hasPermission('attendance.view') || Auth::user()->hasPermission('attendance.mark') || Auth::user()->can('viewAny', \App\Models\Worker::class))
+                        <a href="{{ route('attendance.register') }}" class="flex items-center gap-3 px-3 py-2.5 rounded-xl font-bold {{ request()->routeIs('attendance.*') ? 'bg-amber-500 text-slate-950 shadow' : 'text-slate-700 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800' }}">
+                            <span>{{ __('Attendance') }}</span>
+                        </a>
+                        @endif
+                        @if(Auth::user()->hasPermission('payroll.view') || Auth::user()->can('viewAny', \App\Models\Worker::class))
+                        <a href="{{ route('payroll.index') }}" class="flex items-center gap-3 px-3 py-2.5 rounded-xl font-bold {{ request()->routeIs('payroll.*') ? 'bg-amber-500 text-slate-950 shadow' : 'text-slate-700 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800' }}">
+                            <span>{{ __('Payroll & Payslips') }}</span>
+                        </a>
+                        @endif
+                        @if(Auth::user()->hasPermission('procurement.requests.view') || Auth::user()->hasPermission('procurement.orders.view') || Auth::user()->hasPermission('inventory.view'))
+                        <a href="{{ route('procurement.requests') }}" class="flex items-center gap-3 px-3 py-2.5 rounded-xl font-bold {{ request()->routeIs('procurement.*') ? 'bg-amber-500 text-slate-950 shadow' : 'text-slate-700 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800' }}">
+                            <span>{{ __('Procurement') }}</span>
+                        </a>
+                        @endif
+                        @if(Auth::user()->hasPermission('inventory.view') || Auth::user()->hasPermission('procurement.orders.view'))
+                        <a href="{{ route('inventory.stocks') }}" class="flex items-center gap-3 px-3 py-2.5 rounded-xl font-bold {{ request()->routeIs('inventory.*') ? 'bg-amber-500 text-slate-950 shadow' : 'text-slate-700 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800' }}">
+                            <span>{{ __('Inventory') }}</span>
+                        </a>
+                        @endif
+                        @if(Auth::user()->hasRole(['super_admin', 'company_admin']) || Auth::user()->hasPermission('users.view') || Auth::user()->hasPermission('roles.view'))
+                        <a href="{{ route('admin.users.index') }}" class="flex items-center gap-3 px-3 py-2.5 rounded-xl font-bold {{ request()->routeIs('admin.users.*') || request()->routeIs('admin.roles.*') ? 'bg-amber-500 text-slate-950 shadow' : 'text-slate-700 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800' }}">
+                            <span>{{ __('Users & Access') }}</span>
+                        </a>
+                        @endif
+                        @if(Auth::user()->hasPermission('reports.view') || Auth::user()->can('viewAny', \App\Models\Worker::class))
+                        <a href="{{ route('reports.multi_site') }}" class="flex items-center gap-3 px-3 py-2.5 rounded-xl font-bold {{ request()->routeIs('reports.*') ? 'bg-amber-500 text-slate-950 shadow' : 'text-slate-700 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800' }}">
+                            <span>{{ __('Reports') }}</span>
+                        </a>
+                        @endif
                     </nav>
                 </div>
 
@@ -374,11 +454,11 @@
         <main class="flex-1 overflow-y-auto bg-slate-100 dark:bg-slate-950 p-4 sm:p-6 lg:p-8 pb-24 sm:pb-24 lg:pb-8 transition-colors duration-200">
             <div class="max-w-7xl mx-auto space-y-6">
                 <!-- Flash Messages -->
-                @if(session('success'))
+                @if(session('success') || session('status'))
                     <div class="p-4 rounded-xl bg-emerald-50 border border-emerald-300 text-emerald-800 dark:bg-emerald-950/80 dark:border-emerald-600/50 dark:text-emerald-200 flex items-start justify-between shadow-sm">
                         <div class="flex items-center gap-3">
                             <svg class="w-5 h-5 text-emerald-600 dark:text-emerald-400 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
-                            <span class="text-sm font-semibold">{{ session('success') }}</span>
+                            <span class="text-sm font-semibold">{{ session('success') ?? session('status') }}</span>
                         </div>
                     </div>
                 @endif
@@ -428,21 +508,25 @@
             <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z"/></svg>
             <span class="text-[10px]">{{ __('Workers') }}</span>
         </a>
-        <a href="{{ route('attendance.muster') }}" class="flex flex-col items-center gap-1 py-1 px-1.5 rounded-xl transition {{ request()->routeIs('attendance.*') ? 'text-amber-600 dark:text-amber-400 font-bold' : 'text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white' }}">
+        @endcan
+        @if(Auth::user()->hasPermission('attendance.view') || Auth::user()->hasPermission('attendance.mark') || Auth::user()->can('viewAny', \App\Models\Worker::class))
+        <a href="{{ route('attendance.register') }}" class="flex flex-col items-center gap-1 py-1 px-1.5 rounded-xl transition {{ request()->routeIs('attendance.*') ? 'text-amber-600 dark:text-amber-400 font-bold' : 'text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white' }}">
             <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4"/></svg>
             <span class="text-[10px]">{{ __('Attendance') }}</span>
         </a>
-        @endcan
+        @endif
         @can('viewAny', \App\Models\WorkOrder::class)
         <a href="{{ route('work_orders.index') }}" class="flex flex-col items-center gap-1 py-1 px-1.5 rounded-xl transition {{ request()->routeIs('work_orders.*') ? 'text-amber-600 dark:text-amber-400 font-bold' : 'text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white' }}">
             <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
             <span class="text-[10px]">{{ __('Work Orders') }}</span>
         </a>
         @endcan
+        @if(Auth::user()->hasPermission('procurement.requests.view') || Auth::user()->hasPermission('procurement.orders.view') || Auth::user()->hasPermission('inventory.view'))
         <a href="{{ route('procurement.requests') }}" class="flex flex-col items-center gap-1 py-1 px-1.5 rounded-xl transition {{ request()->routeIs('procurement.*') || request()->routeIs('inventory.*') ? 'text-amber-600 dark:text-amber-400 font-bold' : 'text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white' }}">
             <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4"/></svg>
             <span class="text-[10px]">{{ __('Materials') }}</span>
         </a>
+        @endif
     </nav>
 </body>
 </html>

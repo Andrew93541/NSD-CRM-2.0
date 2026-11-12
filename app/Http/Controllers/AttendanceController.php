@@ -33,15 +33,14 @@ class AttendanceController extends Controller
     public function muster(Request $request): View
     {
         $user = Auth::user();
-        if (!$user->hasRole(['super_admin', 'company_admin', 'senior_manager', 'site_manager', 'site_supervisor', 'office_staff'])
-            && !$user->hasPermission('attendance.view')
-            && !$user->hasPermission('attendance.record')
-            && !$user->hasPermission('attendance.muster')
-        ) {
-            abort(403, 'Unauthorized to access attendance muster roll.');
+        if (! $user || ! $user->hasPermission('attendance.mark')) {
+            abort(403, 'Unauthorized to mark daily attendance. Explicit attendance marking permission is required.');
         }
 
-        $accessibleSites = $user->hasRole(['super_admin', 'company_admin', 'senior_manager'])
+        $hasAllSiteAccess = $user->hasRole(['super_admin', 'company_admin'])
+            || ($user->hasRole('senior_manager') && ! $user->isRestrictedToAssignedSites());
+
+        $accessibleSites = $hasAllSiteAccess
             ? Site::where('status', 'active')->get()
             : Site::whereIn('id', $user->accessibleSiteIds())->where('status', 'active')->get();
 
@@ -115,6 +114,9 @@ class AttendanceController extends Controller
     public function storeMuster(Request $request): RedirectResponse
     {
         $user = Auth::user();
+        if (! $user || ! $user->hasPermission('attendance.mark')) {
+            abort(403, 'Unauthorized to mark daily attendance. Explicit attendance marking permission is required.');
+        }
 
         $validated = $request->validate([
             'site_id' => ['required', 'exists:sites,id'],
@@ -177,6 +179,9 @@ class AttendanceController extends Controller
     public function qrScan(Request $request): RedirectResponse
     {
         $user = Auth::user();
+        if (! $user || ! $user->hasPermission('attendance.mark')) {
+            abort(403, 'Unauthorized to mark attendance via QR scan.');
+        }
 
         $qrThrottleKey = 'supervisor-qr-scan:' . $user->id . '|' . $request->ip();
         if (\Illuminate\Support\Facades\RateLimiter::tooManyAttempts($qrThrottleKey, 60)) {
@@ -326,6 +331,10 @@ class AttendanceController extends Controller
     public function requestCorrection(Request $request, DailyAttendance $attendance): RedirectResponse
     {
         $user = Auth::user();
+        if (! $user || ! $user->hasPermission('attendance.edit')) {
+            abort(403, 'Unauthorized to request or edit attendance corrections.');
+        }
+
         if ($attendance->site && !$user->isAssignedToSite($attendance->site)) {
             abort(403, 'Unauthorized to request corrections for this site.');
         }
@@ -354,7 +363,7 @@ class AttendanceController extends Controller
         $shiftThreshold = (float) ($attendance->site?->shift_hours ?? 8.00);
         $propOvertime = round(max(0.0, $propHours - $shiftThreshold), 2);
 
-        AttendanceCorrection::create([
+        $correction = AttendanceCorrection::create([
             'company_id' => $attendance->company_id,
             'daily_attendance_id' => $attendance->id,
             'requested_by' => $user->id,
@@ -372,13 +381,36 @@ class AttendanceController extends Controller
             'status' => 'pending',
         ]);
 
+        AuditLog::record(
+            'attendance.correction_requested',
+            $correction,
+            [
+                'status' => $attendance->status,
+                'clock_in' => $prevIn,
+                'clock_out' => $prevOut,
+                'worked_hours' => (float) $attendance->worked_hours,
+            ],
+            [
+                'proposed_status' => $validated['proposed_status'],
+                'proposed_clock_in' => $propIn,
+                'proposed_clock_out' => $propOut,
+                'proposed_worked_hours' => $propHours,
+                'reason' => $validated['reason'],
+            ],
+            "Attendance correction requested for worker #{$attendance->worker_id} on {$attendance->attendance_date->format('Y-m-d')}"
+        );
+
         return back()->with('success', 'Correction request submitted for approval.');
     }
 
     public function corrections(): View
     {
         $user = Auth::user();
-        $accessibleSiteIds = $user->hasRole(['super_admin', 'company_admin', 'senior_manager'])
+        if (! $user || (! $user->hasPermission('attendance.view') && ! $user->hasPermission('attendance.edit') && ! $user->hasPermission('attendance.approve'))) {
+            abort(403, 'Unauthorized to view attendance corrections.');
+        }
+
+        $accessibleSiteIds = ($user->hasRole(['super_admin', 'company_admin']) || ($user->hasRole('senior_manager') && ! $user->isRestrictedToAssignedSites()))
             ? null
             : $user->accessibleSiteIds();
 
@@ -395,8 +427,8 @@ class AttendanceController extends Controller
     public function reviewCorrection(Request $request, AttendanceCorrection $correction): RedirectResponse
     {
         $user = Auth::user();
-        if (!$user->hasRole(['super_admin', 'company_admin', 'senior_manager', 'site_manager'])) {
-            abort(403, 'Unauthorized to review attendance corrections.');
+        if (! $user || ! $user->hasPermission('attendance.approve')) {
+            abort(403, 'Unauthorized to review attendance corrections. Explicit attendance approval permission is required.');
         }
 
         // Strict Non-Self-Approval Rule
@@ -439,8 +471,23 @@ class AttendanceController extends Controller
         AuditLog::record(
             'attendance.correction_reviewed',
             $correction,
-            ['status' => 'pending'],
-            ['status' => $correction->status, 'reviewed_by' => $user->id],
+            [
+                'status' => 'pending',
+                'previous_attendance_status' => $correction->previous_status,
+                'previous_clock_in' => $correction->previous_clock_in,
+                'previous_clock_out' => $correction->previous_clock_out,
+                'previous_worked_hours' => (float) $correction->previous_worked_hours,
+            ],
+            [
+                'status' => $correction->status,
+                'proposed_attendance_status' => $correction->proposed_status,
+                'proposed_clock_in' => $correction->proposed_clock_in,
+                'proposed_clock_out' => $correction->proposed_clock_out,
+                'proposed_worked_hours' => (float) $correction->proposed_worked_hours,
+                'reason' => $correction->reason,
+                'review_notes' => $correction->review_notes,
+                'reviewed_by' => $user->id,
+            ],
             "Attendance correction #{$correction->id} {$correction->status} by {$user->name}"
         );
 
@@ -468,7 +515,11 @@ class AttendanceController extends Controller
     public function approvals(Request $request): View
     {
         $user = Auth::user();
-        $accessibleSiteIds = $user->hasRole(['super_admin', 'company_admin', 'senior_manager'])
+        if (! $user || (! $user->hasPermission('attendance.approve') && ! $user->hasPermission('attendance.view'))) {
+            abort(403, 'Unauthorized to access attendance approvals.');
+        }
+
+        $accessibleSiteIds = ($user->hasRole(['super_admin', 'company_admin']) || ($user->hasRole('senior_manager') && ! $user->isRestrictedToAssignedSites()))
             ? null
             : $user->accessibleSiteIds();
 
@@ -502,7 +553,7 @@ class AttendanceController extends Controller
     public function resolveFlag(Request $request, AttendanceFlag $flag): RedirectResponse
     {
         $user = Auth::user();
-        if (!$user->hasRole(['super_admin', 'company_admin', 'senior_manager', 'site_manager'])) {
+        if (! $user || ! $user->hasPermission('attendance.approve')) {
             abort(403, 'Unauthorized to resolve attendance anomaly flags.');
         }
 
@@ -678,7 +729,7 @@ class AttendanceController extends Controller
     public function reviewLeaveRequest(Request $request, LeaveRequest $leaveRequest): RedirectResponse
     {
         $user = Auth::user();
-        if (!$user->hasRole(['super_admin', 'company_admin', 'senior_manager', 'site_manager'])) {
+        if (! $user || ! $user->hasPermission('attendance.approve')) {
             abort(403, 'Unauthorized to review leave requests.');
         }
 
@@ -715,7 +766,7 @@ class AttendanceController extends Controller
     public function exportPayrollCsv(Request $request): StreamedResponse
     {
         $user = Auth::user();
-        if (!$user->hasRole(['super_admin', 'company_admin', 'senior_manager', 'site_manager', 'office_staff'])) {
+        if (! $user || ! $user->hasPermission('attendance.export')) {
             abort(403, 'Unauthorized to export payroll attendance data.');
         }
 
@@ -730,7 +781,10 @@ class AttendanceController extends Controller
             }
         }
 
-        $accessibleSiteIds = $user->hasRole(['super_admin', 'company_admin', 'senior_manager', 'office_staff'])
+        $hasAllSiteAccess = $user->hasRole(['super_admin', 'company_admin'])
+            || ($user->hasRole(['senior_manager', 'office_staff']) && ! $user->isRestrictedToAssignedSites());
+
+        $accessibleSiteIds = $hasAllSiteAccess
             ? null
             : $user->accessibleSiteIds();
 
@@ -812,15 +866,12 @@ class AttendanceController extends Controller
     public function register(Request $request): View
     {
         $user = Auth::user();
-        if (!$user->hasRole(['super_admin', 'company_admin', 'senior_manager', 'site_manager', 'site_supervisor', 'office_staff'])
-            && !$user->hasPermission('attendance.view')
-            && !$user->hasPermission('attendance.record')
-            && !$user->hasPermission('reports.view')
-        ) {
+        if (! $user || (! $user->hasPermission('attendance.view') && ! $user->hasPermission('attendance.mark'))) {
             abort(403, 'Unauthorized to view attendance register.');
         }
 
-        $hasAllSiteAccess = $user->hasRole(['super_admin', 'company_admin', 'senior_manager', 'office_staff']);
+        $hasAllSiteAccess = $user->hasRole(['super_admin', 'company_admin'])
+            || ($user->hasRole(['senior_manager', 'office_staff']) && ! $user->isRestrictedToAssignedSites());
 
         $accessibleSites = $hasAllSiteAccess
             ? Site::where('status', 'active')->orderBy('code')->get()
@@ -830,9 +881,9 @@ class AttendanceController extends Controller
             ? null
             : $accessibleSites->pluck('id')->all();
 
-        $mode = $request->query('mode', 'date');
+        $mode = $request->query('mode', 'month');
         if (!in_array($mode, ['date', 'month'], true)) {
-            $mode = 'date';
+            $mode = 'month';
         }
 
         $date = $request->query('date', Carbon::today()->format('Y-m-d'));

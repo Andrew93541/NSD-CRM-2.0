@@ -10,6 +10,10 @@ class PurchaseRequestPolicy
 {
     public function viewAny(User $user): bool
     {
+        if ($user->isExplicitlyDenied('procurement.view')) {
+            return false;
+        }
+
         return $user->hasPermission('procurement.view')
             || $user->hasPermission('procurement.request')
             || $user->hasPermission('procurement.approve')
@@ -19,12 +23,19 @@ class PurchaseRequestPolicy
 
     public function create(User $user): bool
     {
+        if ($user->isExplicitlyDenied('procurement.request')) {
+            return false;
+        }
+
+        if ($user->hasPermission('procurement.request')) {
+            return true;
+        }
+
         if ($user->hasRole('office_staff')) {
             return false;
         }
 
-        return $user->hasPermission('procurement.request')
-            || $user->hasRole(['site_manager', 'warehouse_manager', 'company_admin', 'super_admin']);
+        return $user->hasRole(['site_manager', 'warehouse_manager', 'company_admin', 'super_admin']);
     }
 
     public function approve(User $user, PurchaseRequest $pr): bool
@@ -33,8 +44,12 @@ class PurchaseRequestPolicy
             return false;
         }
 
+        if ($user->isRestrictedToAssignedSites() && $pr->site_id !== null && !$user->isAssignedToSite((int) $pr->site_id)) {
+            return false;
+        }
+
         return $pr->status === 'pending'
-            && ($user->hasPermission('procurement.approve') || $user->hasRole(['senior_manager', 'company_admin', 'super_admin']));
+            && $user->canPerform('procurement.approve', ['senior_manager', 'company_admin', 'super_admin']);
     }
 
     public function createOrder(User $user, PurchaseRequest $pr): bool
@@ -43,7 +58,11 @@ class PurchaseRequestPolicy
             return false;
         }
 
+        if ($user->isRestrictedToAssignedSites() && $pr->site_id !== null && !$user->isAssignedToSite((int) $pr->site_id)) {
+            return false;
+        }
+
         return $pr->status === 'approved'
-            && ($user->hasRole(['super_admin', 'company_admin', 'senior_manager', 'warehouse_manager']) || $user->hasPermission('procurement.approve'));
+            && $user->canPerform('procurement.approve', ['super_admin', 'company_admin', 'senior_manager', 'warehouse_manager']);
     }
 }

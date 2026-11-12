@@ -6,7 +6,7 @@
     <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-slate-200 dark:border-slate-800">
         <div>
             <h1 class="text-2xl font-extrabold text-slate-900 dark:text-white tracking-tight">{{ __('Projects Portfolio') }}</h1>
-            <p class="text-sm text-slate-600 dark:text-slate-400 mt-1">{{ __('Track civil infrastructure projects, multi-site allocations, milestones, and versioned drawings.') }}</p>
+            <p class="text-sm text-slate-600 dark:text-slate-400 mt-1">{{ __('Manage company projects, linked construction sites, milestones, and project documents.') }}</p>
         </div>
 
         @can('create', \App\Models\Project::class)
@@ -110,8 +110,20 @@
                 </div>
             </div>
         @empty
-            <div class="col-span-full p-8 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-center text-sm text-slate-500 dark:text-slate-400">
-                {{ __('No projects match the current filter criteria.') }}
+            <div class="col-span-full p-10 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-center space-y-3">
+                <div class="text-sm font-bold text-slate-800 dark:text-slate-200">{{ __('No projects match the current filter criteria.') }}</div>
+                <p class="text-xs text-slate-500 dark:text-slate-400">
+                    {{ ($search || $status) ? __('Try clearing your search or status filter.') : __('Create your first project to organize your sites, work orders, and milestones.') }}
+                </p>
+                @if(!$search && !$status)
+                    @can('create', \App\Models\Project::class)
+                        <div class="pt-1">
+                            <a href="{{ route('projects.create') }}" class="inline-flex items-center gap-2 px-4 py-2 text-xs font-extrabold rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 shadow-sm transition">
+                                + {{ __('Create Your First Project') }}
+                            </a>
+                        </div>
+                    @endcan
+                @endif
             </div>
         @endforelse
     </div>

@@ -45,6 +45,13 @@ class AuthController extends Controller
             $request->session()->regenerate();
             $user = Auth::user();
 
+            if (\Illuminate\Support\Facades\Schema::hasColumn('users', 'last_login_at')) {
+                $user->forceFill([
+                    'last_login_at' => now(),
+                    'last_login_ip' => $request->ip(),
+                ])->save();
+            }
+
             // Set primary or first active company membership
             $company = $user->companies()
                 ->wherePivot('status', 'active')
@@ -402,6 +409,10 @@ class AuthController extends Controller
 
         $newStatus = $request->has('is_active') ? $request->boolean('is_active') : !$user->is_active;
         $oldStatus = (bool) $user->is_active;
+
+        if (!$newStatus && $companyId && $user->isLastActiveCompanyAdmin((int) $companyId)) {
+            return back()->with('error', __('Cannot deactivate the last active Company Administrator account.'));
+        }
 
         $user->forceFill([
             'is_active' => $newStatus,

@@ -495,6 +495,8 @@ class Section13AcceptanceBenchmarkTest extends TestCase
         $companyBLogin->assertRedirect(route('worker.punch'));
         $this->post(route('worker.logout'));
 
+        config(['app.kiosk_enabled' => true]);
+
         $kioskBPunch = $this->post(route('kiosk.punch', $siteB->kiosk_token), [
             'mode' => 'pin',
             'worker_code' => 'W-EMP-901',

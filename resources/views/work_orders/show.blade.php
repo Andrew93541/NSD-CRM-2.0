@@ -29,14 +29,14 @@
         </div>
 
         <div class="flex flex-wrap items-center gap-2">
-            <a href="{{ route('work_orders.export_pdf', $workOrder) }}" class="px-4 py-2 text-xs font-extrabold rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 shadow-md shadow-emerald-500/20 transition">
-                {{ __('Download JSW Service Order PDF') }} &darr;
-            </a>
-            <a href="{{ route('work_orders.print', $workOrder) }}" target="_blank" class="px-4 py-2 text-xs font-extrabold rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 shadow-md shadow-amber-500/20 transition">
-                {{ __('Print / Download Work Order (BOQ)') }} &nearr;
-            </a>
             <a href="{{ route('work_orders.index') }}" class="px-3.5 py-2 text-xs font-bold rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-800 border border-slate-200 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700 dark:border-slate-700 transition">
                 &larr; {{ __('Back to Orders') }}
+            </a>
+            <a href="{{ route('work_orders.export_pdf', $workOrder) }}" class="px-3.5 py-2 text-xs font-semibold rounded-xl bg-white dark:bg-slate-900 hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-800 transition">
+                {{ __('Download JSW Service Order PDF') }} &darr;
+            </a>
+            <a href="{{ route('work_orders.print', $workOrder) }}" target="_blank" class="px-4 py-2 text-xs font-extrabold rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 shadow-sm transition">
+                {{ __('Print / Download Work Order (BOQ)') }} &nearr;
             </a>
         </div>
     </div>
@@ -407,53 +407,56 @@
             </div>
         @endif
 
-        <!-- Document Attachments (Private Vault) -->
-        <div class="pt-3 border-t border-slate-200 dark:border-slate-800 text-xs space-y-3">
-            <div class="flex items-center justify-between">
-                <span class="text-slate-500 font-bold uppercase">{{ __('Private Work Order Attachments') }}:</span>
+        <!-- Document Attachments -->
+        <details class="pt-3 border-t border-slate-200 dark:border-slate-800 text-xs group" {{ $workOrder->attachments->isNotEmpty() ? 'open' : '' }}>
+            <summary class="cursor-pointer list-none flex items-center justify-between">
+                <span class="text-slate-500 font-bold uppercase">{{ __('Work Order Attachments') }} ({{ $workOrder->attachments->count() }})</span>
+                <span class="px-2.5 py-1 rounded-lg bg-slate-100 dark:bg-slate-800 text-[11px] font-semibold text-slate-600 dark:text-slate-300">{{ __('Manage Files') }}</span>
+            </summary>
+
+            <div class="space-y-3 pt-3">
+                @if($workOrder->attachments->isNotEmpty())
+                    <div class="space-y-2">
+                        @foreach($workOrder->attachments as $att)
+                            <div class="flex items-center justify-between p-2.5 rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800">
+                                <div>
+                                    <span class="text-slate-800 dark:text-slate-200 font-medium">{{ $att->file_name }}</span>
+                                    <span class="text-slate-400 ml-1">({{ round($att->file_size / 1024, 1) }} KB)</span>
+                                </div>
+                                <div class="flex items-center gap-3">
+                                    @can('downloadAttachment', [$workOrder, $att])
+                                        <a href="{{ route('work_orders.attachments.download', [$workOrder, $att->id]) }}" class="text-amber-600 dark:text-amber-400 font-bold hover:underline">
+                                            {{ __('Download') }}
+                                        </a>
+                                    @endcan
+                                    @can('deleteAttachment', [$workOrder, $att])
+                                        <form method="POST" action="{{ route('work_orders.attachments.destroy', [$workOrder, $att->id]) }}" onsubmit="return confirm('Delete this attachment from private storage?');">
+                                            @csrf
+                                            @method('DELETE')
+                                            <button type="submit" class="text-rose-600 dark:text-rose-400 font-bold hover:underline">
+                                                {{ __('Delete') }}
+                                            </button>
+                                        </form>
+                                    @endcan
+                                </div>
+                            </div>
+                        @endforeach
+                    </div>
+                @else
+                    <div class="text-slate-400 italic">{{ __('No files attached to this work order.') }}</div>
+                @endif
+
+                @can('uploadAttachment', $workOrder)
+                    <form method="POST" action="{{ route('work_orders.attachments.store', $workOrder) }}" enctype="multipart/form-data" class="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 pt-2">
+                        @csrf
+                        <input type="file" name="attachment" required accept=".pdf,.doc,.docx,.jpg,.jpeg,.png,.webp" class="text-xs text-slate-600 dark:text-slate-300 file:mr-3 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:text-xs file:font-bold file:bg-slate-200 dark:file:bg-slate-800 file:text-slate-800 dark:file:text-slate-200">
+                        <button type="submit" class="px-3.5 py-1.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-xs transition">
+                            {{ __('Upload Attachment') }}
+                        </button>
+                    </form>
+                @endcan
             </div>
-
-            @if($workOrder->attachments->isNotEmpty())
-                <div class="space-y-2">
-                    @foreach($workOrder->attachments as $att)
-                        <div class="flex items-center justify-between p-2.5 rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800">
-                            <div>
-                                <span class="text-slate-800 dark:text-slate-200 font-medium">{{ $att->file_name }}</span>
-                                <span class="text-slate-400 ml-1">({{ round($att->file_size / 1024, 1) }} KB)</span>
-                            </div>
-                            <div class="flex items-center gap-3">
-                                @can('downloadAttachment', [$workOrder, $att])
-                                    <a href="{{ route('work_orders.attachments.download', [$workOrder, $att->id]) }}" class="text-amber-600 dark:text-amber-400 font-bold hover:underline">
-                                        {{ __('Download') }}
-                                    </a>
-                                @endcan
-                                @can('deleteAttachment', [$workOrder, $att])
-                                    <form method="POST" action="{{ route('work_orders.attachments.destroy', [$workOrder, $att->id]) }}" onsubmit="return confirm('Delete this attachment from private storage?');">
-                                        @csrf
-                                        @method('DELETE')
-                                        <button type="submit" class="text-rose-600 dark:text-rose-400 font-bold hover:underline">
-                                            {{ __('Delete') }}
-                                        </button>
-                                    </form>
-                                @endcan
-                            </div>
-                        </div>
-                    @endforeach
-                </div>
-            @else
-                <div class="text-slate-400 italic">{{ __('No files attached to this work order.') }}</div>
-            @endif
-
-            @can('uploadAttachment', $workOrder)
-                <form method="POST" action="{{ route('work_orders.attachments.store', $workOrder) }}" enctype="multipart/form-data" class="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 pt-2">
-                    @csrf
-                    <input type="file" name="attachment" required accept=".pdf,.doc,.docx,.jpg,.jpeg,.png,.webp" class="text-xs text-slate-600 dark:text-slate-300 file:mr-3 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:text-xs file:font-bold file:bg-slate-200 dark:file:bg-slate-800 file:text-slate-800 dark:file:text-slate-200">
-                    <button type="submit" class="px-3.5 py-1.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-xs transition">
-                        {{ __('Upload Attachment') }}
-                    </button>
-                </form>
-            @endcan
-        </div>
+        </details>
     </div>
 
     <!-- Work Order Revisions & Amendment Control -->
@@ -725,9 +728,12 @@
     @endif
 
     <!-- Audited Approval History -->
-    <div class="p-5 sm:p-6 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 space-y-3 shadow-sm transition-colors duration-200">
-        <h3 class="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">{{ __('Immutable Audit Trail') }}</h3>
-        <div class="divide-y divide-slate-200 dark:divide-slate-800 text-xs">
+    <details class="p-5 sm:p-6 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-sm transition-colors duration-200 group">
+        <summary class="cursor-pointer list-none flex items-center justify-between">
+            <h3 class="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">{{ __('Approval & Change History') }} ({{ $workOrder->approvals->count() }})</h3>
+            <span class="px-2.5 py-1 rounded-lg bg-slate-100 dark:bg-slate-800 text-[11px] font-semibold text-slate-600 dark:text-slate-300">{{ __('Show / Hide') }}</span>
+        </summary>
+        <div class="divide-y divide-slate-200 dark:divide-slate-800 text-xs pt-3 mt-3 border-t border-slate-200 dark:border-slate-800">
             @forelse($workOrder->approvals as $audit)
                 <div class="py-2.5 flex items-start justify-between">
                     <div>
@@ -740,9 +746,9 @@
                     </div>
                 </div>
             @empty
-                <div class="text-slate-500 py-2">{{ __('No audit events recorded yet.') }}</div>
+                <div class="text-slate-500 py-2">{{ __('No approval events recorded yet.') }}</div>
             @endforelse
         </div>
-    </div>
+    </details>
 </div>
 @endsection

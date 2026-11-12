@@ -4,20 +4,18 @@
 <div class="space-y-6">
     <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-slate-200 dark:border-slate-800">
         <div>
-            <h1 class="text-2xl font-extrabold text-slate-900 dark:text-white tracking-tight">{{ __('Work Orders Management') }}</h1>
-            <p class="text-sm text-slate-600 dark:text-slate-400 mt-1">{{ __('Client-issued contract tasks and internal operations with 2-tier approval workflow.') }}</p>
+            <h1 class="text-2xl font-extrabold text-slate-900 dark:text-white tracking-tight">{{ __('Work Orders') }}</h1>
+            <p class="text-sm text-slate-600 dark:text-slate-400 mt-1">{{ __('Manage client purchase orders, internal site work orders, and RA billing.') }}</p>
         </div>
-        <div class="flex flex-wrap items-center gap-2">
+        <div class="flex flex-wrap items-center gap-2.5">
             @can('uploadPo', \App\Models\WorkOrder::class)
-                <a href="{{ route('work_orders.uploads.create') }}" class="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-slate-900 hover:bg-slate-800 dark:bg-slate-100 dark:hover:bg-white text-white dark:text-slate-900 font-bold text-sm shadow-sm transition">
-                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"/></svg>
+                <a href="{{ route('work_orders.uploads.create') }}" class="inline-flex items-center gap-2 px-3.5 py-2 rounded-xl bg-white dark:bg-slate-900 hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-800 font-semibold text-xs transition">
                     {{ __('Upload Client PO (PDF)') }}
                 </a>
             @endcan
             @can('create', \App\Models\WorkOrder::class)
-                <a href="{{ route('work_orders.create') }}" class="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-sm shadow-lg shadow-amber-500/20 transition">
-                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
-                    {{ __('Create Work Order') }}
+                <a href="{{ route('work_orders.create') }}" class="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-extrabold text-xs shadow-sm transition">
+                    + {{ __('Create Work Order') }}
                 </a>
             @endcan
         </div>
@@ -151,7 +149,23 @@
                         </tr>
                     @empty
                         <tr>
-                            <td colspan="6" class="py-8 text-center text-slate-500">{{ __('No work orders match the filter.') }}</td>
+                            <td colspan="7" class="py-12 px-4 text-center">
+                                <div class="max-w-md mx-auto space-y-2.5">
+                                    <div class="text-sm font-bold text-slate-800 dark:text-slate-200">{{ __('No work orders match the filter.') }}</div>
+                                    <p class="text-xs text-slate-500 dark:text-slate-400">
+                                        {{ (request('status') || request('type') || request('site_id')) ? __('Try clearing your status or site filter.') : __('Create your first work order or upload a client purchase order to start tracking quantities and RA bills.') }}
+                                    </p>
+                                    @if(!request('status') && !request('type') && !request('site_id'))
+                                        @can('create', \App\Models\WorkOrder::class)
+                                            <div class="pt-1">
+                                                <a href="{{ route('work_orders.create') }}" class="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 text-xs font-extrabold shadow-sm transition">
+                                                    + {{ __('Create Your First Work Order') }}
+                                                </a>
+                                            </div>
+                                        @endcan
+                                    @endif
+                                </div>
+                            </td>
                         </tr>
                     @endforelse
                 </tbody>

@@ -87,7 +87,7 @@ class UiUxSimplificationAndLocalizationTest extends TestCase
         $switchHi->assertRedirect();
         $switchHi->assertSessionHas('locale', 'hi');
 
-        // Check Hindi rendering on dashboard
+        // Check Hindi rendering on dashboard (Admin has read-only attendance; Supervisor has Muster Roll button)
         $hiDashboard = $this->actingAs($this->admin)
             ->withSession(['locale' => 'hi'])
             ->get('/dashboard');
@@ -96,7 +96,12 @@ class UiUxSimplificationAndLocalizationTest extends TestCase
         $hiDashboard->assertSee('संचालन डैशबोर्ड');
         $hiDashboard->assertSee('दैनिक विवरण');
         $hiDashboard->assertSee('कामगार');
-        $hiDashboard->assertSee('मस्टर रोल भरें');
+        $hiDashboard->assertDontSee('मस्टर रोल भरें');
+
+        $hiSupervisorDashboard = $this->actingAs($this->supervisor)
+            ->withSession(['locale' => 'hi'])
+            ->get('/dashboard');
+        $hiSupervisorDashboard->assertSee('मस्टर रोल भरें');
 
         // 2. Switch to Marathi
         $switchMr = $this->actingAs($this->admin)->post('/locale', ['locale' => 'mr']);
@@ -111,8 +116,13 @@ class UiUxSimplificationAndLocalizationTest extends TestCase
         $mrDashboard->assertStatus(200);
         $mrDashboard->assertSee('कामकाज डॅशबोर्ड');
         $mrDashboard->assertSee('दैनिक आढावा');
-        $mrDashboard->assertSee('मस्टर रोल भरा');
+        $mrDashboard->assertDontSee('मस्टर रोल भरा');
         $mrDashboard->assertSee('सामग्री व साठा');
+
+        $mrSupervisorDashboard = $this->actingAs($this->supervisor)
+            ->withSession(['locale' => 'mr'])
+            ->get('/dashboard');
+        $mrSupervisorDashboard->assertSee('मस्टर रोल भरा');
     }
 
     public function test_role_adaptive_dashboard_site_supervisor(): void

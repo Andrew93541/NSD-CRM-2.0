@@ -67,24 +67,28 @@
                 </p>
             </div>
             <div class="flex flex-wrap items-center gap-2">
-                <a href="{{ route('attendance.register', ['mode' => 'date', 'date' => $date, 'site_id' => $selectedSiteId]) }}" class="px-3.5 py-2 text-xs font-extrabold rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 shadow-sm transition flex items-center gap-1.5">
+                <a href="{{ route('attendance.register', ['mode' => 'month', 'date' => $date, 'site_id' => $selectedSiteId]) }}" class="px-3.5 py-2 text-xs font-extrabold rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 shadow-sm transition flex items-center gap-1.5">
                     <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg>
                     <span>{{ __('Date & Month View') }}</span>
                 </a>
-                <a href="{{ route('attendance.approvals') }}" class="px-3.5 py-2 text-xs font-bold rounded-xl bg-amber-500/10 hover:bg-amber-500/20 text-amber-600 dark:text-amber-400 border border-amber-500/30 transition flex items-center gap-1.5">
-                    <span>{{ __('Approvals Inbox') }}</span>
-                    @if(($openFlagsCount ?? 0) + ($pendingCorrectionsCount ?? 0) + ($pendingLeavesCount ?? 0) > 0)
-                        <span class="px-1.5 py-0.5 rounded-full bg-amber-500 text-slate-950 text-[10px] font-black">
-                            {{ ($openFlagsCount ?? 0) + ($pendingCorrectionsCount ?? 0) + ($pendingLeavesCount ?? 0) }}
-                        </span>
-                    @endif
-                </a>
+                @if(Auth::user()->hasPermission('attendance.approve'))
+                    <a href="{{ route('attendance.approvals') }}" class="px-3.5 py-2 text-xs font-bold rounded-xl bg-amber-500/10 hover:bg-amber-500/20 text-amber-600 dark:text-amber-400 border border-amber-500/30 transition flex items-center gap-1.5">
+                        <span>{{ __('Approvals Inbox') }}</span>
+                        @if(($openFlagsCount ?? 0) + ($pendingCorrectionsCount ?? 0) + ($pendingLeavesCount ?? 0) > 0)
+                            <span class="px-1.5 py-0.5 rounded-full bg-amber-500 text-slate-950 text-[10px] font-black">
+                                {{ ($openFlagsCount ?? 0) + ($pendingCorrectionsCount ?? 0) + ($pendingLeavesCount ?? 0) }}
+                            </span>
+                        @endif
+                    </a>
+                @endif
                 <a href="{{ route('attendance.shifts_leaves') }}" class="px-3.5 py-2 text-xs font-bold rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 dark:text-slate-300 dark:border-slate-700 transition">
                     {{ __('Shifts, Leave & Holidays') }}
                 </a>
-                <a href="{{ route('attendance.export_payroll', ['site_id' => $selectedSiteId]) }}" class="px-3.5 py-2 text-xs font-bold rounded-xl bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30 transition">
-                    {{ __('Export Payroll CSV') }}
-                </a>
+                @if(Auth::user()->hasPermission('attendance.export'))
+                    <a href="{{ route('attendance.export_payroll', ['site_id' => $selectedSiteId]) }}" class="px-3.5 py-2 text-xs font-bold rounded-xl bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30 transition">
+                        {{ __('Export Payroll CSV') }}
+                    </a>
+                @endif
                 <a href="{{ route('attendance.conflicts') }}" class="px-3.5 py-2 text-xs font-bold rounded-xl bg-slate-100 hover:bg-slate-200 text-rose-600 border border-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 dark:text-rose-400 dark:border-slate-700 transition flex items-center gap-2">
                     <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/></svg>
                     {{ __('Attendance Conflicts') }}
