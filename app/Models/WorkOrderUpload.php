@@ -9,12 +9,16 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 class WorkOrderUpload extends Model
 {
-    use HasFactory, BelongsToCompany;
+    use BelongsToCompany, HasFactory;
 
     public const STATUS_UPLOADED = 'uploaded';
+
     public const STATUS_REVIEW_PENDING = 'review_pending';
+
     public const STATUS_CONFIRMED = 'confirmed';
+
     public const STATUS_UNREADABLE = 'unreadable';
+
     public const STATUS_CANCELLED = 'cancelled';
 
     protected $fillable = [
@@ -23,6 +27,7 @@ class WorkOrderUpload extends Model
         'work_order_id',
         'site_id',
         'original_filename',
+        'storage_disk',
         'file_path',
         'file_size',
         'mime_type',
@@ -82,7 +87,6 @@ class WorkOrderUpload extends Model
 
     public function hasValidationMismatches(): bool
     {
-        return !empty($this->validation_errors);
+        return ! empty($this->validation_errors);
     }
 }
-

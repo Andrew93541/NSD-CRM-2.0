@@ -10,18 +10,24 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class WorkOrder extends Model
 {
-    use HasFactory, BelongsToCompany;
+    use BelongsToCompany, HasFactory;
 
     public const DEFAULT_PAYMENT_TERMS = 'Running Account (RA) Bill every 15 days; 90% within 7 days of Site Manager certification, 5% retention released post defect liability.';
 
     public const DEFAULT_TERMS = "1. SCOPE & MEASUREMENTS: All earthwork, excavation, backfilling, or civil quantities shall be jointly measured with the NSD Site Engineer and certified by the Site Manager.\n2. HSE & SAFETY COMPLIANCE: Contractor/execution crew must strictly enforce PPE (helmets, reflective jackets, safety shoes) and machinery safety fitness certificates on site.\n3. QUALITY & MACHINERY: All plant, JCB/Excavators, and dumpers deployed must maintain valid PUC, insurance, and operator licences.\n4. STATUTORY DEDUCTIONS: Applicable TDS and GST compliance shall be governed by prevailing Indian tax norms.\n5. TWO-TIER AUTHORIZATION: This Work Order is valid for execution and billing only upon Tier-1 (Site Manager) and Tier-2 (Senior Management / VP) approval.";
 
     public const LIFECYCLE_DRAFT_PO = 'draft_po';
+
     public const LIFECYCLE_CONFIRMED = 'confirmed';
+
     public const LIFECYCLE_IN_PROGRESS = 'in_progress';
+
     public const LIFECYCLE_WORK_COMPLETE = 'work_complete';
+
     public const LIFECYCLE_FINAL_BILL_ISSUED = 'final_bill_issued';
+
     public const LIFECYCLE_DEFECT_LIABILITY = 'defect_liability';
+
     public const LIFECYCLE_CLOSED = 'closed';
 
     public const LIFECYCLE_STATUSES = [
@@ -64,8 +70,10 @@ class WorkOrder extends Model
         'terms_and_conditions',
         'general_terms_text',
         'estimated_amount',
+        'tax_mode',
         'cgst_rate',
         'sgst_rate',
+        'igst_rate',
         'retention_percent',
         'defect_liability_months',
         'defect_liability_ends_on',
@@ -106,6 +114,7 @@ class WorkOrder extends Model
             'estimated_amount' => 'decimal:2',
             'cgst_rate' => 'decimal:2',
             'sgst_rate' => 'decimal:2',
+            'igst_rate' => 'decimal:2',
             'retention_percent' => 'decimal:2',
             'current_revision' => 'integer',
             'base_order_value' => 'decimal:2',
@@ -206,7 +215,7 @@ class WorkOrder extends Model
 
     public function canBeBilled(): bool
     {
-        return !$this->isDraftPo();
+        return ! $this->isDraftPo();
     }
 
     public function effectiveLifecycleStatus(): string
@@ -215,7 +224,7 @@ class WorkOrder extends Model
             return self::LIFECYCLE_DRAFT_PO;
         }
 
-        if (!empty($this->lifecycle_status)) {
+        if (! empty($this->lifecycle_status)) {
             return (string) $this->lifecycle_status;
         }
 
@@ -255,7 +264,7 @@ class WorkOrder extends Model
     public function completionAlertLevel(): string
     {
         $targetDate = $this->completion_date ?? $this->target_completion_date;
-        if (!$targetDate) {
+        if (! $targetDate) {
             return 'normal';
         }
 
@@ -333,19 +342,41 @@ class WorkOrder extends Model
         return $this->senior_manager_notes;
     }
 
+    public function isIgst(): bool
+    {
+        return ($this->tax_mode ?? 'cgst_sgst') === 'igst';
+    }
+
     public function cgstAmount(): float
     {
+        if ($this->isIgst()) {
+            return 0.00;
+        }
+
         return round((float) $this->base_order_value * ((float) $this->cgst_rate / 100), 2);
     }
 
     public function sgstAmount(): float
     {
+        if ($this->isIgst()) {
+            return 0.00;
+        }
+
         return round((float) $this->base_order_value * ((float) $this->sgst_rate / 100), 2);
+    }
+
+    public function igstAmount(): float
+    {
+        if (! $this->isIgst()) {
+            return 0.00;
+        }
+
+        return round((float) $this->base_order_value * ((float) $this->igst_rate / 100), 2);
     }
 
     public function grossOrderValue(): float
     {
-        return round((float) $this->base_order_value + $this->cgstAmount() + $this->sgstAmount(), 2);
+        return round((float) $this->base_order_value + $this->cgstAmount() + $this->sgstAmount() + $this->igstAmount(), 2);
     }
 
     public function totalBilledAmount(): float

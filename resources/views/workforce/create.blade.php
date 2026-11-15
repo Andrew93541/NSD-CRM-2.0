@@ -160,6 +160,19 @@
                     </select>
                 </div>
 
+                @if(isset($linkableUsers) && $linkableUsers->isNotEmpty())
+                    <div x-show="workerType === 'employee'" class="p-4 rounded-xl bg-emerald-50/70 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-800/60 space-y-1.5">
+                        <label for="user_id" class="block text-xs font-bold text-emerald-800 dark:text-emerald-300 uppercase tracking-wider">{{ __('Link CRM Staff Login (Optional)') }}</label>
+                        <select id="user_id" name="user_id" class="w-full rounded-xl bg-white dark:bg-slate-950 border border-emerald-300 dark:border-emerald-800/80 p-2.5 text-sm text-slate-900 dark:text-white">
+                            <option value="">{{ __('No linked CRM login (Field Employee only)') }}</option>
+                            @foreach($linkableUsers as $u)
+                                <option value="{{ $u->id }}" @selected((int) old('user_id') === (int) $u->id)>{{ $u->name }} ({{ $u->email }})</option>
+                            @endforeach
+                        </select>
+                        <p class="text-[11px] text-emerald-700 dark:text-emerald-400">{{ __('Links this payroll/attendance profile to an existing staff login so deactivation stays synchronized.') }}</p>
+                    </div>
+                @endif
+
                 <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
                     <div>
                         <label for="trade_designation" class="block text-xs font-bold text-slate-700 dark:text-slate-300 uppercase mb-1">{{ __('Trade / Skill Designation') }} *</label>

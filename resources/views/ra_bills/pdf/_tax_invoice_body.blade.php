@@ -67,18 +67,29 @@
             <td colspan="3" class="text-right font-bold">Total Basic Taxable Value (A)</td>
             <td class="text-right font-bold">{{ \App\Support\IndianCurrencyWords::formatIndianNumber((float) $raBill->current_bill_amount, 2) }}</td>
         </tr>
-        <tr>
-            <td colspan="3" class="text-right">Add: CGST @ {{ number_format((float) $raBill->cgst_rate, 2) }}% on (A)</td>
-            <td class="text-right">{{ \App\Support\IndianCurrencyWords::formatIndianNumber((float) $raBill->cgst_amount, 2) }}</td>
-        </tr>
-        <tr>
-            <td colspan="3" class="text-right">Add: SGST @ {{ number_format((float) $raBill->sgst_rate, 2) }}% on (A)</td>
-            <td class="text-right">{{ \App\Support\IndianCurrencyWords::formatIndianNumber((float) $raBill->sgst_amount, 2) }}</td>
-        </tr>
-        <tr style="background: #f1f5f9;">
-            <td colspan="3" class="text-right font-bold">Total Gross Invoice Amount (A + CGST + SGST)</td>
-            <td class="text-right font-bold">{{ \App\Support\IndianCurrencyWords::formatIndianNumber((float) $raBill->gross_amount, 2) }}</td>
-        </tr>
+        @if($raBill->isIgst())
+            <tr>
+                <td colspan="3" class="text-right">Add: IGST @ {{ number_format((float) $raBill->igst_rate, 2) }}% on (A)</td>
+                <td class="text-right">{{ \App\Support\IndianCurrencyWords::formatIndianNumber((float) $raBill->igst_amount, 2) }}</td>
+            </tr>
+            <tr style="background: #f1f5f9;">
+                <td colspan="3" class="text-right font-bold">Total Gross Invoice Amount (A + IGST)</td>
+                <td class="text-right font-bold">{{ \App\Support\IndianCurrencyWords::formatIndianNumber((float) $raBill->gross_amount, 2) }}</td>
+            </tr>
+        @else
+            <tr>
+                <td colspan="3" class="text-right">Add: CGST @ {{ number_format((float) $raBill->cgst_rate, 2) }}% on (A)</td>
+                <td class="text-right">{{ \App\Support\IndianCurrencyWords::formatIndianNumber((float) $raBill->cgst_amount, 2) }}</td>
+            </tr>
+            <tr>
+                <td colspan="3" class="text-right">Add: SGST @ {{ number_format((float) $raBill->sgst_rate, 2) }}% on (A)</td>
+                <td class="text-right">{{ \App\Support\IndianCurrencyWords::formatIndianNumber((float) $raBill->sgst_amount, 2) }}</td>
+            </tr>
+            <tr style="background: #f1f5f9;">
+                <td colspan="3" class="text-right font-bold">Total Gross Invoice Amount (A + CGST + SGST)</td>
+                <td class="text-right font-bold">{{ \App\Support\IndianCurrencyWords::formatIndianNumber((float) $raBill->gross_amount, 2) }}</td>
+            </tr>
+        @endif
         @if((float) $raBill->retention_deduction > 0 || (float) $raBill->advance_recovery > 0 || (float) $raBill->other_deductions > 0)
             <tr>
                 <td colspan="3" class="text-right">Less: Retention / Advance / Other Deductions</td>

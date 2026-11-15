@@ -23,10 +23,15 @@ class PayrollWorkOrderBoqAndKioskTest extends TestCase
     use RefreshDatabase;
 
     protected Company $company;
+
     protected Project $project;
+
     protected Site $site;
+
     protected User $admin;
+
     protected User $siteManager;
+
     protected User $seniorManager;
 
     protected function setUp(): void
@@ -72,7 +77,7 @@ class PayrollWorkOrderBoqAndKioskTest extends TestCase
             'company_id' => $this->company->id,
             'name' => 'Senior Manager',
             'slug' => 'senior_manager',
-            'permissions' => ['work_orders.approve_senior', 'work_orders.view'],
+            'permissions' => ['work_orders.approve_senior', 'work_orders.view', 'payroll.view', 'payroll.create', 'payroll.approve'],
         ]);
 
         $this->admin = User::factory()->create(['is_active' => true]);
@@ -217,8 +222,17 @@ class PayrollWorkOrderBoqAndKioskTest extends TestCase
                 'reason' => 'Site cash advance',
             ])->assertRedirect();
 
-        // Generate Payroll Period for Nov 2026
-        $this->actingAs($this->admin)
+        // Explicitly mark statutory PF/ESIC/PT as Not Applicable before locking payroll
+        foreach ([$dailyWorker, $monthlyWorker, $hourlyWorker, $contractWorker] as $w) {
+            $w->update([
+                'pf_status' => 'not_applicable',
+                'esic_status' => 'not_applicable',
+                'pt_status' => 'not_applicable',
+            ]);
+        }
+
+        // Generate Payroll Period for Nov 2026 (prepared by Senior Manager; approved & locked by Company Admin under maker-checker)
+        $this->actingAs($this->seniorManager)
             ->withSession(['active_company_id' => $this->company->id])
             ->post(route('payroll.store'), [
                 'title' => 'November 2026 Site Payroll',

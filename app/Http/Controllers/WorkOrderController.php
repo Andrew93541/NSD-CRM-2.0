@@ -6,16 +6,21 @@ use App\Models\AuditLog;
 use App\Models\Client;
 use App\Models\Project;
 use App\Models\Site;
+use App\Models\User;
 use App\Models\WorkOrder;
 use App\Models\WorkOrderAttachment;
 use App\Models\WorkOrderRevision;
 use App\Models\WorkOrderUpload;
+use App\Services\Operations\RaBillExportService;
 use App\Services\Operations\WorkOrderService;
 use App\Services\Operations\WorkOrderUploadService;
 use App\Services\Security\TenantContext;
+use App\Services\Storage\VaultStorage;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\Storage;
@@ -27,15 +32,15 @@ use Symfony\Component\HttpFoundation\StreamedResponse;
 class WorkOrderController extends Controller
 {
     public const ALLOWED_ATTACHMENT_MIMES = 'pdf,doc,docx,jpg,jpeg,png,webp';
+
     public const MAX_ATTACHMENT_SIZE_KB = 10240; // 10 MB
 
     public function __construct(
         protected WorkOrderService $workOrderService,
         protected WorkOrderUploadService $workOrderUploadService
-    ) {
-    }
+    ) {}
 
-    protected function hasUnrestrictedWorkOrderSiteAccess(\App\Models\User $user): bool
+    protected function hasUnrestrictedWorkOrderSiteAccess(User $user): bool
     {
         if ($user->hasRole(['super_admin', 'company_admin'])) {
             return true;
@@ -46,7 +51,7 @@ class WorkOrderController extends Controller
         }
 
         return $user->hasRole('senior_manager')
-            || ($user->hasRole('office_staff') && !$user->sites()->exists());
+            || ($user->hasRole('office_staff') && ! $user->sites()->exists());
     }
 
     public function index(Request $request): View
@@ -58,11 +63,11 @@ class WorkOrderController extends Controller
 
         $query = WorkOrder::with(['client', 'project', 'site', 'creator', 'siteManager', 'seniorManager', 'items', 'raBills']);
 
-        if (!$hasAllSiteAccess) {
+        if (! $hasAllSiteAccess) {
             $accessibleSiteIds = $user->accessibleSiteIds();
             $query->where(function ($q) use ($accessibleSiteIds) {
                 $q->whereNull('site_id')
-                  ->orWhereIn('site_id', $accessibleSiteIds);
+                    ->orWhereIn('site_id', $accessibleSiteIds);
             });
         }
 
@@ -80,7 +85,7 @@ class WorkOrderController extends Controller
 
         if ($request->filled('site_id')) {
             $siteId = (int) $request->query('site_id');
-            if (!$hasAllSiteAccess && !$user->isAssignedToSite($siteId)) {
+            if (! $hasAllSiteAccess && ! $user->isAssignedToSite($siteId)) {
                 abort(403, 'Unauthorized to filter work orders for an unassigned site.');
             }
             $query->where('site_id', $siteId);
@@ -178,8 +183,10 @@ class WorkOrderController extends Controller
             'contractor_gst' => ['nullable', 'string', 'max:40'],
             'contractor_contact' => ['nullable', 'string', 'max:80'],
             'payment_terms' => ['nullable', 'string', 'max:255'],
+            'tax_mode' => ['nullable', 'in:cgst_sgst,igst'],
             'cgst_rate' => ['nullable', 'numeric', 'min:0', 'max:50'],
             'sgst_rate' => ['nullable', 'numeric', 'min:0', 'max:50'],
+            'igst_rate' => ['nullable', 'numeric', 'min:0', 'max:50'],
             'retention_percent' => ['nullable', 'numeric', 'min:0', 'max:100'],
             'title' => ['required', 'string', 'max:255'],
             'description' => ['nullable', 'string'],
@@ -209,13 +216,13 @@ class WorkOrderController extends Controller
             'estimated_amount' => ['nullable', 'numeric', 'min:0'],
             'target_start_date' => ['nullable', 'date'],
             'target_completion_date' => ['nullable', 'date', 'after_or_equal:target_start_date'],
-            'attachment' => ['nullable', 'file', 'max:' . self::MAX_ATTACHMENT_SIZE_KB, 'mimes:' . self::ALLOWED_ATTACHMENT_MIMES],
+            'attachment' => ['nullable', 'file', 'max:'.self::MAX_ATTACHMENT_SIZE_KB, 'mimes:'.self::ALLOWED_ATTACHMENT_MIMES],
         ]);
 
-        if (!empty($validated['site_id'])) {
+        if (! empty($validated['site_id'])) {
             $siteId = (int) $validated['site_id'];
             $hasAllSiteAccess = $this->hasUnrestrictedWorkOrderSiteAccess($user);
-            if (!$hasAllSiteAccess && !$user->isAssignedToSite($siteId)) {
+            if (! $hasAllSiteAccess && ! $user->isAssignedToSite($siteId)) {
                 abort(403, 'You are not authorized to create a work order for this site.');
             }
 
@@ -224,7 +231,7 @@ class WorkOrderController extends Controller
                 $projectSiteIds = $project->allSites()->pluck('id')->map(fn ($id) => (int) $id)->all();
                 $site = Site::find($siteId);
                 $belongsToProject = ($site && (int) $site->project_id === (int) $project->id) || in_array($siteId, $projectSiteIds, true);
-                if (!$belongsToProject) {
+                if (! $belongsToProject) {
                     return back()
                         ->withInput()
                         ->withErrors(['site_id' => 'The selected site does not belong to the chosen project. Please select a matching project and site.']);
@@ -232,8 +239,8 @@ class WorkOrderController extends Controller
             }
         }
 
-        $wo = \Illuminate\Support\Facades\DB::transaction(function () use ($validated, $companyId, $user, $request) {
-            if (empty($validated['client_id']) && !empty($validated['client_name']) && Schema::hasTable('clients')) {
+        $wo = DB::transaction(function () use ($validated, $companyId, $user, $request) {
+            if (empty($validated['client_id']) && ! empty($validated['client_name']) && Schema::hasTable('clients')) {
                 $client = Client::firstOrCreate(
                     ['company_id' => $companyId, 'name' => trim($validated['client_name'])],
                     [
@@ -274,6 +281,7 @@ class WorkOrderController extends Controller
             'revisions.approver',
             'measurements.workOrderItem',
             'measurements.recorder',
+            'measurements.verifier',
             'raBills.items',
             'approvals.actor',
             'attachments.uploader',
@@ -300,16 +308,16 @@ class WorkOrderController extends Controller
             abort(403, 'You are not authorized to export Work Orders.');
         }
 
-        if (!$user->canPerform('work_orders.export', ['super_admin', 'company_admin', 'senior_manager', 'site_manager', 'office_staff'])) {
+        if (! $user->canPerform('work_orders.export', ['super_admin', 'company_admin', 'senior_manager', 'site_manager', 'office_staff'])) {
             abort(403, 'You are not authorized to export Work Orders.');
         }
 
-        $export = app(\App\Services\Operations\RaBillExportService::class)->exportWorkOrderPdf(
+        $export = app(RaBillExportService::class)->exportWorkOrderPdf(
             $workOrder,
             $user
         );
 
-        return Storage::disk('local')->download($export->file_path, $export->file_name);
+        return VaultStorage::download($export->file_path, $export->file_name, [], $export->storage_disk ?? null);
     }
 
     public function storeRevision(Request $request, WorkOrder $workOrder): RedirectResponse
@@ -362,7 +370,7 @@ class WorkOrderController extends Controller
         Gate::authorize('uploadAttachment', $workOrder);
 
         $request->validate([
-            'attachment' => ['required', 'file', 'max:' . self::MAX_ATTACHMENT_SIZE_KB, 'mimes:' . self::ALLOWED_ATTACHMENT_MIMES],
+            'attachment' => ['required', 'file', 'max:'.self::MAX_ATTACHMENT_SIZE_KB, 'mimes:'.self::ALLOWED_ATTACHMENT_MIMES],
         ]);
 
         $att = $this->persistWorkOrderAttachment($workOrder, $request->file('attachment'), (int) Auth::id());
@@ -384,21 +392,20 @@ class WorkOrderController extends Controller
 
         Gate::authorize('downloadAttachment', [$workOrder, $att]);
 
-        if (!$this->isValidAttachmentPath($workOrder, $att)) {
+        if (! $this->isValidAttachmentPath($workOrder, $att)) {
             abort(403, 'Invalid work order attachment storage path.');
         }
 
-        $disk = Storage::disk('local');
-        if (!$disk->exists($att->file_path)) {
+        if (! VaultStorage::exists($att->file_path, $att->storage_disk ?? null)) {
             abort(404, 'The requested work order attachment could not be found in private storage.');
         }
 
         $safeDownloadName = preg_replace('/[^A-Za-z0-9._\- ]/', '_', basename($att->file_name)) ?: 'work-order-attachment';
 
-        return $disk->download($att->file_path, $safeDownloadName, [
+        return VaultStorage::download($att->file_path, $safeDownloadName, [
             'Content-Type' => $att->mime_type ?: 'application/octet-stream',
             'X-Content-Type-Options' => 'nosniff',
-        ]);
+        ], $att->storage_disk ?? null);
     }
 
     public function destroyAttachment(WorkOrder $workOrder, int $attachment): RedirectResponse
@@ -408,10 +415,7 @@ class WorkOrderController extends Controller
         Gate::authorize('deleteAttachment', [$workOrder, $att]);
 
         if ($this->isValidAttachmentPath($workOrder, $att)) {
-            $disk = Storage::disk('local');
-            if ($disk->exists($att->file_path)) {
-                $disk->delete($att->file_path);
-            }
+            VaultStorage::delete($att->file_path, $att->storage_disk ?? null);
         }
 
         $fileName = $att->file_name;
@@ -428,26 +432,31 @@ class WorkOrderController extends Controller
         return back()->with('success', "Attachment '{$fileName}' deleted.");
     }
 
-    protected function persistWorkOrderAttachment(WorkOrder $wo, \Illuminate\Http\UploadedFile $file, int $uploadedBy): WorkOrderAttachment
+    protected function persistWorkOrderAttachment(WorkOrder $wo, UploadedFile $file, int $uploadedBy): WorkOrderAttachment
     {
         $ext = strtolower($file->getClientOriginalExtension() ?: $file->guessExtension() ?: 'bin');
         $directory = sprintf('work-orders/%d/%d', $wo->company_id, $wo->id);
-        $storedName = Str::uuid()->toString() . '.' . $ext;
-        $storedPath = $file->storeAs($directory, $storedName, 'local');
+        $storedName = Str::uuid()->toString().'.'.$ext;
+        $stored = VaultStorage::storeUploaded($file, $directory, $storedName);
+        $storedPath = $stored['path'];
+        $diskName = $stored['disk'];
 
         try {
-            return WorkOrderAttachment::create([
+            $payload = [
                 'work_order_id' => $wo->id,
                 'file_name' => basename($file->getClientOriginalName()),
                 'file_path' => $storedPath,
                 'file_size' => (int) $file->getSize(),
                 'mime_type' => (string) $file->getMimeType(),
                 'uploaded_by' => $uploadedBy,
-            ]);
-        } catch (\Throwable $e) {
-            if ($storedPath && Storage::disk('local')->exists($storedPath)) {
-                Storage::disk('local')->delete($storedPath);
+            ];
+            if (Schema::hasColumn('work_order_attachments', 'storage_disk')) {
+                $payload['storage_disk'] = $diskName;
             }
+
+            return WorkOrderAttachment::create($payload);
+        } catch (\Throwable $e) {
+            VaultStorage::delete($storedPath, $diskName);
             throw $e;
         }
     }
@@ -617,7 +626,7 @@ class WorkOrderController extends Controller
         $result = $this->workOrderUploadService->confirmUpload(
             $upload,
             Auth::user(),
-            !empty($validated['attach_to_site_id']) ? (int) $validated['attach_to_site_id'] : null,
+            ! empty($validated['attach_to_site_id']) ? (int) $validated['attach_to_site_id'] : null,
             $validated['override_reason'] ?? null,
             array_key_exists('is_draft_po', $validated) ? (bool) $validated['is_draft_po'] : null
         );
@@ -639,17 +648,16 @@ class WorkOrderController extends Controller
     {
         Gate::authorize('manageUpload', [WorkOrder::class, $upload]);
 
-        $disk = Storage::disk('local');
-        if (!$disk->exists($upload->file_path)) {
+        if (! VaultStorage::exists($upload->file_path, $upload->storage_disk ?? null)) {
             abort(404, 'Uploaded PDF file not found in private storage.');
         }
 
         $safeName = preg_replace('/[^A-Za-z0-9._\- ]/', '_', basename($upload->original_filename)) ?: 'work-order-upload.pdf';
 
-        return $disk->response($upload->file_path, $safeName, [
+        return VaultStorage::response($upload->file_path, $safeName, [
             'Content-Type' => 'application/pdf',
             'X-Content-Type-Options' => 'nosniff',
-        ]);
+        ], $upload->storage_disk ?? null);
     }
 
     public function transitionLifecycle(Request $request, WorkOrder $workOrder): RedirectResponse
@@ -668,7 +676,7 @@ class WorkOrderController extends Controller
             $validated['notes'] ?? null
         );
 
-        return back()->with('success', "Work order {$workOrder->order_number} lifecycle status updated to " . (WorkOrder::LIFECYCLE_STATUSES[$validated['lifecycle_status']] ?? $validated['lifecycle_status']) . '.');
+        return back()->with('success', "Work order {$workOrder->order_number} lifecycle status updated to ".(WorkOrder::LIFECYCLE_STATUSES[$validated['lifecycle_status']] ?? $validated['lifecycle_status']).'.');
     }
 
     public function approveSite(Request $request, WorkOrder $workOrder): RedirectResponse

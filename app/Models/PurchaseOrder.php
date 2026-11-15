@@ -10,13 +10,14 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class PurchaseOrder extends Model
 {
-    use HasFactory, BelongsToCompany;
+    use BelongsToCompany, HasFactory;
 
     protected $fillable = [
         'company_id',
         'purchase_request_id',
         'site_id',
         'warehouse_id',
+        'vendor_id',
         'po_number',
         'supplier_name',
         'supplier_phone',
@@ -55,6 +56,11 @@ class PurchaseOrder extends Model
     public function warehouse(): BelongsTo
     {
         return $this->belongsTo(Warehouse::class);
+    }
+
+    public function vendor(): BelongsTo
+    {
+        return $this->belongsTo(Vendor::class);
     }
 
     public function creator(): BelongsTo

@@ -9,14 +9,16 @@ use App\Models\RaBillItem;
 use App\Models\User;
 use App\Models\WorkOrder;
 use App\Models\WorkOrderItem;
+use App\Services\Storage\VaultStorage;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
+use Illuminate\Validation\ValidationException;
 use InvalidArgumentException;
 use RuntimeException;
 
 class RaBillingService
 {
-
     /**
      * Pure deterministic calculation of a single RA Bill line item with Work Order Quantity Cap
      * and separate hold_quantity.
@@ -100,15 +102,27 @@ class RaBillingService
                 ->findOrFail($data['work_order_item_id']);
 
             $photoPath = null;
+            $photoDisk = null;
             if ($photo) {
-                $photoPath = $photo->store(
-                    "companies/{$workOrder->company_id}/work_orders/{$workOrder->id}/measurements",
-                    'local'
+                $stored = VaultStorage::storeUploaded(
+                    $photo,
+                    "companies/{$workOrder->company_id}/work_orders/{$workOrder->id}/measurements"
                 );
+                $photoPath = $stored['path'];
+                $photoDisk = $stored['disk'];
+            }
+
+            $canVerify = ! $actor->isExplicitlyDenied('measurements.approve')
+                && $actor->canPerform('measurements.approve', ['super_admin', 'company_admin', 'senior_manager', 'site_manager']);
+
+            if (isset($data['status']) && in_array($data['status'], ['draft', 'verified'], true)) {
+                $resolvedStatus = ($data['status'] === 'verified' && $canVerify) ? 'verified' : 'draft';
+            } else {
+                $resolvedStatus = $canVerify ? 'verified' : 'draft';
             }
 
             try {
-                $entry = MeasurementEntry::create([
+                $payload = [
                     'company_id' => $workOrder->company_id,
                     'work_order_id' => $workOrder->id,
                     'work_order_item_id' => $woItem->id,
@@ -123,11 +137,16 @@ class RaBillingService
                     'hold_quantity' => $data['hold_quantity'] ?? 0.000,
                     'photo_path' => $photoPath,
                     'remarks' => $data['remarks'] ?? null,
-                    'status' => $data['status'] ?? 'verified',
+                    'status' => $resolvedStatus,
                     'recorded_by' => $actor->id,
-                    'verified_by' => ($data['status'] ?? 'verified') === 'verified' ? $actor->id : null,
-                    'verified_at' => ($data['status'] ?? 'verified') === 'verified' ? now() : null,
-                ]);
+                    'verified_by' => $resolvedStatus === 'verified' ? $actor->id : null,
+                    'verified_at' => $resolvedStatus === 'verified' ? now() : null,
+                ];
+                if ($photoDisk && Schema::hasColumn('measurement_entries', 'storage_disk')) {
+                    $payload['storage_disk'] = $photoDisk;
+                }
+
+                $entry = MeasurementEntry::create($payload);
 
                 AuditLog::record(
                     'work_order.measurement.recorded',
@@ -136,23 +155,143 @@ class RaBillingService
                     [
                         'work_order_id' => $workOrder->id,
                         'sr_no' => $woItem->sr_no,
+                        'status' => $resolvedStatus,
                         'computed_quantity' => (float) $entry->computed_quantity,
                         'hold_quantity' => (float) $entry->hold_quantity,
                     ],
-                    "Recorded site measurement for {$woItem->sr_no}"
+                    "Recorded site measurement for {$woItem->sr_no} ({$resolvedStatus})"
                 );
 
-                if (!$workOrder->isDraftPo() && ($workOrder->lifecycle_status === null || $workOrder->lifecycle_status === WorkOrder::LIFECYCLE_CONFIRMED)) {
+                if ($resolvedStatus === 'draft') {
+                    NotificationDispatcher::notifyApprovers(
+                        companyId: (int) $workOrder->company_id,
+                        permission: 'measurements.approve',
+                        fallbackRoles: ['super_admin', 'company_admin', 'senior_manager', 'site_manager'],
+                        type: 'measurement.verification_pending',
+                        title: "Site measurement awaiting verification ({$workOrder->order_number})",
+                        message: "Item {$woItem->sr_no} recorded by {$actor->name} awaits Site Manager verification before billing.",
+                        actionUrl: "/work-orders/{$workOrder->id}",
+                        siteId: $workOrder->site_id ? (int) $workOrder->site_id : null,
+                        excludeUserIds: [$actor->id]
+                    );
+                }
+
+                if (! $workOrder->isDraftPo() && ($workOrder->lifecycle_status === null || $workOrder->lifecycle_status === WorkOrder::LIFECYCLE_CONFIRMED)) {
                     $workOrder->lifecycle_status = WorkOrder::LIFECYCLE_IN_PROGRESS;
                     $workOrder->saveQuietly();
                 }
 
                 return $entry;
             } catch (\Throwable $e) {
-                if ($photoPath && \Illuminate\Support\Facades\Storage::disk('local')->exists($photoPath)) {
-                    \Illuminate\Support\Facades\Storage::disk('local')->delete($photoPath);
+                if ($photoPath) {
+                    VaultStorage::delete($photoPath, $photoDisk);
                 }
                 throw $e;
+            }
+        });
+    }
+
+    /**
+     * Verify a draft site measurement entry so it becomes eligible for RA Billing.
+     */
+    public function verifyMeasurement(MeasurementEntry $entry, User $verifier): MeasurementEntry
+    {
+        if ($entry->ra_bill_id !== null || $entry->status === 'billed') {
+            throw new RuntimeException('Billed measurements are locked and cannot be modified.');
+        }
+
+        if ($entry->status === 'verified') {
+            return $entry;
+        }
+
+        if ((int) $entry->recorded_by === (int) $verifier->id && ! $verifier->hasRole(['super_admin', 'company_admin'])) {
+            throw new RuntimeException('Non-self-verification rule: A draft measurement must be verified by an independent Site Manager or Senior Manager.');
+        }
+
+        return DB::transaction(function () use ($entry, $verifier) {
+            $entry->update([
+                'status' => 'verified',
+                'verified_by' => $verifier->id,
+                'verified_at' => now(),
+            ]);
+
+            AuditLog::record(
+                'work_order.measurement.verified',
+                $entry,
+                ['status' => 'draft'],
+                ['status' => 'verified', 'verified_by' => $verifier->id],
+                "Verified site measurement #{$entry->id}"
+            );
+
+            return $entry->fresh();
+        });
+    }
+
+    /**
+     * Update an unbilled site measurement entry.
+     */
+    public function updateMeasurement(MeasurementEntry $entry, array $data, User $actor): MeasurementEntry
+    {
+        if ($entry->ra_bill_id !== null || $entry->status === 'billed') {
+            throw new RuntimeException('Cannot edit a measurement entry that is already attached to an RA Bill.');
+        }
+
+        return DB::transaction(function () use ($entry, $data, $actor) {
+            $oldQty = (float) $entry->computed_quantity;
+
+            $entry->fill([
+                'measured_on' => $data['measured_on'] ?? $entry->measured_on?->toDateString(),
+                'location_chainage' => array_key_exists('location_chainage', $data) ? $data['location_chainage'] : $entry->location_chainage,
+                'nos' => array_key_exists('nos', $data) ? ($data['nos'] ?? 1.000) : $entry->nos,
+                'length' => array_key_exists('length', $data) ? $data['length'] : $entry->length,
+                'breadth' => array_key_exists('breadth', $data) ? $data['breadth'] : $entry->breadth,
+                'depth_height' => array_key_exists('depth_height', $data) ? $data['depth_height'] : $entry->depth_height,
+                'direct_quantity' => array_key_exists('direct_quantity', $data) ? $data['direct_quantity'] : $entry->direct_quantity,
+                'hold_quantity' => array_key_exists('hold_quantity', $data) ? ($data['hold_quantity'] ?? 0.000) : $entry->hold_quantity,
+                'remarks' => array_key_exists('remarks', $data) ? $data['remarks'] : $entry->remarks,
+            ]);
+            $entry->save();
+
+            AuditLog::record(
+                'work_order.measurement.updated',
+                $entry,
+                ['computed_quantity' => $oldQty],
+                ['computed_quantity' => (float) $entry->computed_quantity, 'updated_by' => $actor->id],
+                "Updated site measurement #{$entry->id}"
+            );
+
+            return $entry->fresh();
+        });
+    }
+
+    /**
+     * Delete an unbilled site measurement entry and clean up any private photo.
+     */
+    public function deleteMeasurement(MeasurementEntry $entry, User $actor): void
+    {
+        if ($entry->ra_bill_id !== null || $entry->status === 'billed') {
+            throw new RuntimeException('Cannot delete a measurement entry that is already attached to an RA Bill.');
+        }
+
+        DB::transaction(function () use ($entry, $actor) {
+            $photoPath = $entry->photo_path;
+            $photoDisk = $entry->storage_disk ?? null;
+            $entryId = $entry->id;
+            $workOrderId = $entry->work_order_id;
+            $qty = (float) $entry->computed_quantity;
+
+            $entry->delete();
+
+            AuditLog::record(
+                'work_order.measurement.deleted',
+                null,
+                ['measurement_id' => $entryId, 'work_order_id' => $workOrderId, 'computed_quantity' => $qty],
+                ['deleted_by' => $actor->id],
+                "Deleted unbilled site measurement #{$entryId}"
+            );
+
+            if ($photoPath) {
+                VaultStorage::delete($photoPath, $photoDisk);
             }
         });
     }
@@ -168,7 +307,7 @@ class RaBillingService
     ): RaBill {
         return DB::transaction(function () use ($workOrder, $data, $actor, $existingBill) {
             if ($workOrder->isDraftPo()) {
-                throw \Illuminate\Validation\ValidationException::withMessages([
+                throw ValidationException::withMessages([
                     'work_order' => 'Billing is blocked while the Work Order is in Draft PO status. Upload or confirm the final PO revision before raising an RA bill.',
                 ]);
             }
@@ -214,12 +353,28 @@ class RaBillingService
 
             $periodFrom = $data['period_from'] ?? ($existingBill?->period_from?->toDateString() ?? now()->startOfMonth()->toDateString());
             $periodTo = $data['period_to'] ?? ($existingBill?->period_to?->toDateString() ?? now()->toDateString());
-            $cgstRate = isset($data['cgst_rate']) ? (float) $data['cgst_rate'] : (float) ($workOrder->cgst_rate ?? 9.00);
-            $sgstRate = isset($data['sgst_rate']) ? (float) $data['sgst_rate'] : (float) ($workOrder->sgst_rate ?? 9.00);
-            $retentionPercent = isset($data['retention_percent']) ? (float) $data['retention_percent'] : (float) ($workOrder->retention_percent ?? 0.00);
+            $rawTaxMode = $data['tax_mode'] ?? ($existingBill?->tax_mode ?? ($workOrder->tax_mode ?? 'cgst_sgst'));
+            $taxMode = $rawTaxMode === 'igst' ? 'igst' : 'cgst_sgst';
+
+            if ($taxMode === 'igst') {
+                $cgstRate = 0.00;
+                $sgstRate = 0.00;
+                $igstRate = isset($data['igst_rate'])
+                    ? round((float) $data['igst_rate'], 2)
+                    : round((float) ($existingBill?->igst_rate ?? ($workOrder->igst_rate ?? 18.00)), 2);
+                if ($igstRate <= 0 && ! isset($data['igst_rate']) && ((float) ($workOrder->cgst_rate ?? 0) + (float) ($workOrder->sgst_rate ?? 0)) > 0) {
+                    $igstRate = round((float) $workOrder->cgst_rate + (float) $workOrder->sgst_rate, 2);
+                }
+            } else {
+                $cgstRate = isset($data['cgst_rate']) ? (float) $data['cgst_rate'] : (float) ($existingBill?->cgst_rate ?? ($workOrder->cgst_rate ?? 9.00));
+                $sgstRate = isset($data['sgst_rate']) ? (float) $data['sgst_rate'] : (float) ($existingBill?->sgst_rate ?? ($workOrder->sgst_rate ?? 9.00));
+                $igstRate = 0.00;
+            }
+
+            $retentionPercent = isset($data['retention_percent']) ? (float) $data['retention_percent'] : (float) ($existingBill?->retention_percent ?? ($workOrder->retention_percent ?? 0.00));
             $roundingMode = $data['rounding_mode'] ?? ($existingBill?->rounding_mode ?? ($workOrder->company?->invoice_rounding_mode ?? 'paisa'));
 
-            $raBill->fill([
+            $fillHeader = [
                 'site_id' => $workOrder->site_id,
                 'client_id' => $workOrder->client_id,
                 'ra_label' => $data['ra_label'] ?? $raBill->ra_label ?? RaBill::formatOrdinalLabel($raNumber),
@@ -231,7 +386,13 @@ class RaBillingService
                 'sgst_rate' => $sgstRate,
                 'retention_percent' => $retentionPercent,
                 'rounding_mode' => $roundingMode,
-            ]);
+            ];
+            if (Schema::hasColumn('ra_bills', 'tax_mode')) {
+                $fillHeader['tax_mode'] = $taxMode;
+                $fillHeader['igst_rate'] = $igstRate;
+            }
+
+            $raBill->fill($fillHeader);
             $raBill->save();
 
             // Find immediately preceding approved RA bill to carry forward any unbilled excess
@@ -267,14 +428,14 @@ class RaBillingService
                     })
                     ->sum('current_billable_quantity');
 
-                // Unbilled measurements in period (or already attached to this draft RA bill)
+                // Unbilled verified measurements in period (or already attached to this draft RA bill)
                 $measurementsQuery = MeasurementEntry::where('work_order_id', $workOrder->id)
                     ->where('work_order_item_id', $woItem->id)
                     ->where(function ($q) use ($raBill, $periodFrom, $periodTo) {
                         $q->where('ra_bill_id', $raBill->id)
                             ->orWhere(function ($q2) use ($periodFrom, $periodTo) {
                                 $q2->whereNull('ra_bill_id')
-                                    ->whereIn('status', ['verified', 'draft'])
+                                    ->where('status', 'verified')
                                     ->whereBetween('measured_on', [$periodFrom, $periodTo]);
                             });
                     });
@@ -340,12 +501,19 @@ class RaBillingService
 
             // Standard Rounding Rule:
             // A = sum of rounded line current_amounts
-            // CGST = round(A * cgst_rate / 100, 2)
-            // SGST = round(A * sgst_rate / 100, 2)
-            // Gross = A + CGST + SGST
-            $cgstAmount = round($totalCurrentAmount * ($cgstRate / 100), 2);
-            $sgstAmount = round($totalCurrentAmount * ($sgstRate / 100), 2);
-            $grossAmount = round($totalCurrentAmount + $cgstAmount + $sgstAmount, 2);
+            // Intra-state: CGST = round(A * cgst_rate / 100, 2), SGST = round(A * sgst_rate / 100, 2)
+            // Inter-state: IGST = round(A * igst_rate / 100, 2)
+            if ($taxMode === 'igst') {
+                $cgstAmount = 0.00;
+                $sgstAmount = 0.00;
+                $igstAmount = round($totalCurrentAmount * ($igstRate / 100), 2);
+                $grossAmount = round($totalCurrentAmount + $igstAmount, 2);
+            } else {
+                $cgstAmount = round($totalCurrentAmount * ($cgstRate / 100), 2);
+                $sgstAmount = round($totalCurrentAmount * ($sgstRate / 100), 2);
+                $igstAmount = 0.00;
+                $grossAmount = round($totalCurrentAmount + $cgstAmount + $sgstAmount, 2);
+            }
 
             $retentionDeduction = array_key_exists('retention_deduction', $data)
                 ? round((float) $data['retention_deduction'], 2)
@@ -359,7 +527,7 @@ class RaBillingService
                 ? round($netBeforeRounding, 0)
                 : $netBeforeRounding;
 
-            $raBill->update([
+            $totalsUpdate = [
                 'previous_bill_amount' => $totalPreviousAmount,
                 'current_bill_amount' => $totalCurrentAmount,
                 'cumulative_bill_amount' => $totalCumulativeAmount,
@@ -371,7 +539,14 @@ class RaBillingService
                 'advance_recovery' => $advanceRecovery,
                 'other_deductions' => $otherDeductions,
                 'net_payable' => $netPayable,
-            ]);
+            ];
+            if (Schema::hasColumn('ra_bills', 'tax_mode')) {
+                $totalsUpdate['tax_mode'] = $taxMode;
+                $totalsUpdate['igst_rate'] = $igstRate;
+                $totalsUpdate['igst_amount'] = $igstAmount;
+            }
+
+            $raBill->update($totalsUpdate);
 
             AuditLog::record(
                 $existingBill ? 'ra_bill.recalculated' : 'ra_bill.created',
@@ -411,6 +586,18 @@ class RaBillingService
             "Submitted {$raBill->ra_label} for Tier 1 verification"
         );
 
+        NotificationDispatcher::notifyApprovers(
+            companyId: (int) $raBill->company_id,
+            permission: 'ra_bills.approve_site',
+            fallbackRoles: ['super_admin', 'company_admin', 'senior_manager', 'site_manager'],
+            type: 'ra_bill.approval_pending',
+            title: "{$raBill->ra_label} awaiting Tier 1 verification",
+            message: "Submitted by {$actor->name} for Site Manager verification.",
+            actionUrl: "/work-orders/{$raBill->work_order_id}/ra-bills/{$raBill->id}",
+            siteId: $raBill->site_id ? (int) $raBill->site_id : null,
+            excludeUserIds: [$actor->id]
+        );
+
         return $raBill->fresh();
     }
 
@@ -437,6 +624,18 @@ class RaBillingService
             ['status' => $oldStatus],
             ['status' => 'site_manager_approved', 'site_manager_id' => $actor->id],
             "Site Manager verified {$raBill->ra_label}"
+        );
+
+        NotificationDispatcher::notifyApprovers(
+            companyId: (int) $raBill->company_id,
+            permission: 'ra_bills.approve_senior',
+            fallbackRoles: ['super_admin', 'company_admin', 'senior_manager'],
+            type: 'ra_bill.approval_pending',
+            title: "{$raBill->ra_label} awaiting Tier 2 final approval",
+            message: "Tier 1 verified by {$actor->name}. Ready for Senior Manager approval & lock.",
+            actionUrl: "/work-orders/{$raBill->work_order_id}/ra-bills/{$raBill->id}",
+            siteId: $raBill->site_id ? (int) $raBill->site_id : null,
+            excludeUserIds: [$actor->id]
         );
 
         return $raBill->fresh();
@@ -481,6 +680,18 @@ class RaBillingService
                 "Senior Manager approved {$raBill->ra_label}"
             );
 
+            if ($raBill->created_by && (int) $raBill->created_by !== (int) $actor->id) {
+                NotificationDispatcher::notifyUserDeduplicated(
+                    userId: (int) $raBill->created_by,
+                    type: 'ra_bill.approved',
+                    title: "{$raBill->ra_label} approved & locked",
+                    message: "Invoice #{$raBill->invoice_number} assigned and approved by {$actor->name}.",
+                    actionUrl: "/work-orders/{$raBill->work_order_id}/ra-bills/{$raBill->id}",
+                    siteId: $raBill->site_id ? (int) $raBill->site_id : null,
+                    companyId: (int) $raBill->company_id
+                );
+            }
+
             return $raBill->fresh(['items']);
         });
     }
@@ -517,6 +728,18 @@ class RaBillingService
                 ['status' => 'rejected', 'rejection_reason' => $reason],
                 "Rejected {$raBill->ra_label}"
             );
+
+            if ($raBill->created_by && (int) $raBill->created_by !== (int) $actor->id) {
+                NotificationDispatcher::notifyUserDeduplicated(
+                    userId: (int) $raBill->created_by,
+                    type: 'ra_bill.rejected',
+                    title: "{$raBill->ra_label} rejected",
+                    message: "Rejected by {$actor->name}: {$reason}",
+                    actionUrl: "/work-orders/{$raBill->work_order_id}/ra-bills/{$raBill->id}",
+                    siteId: $raBill->site_id ? (int) $raBill->site_id : null,
+                    companyId: (int) $raBill->company_id
+                );
+            }
 
             return $raBill->fresh();
         });

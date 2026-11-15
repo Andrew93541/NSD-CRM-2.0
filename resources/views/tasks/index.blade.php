@@ -272,10 +272,13 @@
                 'completed' => ['title' => 'Completed', 'badge' => 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400'],
             ];
         @endphp
+        @php
+            $taskCollection = $tasks instanceof \Illuminate\Pagination\AbstractPaginator ? $tasks->getCollection() : $tasks;
+        @endphp
         <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-5 gap-4">
             @foreach($kanbanColumns as $colKey => $colMeta)
                 @php
-                    $colTasks = $tasks->where('status', $colKey);
+                    $colTasks = $taskCollection->where('status', $colKey);
                 @endphp
                 <div class="rounded-2xl bg-white dark:bg-slate-900 border {{ $colKey === 'blocked' && $colTasks->count() > 0 ? 'border-rose-500/40' : 'border-slate-200 dark:border-slate-800' }} p-4 space-y-3 shadow-sm">
                     <div class="flex items-center justify-between pb-2 border-b border-slate-200 dark:border-slate-800">
@@ -384,6 +387,11 @@
                 </div>
             @endforeach
         </div>
+        @if($tasks instanceof \Illuminate\Pagination\AbstractPaginator && $tasks->hasPages())
+            <div class="pt-2">
+                {{ $tasks->links() }}
+            </div>
+        @endif
     @elseif($viewMode === 'list')
         <!-- Table List View -->
         <div class="rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 overflow-hidden shadow-sm">
@@ -444,6 +452,11 @@
                     </tbody>
                 </table>
             </div>
+            @if($tasks instanceof \Illuminate\Pagination\AbstractPaginator && $tasks->hasPages())
+                <div class="px-4 py-3 border-t border-slate-200 dark:border-slate-800">
+                    {{ $tasks->links() }}
+                </div>
+            @endif
         </div>
     @endif
 
@@ -532,6 +545,11 @@
                     <div class="py-6 text-center text-slate-500">{{ __('No field notes logged yet.') }}</div>
                 @endforelse
             </div>
+            @if($siteNotes instanceof \Illuminate\Pagination\AbstractPaginator && $siteNotes->hasPages())
+                <div class="pt-3 border-t border-slate-200 dark:border-slate-800">
+                    {{ $siteNotes->links() }}
+                </div>
+            @endif
         </div>
 
         @if($viewMode !== 'notes')

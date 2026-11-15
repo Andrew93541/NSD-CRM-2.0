@@ -2,12 +2,17 @@
 
 namespace App\Models;
 
+use App\Services\Security\PermissionCatalog;
 use App\Services\Security\TenantContext;
+use App\Services\Security\TotpAuthenticatorService;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Schema;
 
 class User extends Authenticatable
@@ -78,25 +83,28 @@ class User extends Authenticatable
     public function refresh(): static
     {
         $this->memoCompanyContext = [];
+
         return parent::refresh();
     }
 
     public function unsetRelations(): static
     {
         $this->memoCompanyContext = [];
+
         return parent::unsetRelations();
     }
 
     protected function memoCacheKey(int $companyId, string $slot): string
     {
         $reqId = app()->bound('request') ? spl_object_id(request()) : 0;
+
         return "{$reqId}:{$companyId}:{$slot}";
     }
 
     public function currentCompany(): ?Company
     {
         $companyId = TenantContext::getCompanyId();
-        if (!$companyId) {
+        if (! $companyId) {
             return null;
         }
 
@@ -119,7 +127,7 @@ class User extends Authenticatable
     public function currentRole(?int $companyId = null): ?Role
     {
         $targetCompanyId = $companyId ?? TenantContext::getCompanyId();
-        if (!$targetCompanyId) {
+        if (! $targetCompanyId) {
             return null;
         }
 
@@ -140,8 +148,9 @@ class User extends Authenticatable
             $this->memoCompanyContext[$compKey] = $company;
         }
 
-        if (!$company) {
+        if (! $company) {
             $this->memoCompanyContext[$key] = null;
+
             return null;
         }
 
@@ -186,7 +195,7 @@ class User extends Authenticatable
     public function hasRole(string|array $roleSlugs): bool
     {
         $role = $this->currentRole();
-        if (!$role) {
+        if (! $role) {
             return false;
         }
 
@@ -221,7 +230,7 @@ class User extends Authenticatable
             return $this->memoCompanyContext[$key];
         }
 
-        $row = \Illuminate\Support\Facades\DB::table('company_user')
+        $row = DB::table('company_user')
             ->where('company_id', $targetCompanyId)
             ->where('user_id', $this->id)
             ->first();
@@ -268,7 +277,7 @@ class User extends Authenticatable
             return null;
         }
 
-        $aliases = \App\Services\Security\PermissionCatalog::expandAliases($permission);
+        $aliases = PermissionCatalog::expandAliases($permission);
 
         // Explicit deny on the exact key or any equivalent alias always wins first
         foreach ($aliases as $key) {
@@ -318,19 +327,34 @@ class User extends Authenticatable
 
     /**
      * Unified helper for policies and controllers that checks effective permission first
-     * (honoring explicit user deny overrides) before falling back to predefined role slugs.
+     * (honoring explicit user deny overrides and custom/customized role matrices) before
+     * falling back to predefined role slugs for uncustomized system roles.
      */
-    public function canPerform(string $permission, string|array $fallbackRoles = []): bool
+    public function canPerform(string $permission, string|array $fallbackRoles = [], ?int $companyId = null): bool
     {
-        if ($this->isExplicitlyDenied($permission)) {
+        if ($this->isExplicitlyDenied($permission, $companyId)) {
             return false;
         }
 
-        if ($this->hasPermission($permission)) {
+        if ($this->hasPermission($permission, $companyId)) {
             return true;
         }
 
-        if (in_array($permission, \App\Services\Security\PermissionCatalog::WILDCARD_EXCLUDED_ATTENDANCE_PERMISSIONS, true)) {
+        if (in_array($permission, PermissionCatalog::WILDCARD_EXCLUDED_ATTENDANCE_PERMISSIONS, true)) {
+            return false;
+        }
+
+        $role = $this->currentRole($companyId);
+        if (! $role) {
+            return false;
+        }
+
+        if (array_key_exists('is_active', $role->getAttributes()) && ! (bool) $role->is_active) {
+            return false;
+        }
+
+        // Custom roles and explicitly customized system roles must strictly obey their configured permissions matrix.
+        if (! $role->isSystemRole() || in_array('__customized__', $role->permissions ?? [], true)) {
             return false;
         }
 
@@ -436,7 +460,7 @@ class User extends Authenticatable
             return false;
         }
 
-        $otherActiveAdminsCount = \Illuminate\Support\Facades\DB::table('company_user')
+        $otherActiveAdminsCount = DB::table('company_user')
             ->join('users', 'users.id', '=', 'company_user.user_id')
             ->where('company_user.company_id', $companyId)
             ->whereIn('company_user.role_id', $adminRoleIds)
@@ -451,17 +475,18 @@ class User extends Authenticatable
     public function isAssignedToSite(int|Site $site): bool
     {
         $currentCompanyId = TenantContext::getCompanyId();
-        if (!$currentCompanyId) {
+        if (! $currentCompanyId) {
             return false;
         }
 
         if (app()->bound('request') && request()->isMethodSafe()) {
             $siteId = $site instanceof Site ? (int) $site->id : (int) $site;
+
             return in_array($siteId, $this->accessibleSiteIds(), true);
         }
 
         $targetSite = $site instanceof Site ? $site : Site::withoutGlobalScopes()->find($site);
-        if (!$targetSite || (int) $targetSite->company_id !== (int) $currentCompanyId) {
+        if (! $targetSite || (int) $targetSite->company_id !== (int) $currentCompanyId) {
             return false;
         }
 
@@ -508,7 +533,7 @@ class User extends Authenticatable
     public function accessibleSiteIds(): array
     {
         $companyId = TenantContext::getCompanyId();
-        if (!$companyId) {
+        if (! $companyId) {
             return [];
         }
 
@@ -527,6 +552,7 @@ class User extends Authenticatable
             if ($isSafeRequest) {
                 $this->memoCompanyContext[$cacheKey] = $ids;
             }
+
             return $ids;
         }
 
@@ -556,6 +582,7 @@ class User extends Authenticatable
                 if (isset($site->attributes['site_manager_id']) && (int) $site->attributes['site_manager_id'] === (int) $this->id) {
                     return true;
                 }
+
                 return isset($explicitLookup[(int) $site->id]);
             })
             ->pluck('id')
@@ -595,7 +622,7 @@ class User extends Authenticatable
             ->orderByDesc('company_user.is_primary')
             ->first();
 
-        if (!$membership || !($membership->pivot->role_id ?? null)) {
+        if (! $membership || ! ($membership->pivot->role_id ?? null)) {
             return false;
         }
 
@@ -630,11 +657,11 @@ class User extends Authenticatable
      */
     public function ensureTotpSecret(): string
     {
-        if (!empty($this->two_factor_secret) && strlen((string) $this->two_factor_secret) >= 16) {
+        if (! empty($this->two_factor_secret) && strlen((string) $this->two_factor_secret) >= 16) {
             return (string) $this->two_factor_secret;
         }
 
-        $secret = app(\App\Services\Security\TotpAuthenticatorService::class)->generateSecret(32);
+        $secret = app(TotpAuthenticatorService::class)->generateSecret(32);
 
         $this->forceFill([
             'two_factor_secret' => $secret,
@@ -650,7 +677,7 @@ class User extends Authenticatable
     {
         $secret = $this->ensureTotpSecret();
 
-        return app(\App\Services\Security\TotpAuthenticatorService::class)->buildOtpAuthUri(
+        return app(TotpAuthenticatorService::class)->buildOtpAuthUri(
             (string) config('app.name', 'NSD CRM 2.0'),
             (string) $this->email,
             $secret
@@ -662,7 +689,7 @@ class User extends Authenticatable
      */
     public function totpQrSvg(int $sizePx = 180): string
     {
-        return app(\App\Services\Security\TotpAuthenticatorService::class)->generateQrSvg(
+        return app(TotpAuthenticatorService::class)->generateQrSvg(
             $this->totpOtpAuthUri(),
             $sizePx
         );
@@ -680,13 +707,13 @@ class User extends Authenticatable
         $code = str_pad((string) random_int(100000, 999999), 6, '0', STR_PAD_LEFT);
 
         $this->forceFill([
-            'two_factor_code' => \Illuminate\Support\Facades\Hash::make($code),
+            'two_factor_code' => Hash::make($code),
             'two_factor_expires_at' => now()->addMinutes(10),
         ])->save();
 
-        if ($deliverEmailFallback && !empty($this->email) && config('mail.default') !== 'log') {
+        if ($deliverEmailFallback && ! empty($this->email) && config('mail.default') !== 'log') {
             try {
-                \Illuminate\Support\Facades\Mail::raw(
+                Mail::raw(
                     "Your NSD CRM 2.0 security verification code is: {$code}. This code expires in 10 minutes.",
                     function ($message) {
                         $message->to($this->email)->subject('NSD CRM 2.0 Security Verification Code');
@@ -709,8 +736,8 @@ class User extends Authenticatable
         $trimmed = trim($code);
         $totpValid = false;
 
-        if (!empty($this->two_factor_secret)) {
-            $totpValid = app(\App\Services\Security\TotpAuthenticatorService::class)
+        if (! empty($this->two_factor_secret)) {
+            $totpValid = app(TotpAuthenticatorService::class)
                 ->verifyCodeWithReplayProtection(
                     $this->id,
                     (string) $this->two_factor_secret,
@@ -721,11 +748,11 @@ class User extends Authenticatable
         }
 
         $otpValid = false;
-        if (!$totpValid && $this->two_factor_code && $this->two_factor_expires_at && !$this->two_factor_expires_at->isPast()) {
-            $otpValid = \Illuminate\Support\Facades\Hash::check($trimmed, $this->two_factor_code);
+        if (! $totpValid && $this->two_factor_code && $this->two_factor_expires_at && ! $this->two_factor_expires_at->isPast()) {
+            $otpValid = Hash::check($trimmed, $this->two_factor_code);
         }
 
-        if (!$totpValid && !$otpValid) {
+        if (! $totpValid && ! $otpValid) {
             return false;
         }
 
@@ -744,7 +771,7 @@ class User extends Authenticatable
      */
     public function resetTwoFactorEnrollment(): void
     {
-        app(\App\Services\Security\TotpAuthenticatorService::class)->clearReplayState($this->id);
+        app(TotpAuthenticatorService::class)->clearReplayState($this->id);
 
         $this->forceFill([
             'two_factor_enabled' => false,

@@ -75,6 +75,7 @@ class PermissionCatalog
         'roles.edit',
         'roles.update',
         'roles.delete',
+        'settings.manage',
     ];
 
     /**
@@ -104,6 +105,7 @@ class PermissionCatalog
                     'roles.create' => 'Create Custom Roles',
                     'roles.edit' => 'Edit Custom Roles',
                     'roles.delete' => 'Delete Unused Custom Roles',
+                    'settings.manage' => 'Manage Company Profile, GST, Bank & Invoice Settings',
                 ],
             ],
             'projects' => [
@@ -321,7 +323,7 @@ class PermissionCatalog
                 'ra_bills.view', 'ra_bills.create', 'ra_bills.edit', 'ra_bills.approve_senior', 'ra_bills.export',
                 'invoices.view', 'invoices.create', 'invoices.export',
                 'procurement.view', 'procurement.approve', 'procurement.manage',
-                'inventory.view', 'inventory.receive', 'inventory.manage',
+                'inventory.view', 'inventory.receive', 'inventory.issue', 'inventory.manage',
                 'reports.view', 'reports.export',
                 'audit_logs.view', 'audit_logs.export',
             ],
@@ -339,7 +341,7 @@ class PermissionCatalog
                 'ra_bills.view', 'ra_bills.create', 'ra_bills.edit', 'ra_bills.approve_site', 'ra_bills.export',
                 'invoices.view', 'invoices.create', 'invoices.export',
                 'procurement.view', 'procurement.request',
-                'inventory.view', 'inventory.receive',
+                'inventory.view', 'inventory.receive', 'inventory.issue',
                 'reports.view', 'reports.export',
             ],
             'site_supervisor' => [
@@ -385,7 +387,7 @@ class PermissionCatalog
                 'sites.view',
                 'workforce.view', 'workforce.view_all', 'workforce.export',
                 'attendance.view',
-                'payroll.view', 'payroll.create', 'payroll.edit', 'payroll.approve',
+                'payroll.view', 'payroll.create', 'payroll.edit',
                 'work_orders.view', 'work_orders.edit', 'work_orders.export',
                 'tasks.view',
                 'notes.view',

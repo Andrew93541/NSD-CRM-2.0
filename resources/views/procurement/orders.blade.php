@@ -10,11 +10,20 @@
         <a href="{{ route('procurement.orders') }}" class="px-3.5 py-2 rounded-xl text-xs font-extrabold bg-amber-500 text-slate-950 shadow-sm">
             {{ __('Purchase Orders & GRN') }}
         </a>
+        <a href="{{ route('procurement.vendors') }}" class="px-3.5 py-2 rounded-xl text-xs font-bold bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-800 hover:border-amber-500/40 transition">
+            {{ __('Suppliers') }}
+        </a>
         <a href="{{ route('inventory.stocks') }}" class="px-3.5 py-2 rounded-xl text-xs font-bold bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-800 hover:border-amber-500/40 transition">
             {{ __('Warehouse & Yard Stock') }}
         </a>
         <a href="{{ route('inventory.transactions') }}" class="px-3.5 py-2 rounded-xl text-xs font-bold bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-800 hover:border-amber-500/40 transition">
             {{ __('Stock Movement Ledger') }}
+        </a>
+        <a href="{{ route('inventory.warehouses') }}" class="px-3.5 py-2 rounded-xl text-xs font-bold bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-800 hover:border-amber-500/40 transition">
+            {{ __('Storage Locations') }}
+        </a>
+        <a href="{{ route('inventory.materials') }}" class="px-3.5 py-2 rounded-xl text-xs font-bold bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-800 hover:border-amber-500/40 transition">
+            {{ __('Material Catalog') }}
         </a>
     </div>
 
@@ -62,13 +71,18 @@
                                 </span>
                             </td>
                             <td class="py-3.5 px-4 text-right">
-                                @if($po->status !== 'received')
-                                    <a href="{{ route('procurement.receive_goods', $po) }}" class="px-3 py-1.5 text-xs font-bold rounded-lg bg-emerald-500 text-slate-950 hover:bg-emerald-400 transition">
-                                        {{ __('Confirm Delivery Receipt') }} &rarr;
+                                <div class="inline-flex items-center gap-2">
+                                    <a href="{{ route('procurement.orders.pdf', $po) }}" class="px-2.5 py-1.5 text-xs font-bold rounded-lg border border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition">
+                                        {{ __('PO PDF') }}
                                     </a>
-                                @else
-                                    <span class="text-xs text-slate-500">{{ __('Fully Received') }}</span>
-                                @endif
+                                    @if($po->status !== 'received')
+                                        <a href="{{ route('procurement.receive_goods', $po) }}" class="px-3 py-1.5 text-xs font-bold rounded-lg bg-emerald-500 text-slate-950 hover:bg-emerald-400 transition">
+                                            {{ __('Confirm Delivery Receipt') }} &rarr;
+                                        </a>
+                                    @else
+                                        <span class="text-xs text-slate-500">{{ __('Fully Received') }}</span>
+                                    @endif
+                                </div>
                             </td>
                         </tr>
                     @empty

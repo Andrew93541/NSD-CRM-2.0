@@ -44,12 +44,43 @@ class PurchaseRequestPolicy
             return false;
         }
 
-        if ($user->isRestrictedToAssignedSites() && $pr->site_id !== null && !$user->isAssignedToSite((int) $pr->site_id)) {
+        if ($user->isRestrictedToAssignedSites() && $pr->site_id !== null && ! $user->isAssignedToSite((int) $pr->site_id)) {
+            return false;
+        }
+
+        // Separation of duties: requester cannot approve their own purchase request
+        if ((int) $pr->requested_by === (int) $user->id) {
             return false;
         }
 
         return $pr->status === 'pending'
             && $user->canPerform('procurement.approve', ['senior_manager', 'company_admin', 'super_admin']);
+    }
+
+    public function reject(User $user, PurchaseRequest $pr): bool
+    {
+        return $this->approve($user, $pr);
+    }
+
+    public function cancel(User $user, PurchaseRequest $pr): bool
+    {
+        if ((int) $pr->company_id !== (int) TenantContext::getCompanyId()) {
+            return false;
+        }
+
+        if ($pr->status !== 'pending') {
+            return false;
+        }
+
+        if ($user->isRestrictedToAssignedSites() && $pr->site_id !== null && ! $user->isAssignedToSite((int) $pr->site_id)) {
+            return false;
+        }
+
+        if ((int) $pr->requested_by === (int) $user->id && ! $user->isExplicitlyDenied('procurement.request')) {
+            return true;
+        }
+
+        return $user->hasRole(['super_admin', 'company_admin']);
     }
 
     public function createOrder(User $user, PurchaseRequest $pr): bool
@@ -58,7 +89,7 @@ class PurchaseRequestPolicy
             return false;
         }
 
-        if ($user->isRestrictedToAssignedSites() && $pr->site_id !== null && !$user->isAssignedToSite((int) $pr->site_id)) {
+        if ($user->isRestrictedToAssignedSites() && $pr->site_id !== null && ! $user->isAssignedToSite((int) $pr->site_id)) {
             return false;
         }
 

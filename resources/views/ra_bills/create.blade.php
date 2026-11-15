@@ -2,8 +2,10 @@
 
 @section('content')
 <div class="max-w-6xl mx-auto space-y-6" x-data="{
+    taxMode: '{{ $workOrder->tax_mode ?? 'cgst_sgst' }}',
     cgstRate: {{ (float) ($workOrder->cgst_rate ?? 9.0) }},
     sgstRate: {{ (float) ($workOrder->sgst_rate ?? 9.0) }},
+    igstRate: {{ (float) ($workOrder->igst_rate ?? 18.0) }},
     retentionPercent: {{ (float) ($workOrder->retention_percent ?? 0.0) }},
     advanceRecovery: 0,
     otherDeductions: 0,
@@ -41,13 +43,19 @@
         return Math.round(this.rows.reduce((s, r) => s + this.lineAmount(r), 0) * 100) / 100;
     },
     cgstAmount() {
+        if (this.taxMode === 'igst') return 0;
         return Math.round(this.basicTotalA() * ((parseFloat(this.cgstRate) || 0) / 100) * 100) / 100;
     },
     sgstAmount() {
+        if (this.taxMode === 'igst') return 0;
         return Math.round(this.basicTotalA() * ((parseFloat(this.sgstRate) || 0) / 100) * 100) / 100;
     },
+    igstAmount() {
+        if (this.taxMode !== 'igst') return 0;
+        return Math.round(this.basicTotalA() * ((parseFloat(this.igstRate) || 0) / 100) * 100) / 100;
+    },
     grossAmount() {
-        return Math.round((this.basicTotalA() + this.cgstAmount() + this.sgstAmount()) * 100) / 100;
+        return Math.round((this.basicTotalA() + this.cgstAmount() + this.sgstAmount() + this.igstAmount()) * 100) / 100;
     },
     netPayable() {
         const ret = Math.round(this.basicTotalA() * ((parseFloat(this.retentionPercent) || 0) / 100) * 100) / 100;
@@ -103,6 +111,19 @@
                         <option value="paisa">{{ __('Exact Paisa (2 Decimals)') }}</option>
                         <option value="rupee">{{ __('Nearest Rupee') }}</option>
                     </select>
+                </div>
+            </div>
+            <div class="grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs pt-2 border-t border-slate-200 dark:border-slate-800">
+                <div>
+                    <label class="block font-bold text-slate-600 dark:text-slate-400 uppercase mb-1">{{ __('GST Tax Mode') }}</label>
+                    <select name="tax_mode" x-model="taxMode" class="w-full rounded-lg bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-slate-700 p-2">
+                        <option value="cgst_sgst">{{ __('Intra-State (CGST + SGST)') }}</option>
+                        <option value="igst">{{ __('Inter-State (IGST)') }}</option>
+                    </select>
+                </div>
+                <div x-show="taxMode === 'igst'" x-cloak>
+                    <label class="block font-bold text-slate-600 dark:text-slate-400 uppercase mb-1">{{ __('IGST Rate (%)') }}</label>
+                    <input type="number" step="0.01" min="0" max="28" name="igst_rate" x-model="igstRate" class="w-full rounded-lg bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-slate-700 p-2 font-mono">
                 </div>
             </div>
         </div>

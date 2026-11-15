@@ -28,7 +28,7 @@ class TaskController extends Controller
     protected function hasUnrestrictedTaskSiteAccess(User $user): bool
     {
         return $user->hasRole(['super_admin', 'company_admin'])
-            || (!$user->isRestrictedToAssignedSites() && $user->hasRole(['senior_manager', 'office_staff']));
+            || (! $user->isRestrictedToAssignedSites() && $user->hasRole(['senior_manager', 'office_staff']));
     }
 
     public function index(Request $request): View
@@ -49,27 +49,27 @@ class TaskController extends Controller
             ? $request->query('site_id')
             : session('active_site_id');
 
-        if ($selectedSiteId && !$user->isAssignedToSite((int) $selectedSiteId) && !$hasAllSiteAccess) {
+        if ($selectedSiteId && ! $user->isAssignedToSite((int) $selectedSiteId) && ! $hasAllSiteAccess) {
             abort(403, 'Unauthorized to view tasks for this site.');
         }
 
         // Base scope for KPIs and task listing (respects company + site + user accessibility)
         $baseScope = Task::query()
-            ->when(!$hasAllSiteAccess, function ($q) use ($accessibleSiteIds, $user) {
+            ->when(! $hasAllSiteAccess, function ($q) use ($accessibleSiteIds, $user) {
                 $q->where(function ($sub) use ($accessibleSiteIds, $user) {
                     $sub->whereIn('site_id', $accessibleSiteIds)
                         ->orWhere('assigned_to', $user->id);
                 });
             })
-            ->when(!empty($selectedSiteId), fn ($q) => $q->where('site_id', (int) $selectedSiteId))
+            ->when(! empty($selectedSiteId), fn ($q) => $q->where('site_id', (int) $selectedSiteId))
             ->when($request->filled('project_id'), fn ($q) => $q->where('project_id', (int) $request->query('project_id')));
 
         $todayStr = Carbon::today()->format('Y-m-d');
 
         $notesBaseScope = Schema::hasTable('site_notes')
             ? SiteNote::query()
-                ->when(!empty($selectedSiteId), fn ($q) => $q->where('site_id', (int) $selectedSiteId))
-                ->when(empty($selectedSiteId) && !$hasAllSiteAccess, fn ($q) => $q->whereIn('site_id', $accessibleSiteIds))
+                ->when(! empty($selectedSiteId), fn ($q) => $q->where('site_id', (int) $selectedSiteId))
+                ->when(empty($selectedSiteId) && ! $hasAllSiteAccess, fn ($q) => $q->whereIn('site_id', $accessibleSiteIds))
             : null;
 
         $kpis = [
@@ -109,7 +109,10 @@ class TaskController extends Controller
             $query->where('assigned_to', $user->id);
         }
 
-        $tasks = $query->latest()->get();
+        $perPage = max(5, min(100, (int) $request->query('per_page', 25)));
+        $notesPerPage = max(5, min(50, (int) $request->query('notes_per_page', 15)));
+
+        $tasks = $query->latest()->paginate($perPage, ['*'], 'page')->withQueryString();
 
         $rawView = $request->query('view', 'board');
         $viewMode = in_array($rawView, ['board', 'list', 'notes'], true) ? $rawView : 'board';
@@ -122,8 +125,8 @@ class TaskController extends Controller
             ->get();
 
         $workers = Worker::where('status', 'active')
-            ->when(!empty($selectedSiteId), fn ($q) => $q->where('assigned_site_id', (int) $selectedSiteId))
-            ->when(empty($selectedSiteId) && !$hasAllSiteAccess, fn ($q) => $q->whereIn('assigned_site_id', $accessibleSiteIds))
+            ->when(! empty($selectedSiteId), fn ($q) => $q->where('assigned_site_id', (int) $selectedSiteId))
+            ->when(empty($selectedSiteId) && ! $hasAllSiteAccess, fn ($q) => $q->whereIn('assigned_site_id', $accessibleSiteIds))
             ->orderBy('first_name')
             ->get();
 
@@ -133,14 +136,14 @@ class TaskController extends Controller
                 ->when($noteCategory && array_key_exists($noteCategory, SiteNote::CATEGORIES), fn ($q) => $q->where('category', $noteCategory))
                 ->orderByDesc('is_pinned')
                 ->latest()
-                ->limit(30)
-                ->get()
+                ->paginate($notesPerPage, ['*'], 'notes_page')
+                ->withQueryString()
             : collect();
 
         $recentActivity = Schema::hasTable('activity_logs')
             ? AuditLog::where('company_id', $companyId)
-                ->when(!empty($selectedSiteId), fn ($q) => $q->where('site_id', (int) $selectedSiteId))
-                ->when(empty($selectedSiteId) && !$hasAllSiteAccess, fn ($q) => $q->whereIn('site_id', $accessibleSiteIds))
+                ->when(! empty($selectedSiteId), fn ($q) => $q->where('site_id', (int) $selectedSiteId))
+                ->when(empty($selectedSiteId) && ! $hasAllSiteAccess, fn ($q) => $q->whereIn('site_id', $accessibleSiteIds))
                 ->with(['user', 'site'])
                 ->latest()
                 ->limit(15)
@@ -188,7 +191,7 @@ class TaskController extends Controller
         ]);
 
         $site = Site::findOrFail((int) $validated['site_id']);
-        if (!$user->isAssignedToSite($site)) {
+        if (! $user->isAssignedToSite($site)) {
             abort(403, 'Unauthorized to create tasks for an unassigned site.');
         }
 
@@ -314,24 +317,25 @@ class TaskController extends Controller
         ];
 
         $newStatus = $validated['status'];
-        if (!$task->canTransitionTo($newStatus)) {
+        if (! $task->canTransitionTo($newStatus)) {
             $fromLabel = $task->statusLabel();
             $toLabel = __(Task::STATUSES[$newStatus] ?? $newStatus);
+
             return back()
                 ->withErrors(['status' => "Invalid status transition from {$fromLabel} to {$toLabel}."])
                 ->withInput();
         }
 
-        if (!empty($validated['site_id']) && (int) $validated['site_id'] !== (int) $task->site_id) {
+        if (! empty($validated['site_id']) && (int) $validated['site_id'] !== (int) $task->site_id) {
             $newSite = Site::findOrFail((int) $validated['site_id']);
-            if (!$user->isAssignedToSite($newSite)) {
+            if (! $user->isAssignedToSite($newSite)) {
                 abort(403, 'Unauthorized to move task to an unassigned site.');
             }
             $task->site_id = $newSite->id;
             $task->project_id = $newSite->project_id;
         }
 
-        if (!empty($validated['title'])) {
+        if (! empty($validated['title'])) {
             $task->title = $validated['title'];
         }
         if ($request->has('description')) {
@@ -396,7 +400,7 @@ class TaskController extends Controller
                 CrmNotification::notifyUser(
                     (int) $notifyUserId,
                     'task_status',
-                    "Task {$task->code} Status: " . $task->statusLabel(),
+                    "Task {$task->code} Status: ".$task->statusLabel(),
                     "{$user->name} updated '{$task->title}' to {$task->statusLabel()}.",
                     route('tasks.show', $task),
                     $task->site_id,
@@ -496,7 +500,7 @@ class TaskController extends Controller
         ]);
 
         $site = Site::findOrFail((int) $validated['site_id']);
-        if (!$user->isAssignedToSite($site)) {
+        if (! $user->isAssignedToSite($site)) {
             abort(403, 'Unauthorized to post notes for an unassigned site.');
         }
 
@@ -533,12 +537,12 @@ class TaskController extends Controller
             abort(403, 'Cross-company note access denied.');
         }
 
-        if (!$note->site_id || !$user->isAssignedToSite((int) $note->site_id)) {
+        if (! $note->site_id || ! $user->isAssignedToSite((int) $note->site_id)) {
             abort(403, 'Unauthorized to pin or unpin notes for an unassigned site.');
         }
 
         $oldPinned = (bool) $note->is_pinned;
-        $note->is_pinned = !$oldPinned;
+        $note->is_pinned = ! $oldPinned;
         $note->save();
 
         AuditLog::record(
@@ -546,7 +550,7 @@ class TaskController extends Controller
             $note,
             ['is_pinned' => $oldPinned],
             ['is_pinned' => $note->is_pinned, 'site_id' => $note->site_id, 'project_id' => $note->project_id],
-            ($note->is_pinned ? 'Pinned' : 'Unpinned') . " field note '{$note->title}'"
+            ($note->is_pinned ? 'Pinned' : 'Unpinned')." field note '{$note->title}'"
         );
 
         return back()->with('success', $note->is_pinned ? 'Field note pinned.' : 'Field note unpinned.');
@@ -563,14 +567,14 @@ class TaskController extends Controller
             abort(403, 'Cross-company note access denied.');
         }
 
-        if (!$note->site_id || !$user->isAssignedToSite((int) $note->site_id)) {
+        if (! $note->site_id || ! $user->isAssignedToSite((int) $note->site_id)) {
             abort(403, 'Unauthorized to delete notes for an unassigned site.');
         }
 
         $canDelete = $user->hasRole(['super_admin', 'company_admin', 'senior_manager', 'site_manager'])
             || (int) $note->user_id === (int) $user->id;
 
-        if (!$canDelete) {
+        if (! $canDelete) {
             abort(403, 'Only site managers or the note author can delete this field note.');
         }
 
@@ -603,12 +607,12 @@ class TaskController extends Controller
             abort(403, 'Cross-company note access denied.');
         }
 
-        if (!$note->site_id || !$user->isAssignedToSite((int) $note->site_id)) {
+        if (! $note->site_id || ! $user->isAssignedToSite((int) $note->site_id)) {
             abort(403, 'Unauthorized to convert notes for an unassigned site.');
         }
 
         $lock = Cache::lock("convert_site_note_{$note->id}", 10);
-        if (!$lock->get()) {
+        if (! $lock->get()) {
             return back()->withErrors(['note' => 'This field note is currently being converted.']);
         }
 
@@ -633,7 +637,7 @@ class TaskController extends Controller
                 };
 
                 $priority = $request->input('priority', $defaultPriority);
-                if (!array_key_exists($priority, Task::PRIORITIES)) {
+                if (! array_key_exists($priority, Task::PRIORITIES)) {
                     $priority = $defaultPriority;
                 }
 
@@ -645,7 +649,7 @@ class TaskController extends Controller
                     'site_id' => $lockedNote->site_id,
                     'code' => $code,
                     'title' => $lockedNote->title,
-                    'description' => "[Converted from Field Note #{$lockedNote->id} — {$lockedNote->categoryLabel()}]\n\n" . $lockedNote->body,
+                    'description' => "[Converted from Field Note #{$lockedNote->id} — {$lockedNote->categoryLabel()}]\n\n".$lockedNote->body,
                     'priority' => $priority,
                     'status' => 'todo',
                     'due_date' => now()->addDays(2)->format('Y-m-d'),
@@ -738,7 +742,7 @@ class TaskController extends Controller
                 ->lockForUpdate()
                 ->first();
 
-            if (!$seq) {
+            if (! $seq) {
                 DB::table('worker_sequences')->insert([
                     'company_id' => $companyId,
                     'prefix' => 'TSK',

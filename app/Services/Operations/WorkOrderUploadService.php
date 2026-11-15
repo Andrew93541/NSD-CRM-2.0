@@ -13,11 +13,11 @@ use App\Models\WorkOrderAttachment;
 use App\Models\WorkOrderItem;
 use App\Models\WorkOrderRevision;
 use App\Models\WorkOrderUpload;
+use App\Services\Storage\VaultStorage;
 use Carbon\Carbon;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
-use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
 
@@ -26,8 +26,7 @@ class WorkOrderUploadService
     public function __construct(
         protected JswWorkOrderPdfReaderService $pdfReader,
         protected WorkOrderService $workOrderService
-    ) {
-    }
+    ) {}
 
     /**
      * Store uploaded PDF privately and extract structured JSW Service Order draft.
@@ -38,50 +37,69 @@ class WorkOrderUploadService
         User $actor,
         bool $forceDraftFlag = false
     ): WorkOrderUpload {
-        $safeName = Str::slug(pathinfo($pdfFile->getClientOriginalName(), PATHINFO_FILENAME)) ?: 'jsw-work-order';
-        $ext = strtolower($pdfFile->getClientOriginalExtension() ?: 'pdf');
-        $storedPath = $pdfFile->storeAs(
-            "work-order-uploads/{$companyId}",
-            now()->format('YmdHis') . '-' . Str::random(8) . '-' . $safeName . '.' . $ext,
-            'local'
+        $tempSourcePath = $pdfFile->getRealPath();
+        $parsedResult = $this->pdfReader->parsePdfFile(
+            $tempSourcePath !== false && $tempSourcePath !== '' ? $tempSourcePath : $pdfFile->getPathname(),
+            $pdfFile->getClientOriginalName()
         );
 
-        $absolutePath = Storage::disk('local')->path($storedPath);
-        $parsedResult = $this->pdfReader->parsePdfFile($absolutePath, $pdfFile->getClientOriginalName());
+        $safeName = Str::slug(pathinfo($pdfFile->getClientOriginalName(), PATHINFO_FILENAME)) ?: 'jsw-work-order';
+        $ext = strtolower($pdfFile->getClientOriginalExtension() ?: 'pdf');
+        $stored = VaultStorage::storeUploaded(
+            $pdfFile,
+            "work-order-uploads/{$companyId}",
+            now()->format('YmdHis').'-'.Str::random(8).'-'.$safeName.'.'.$ext
+        );
+        $storedPath = $stored['path'];
+        $diskName = $stored['disk'];
 
         $isDraftPo = $forceDraftFlag || (bool) ($parsedResult['is_draft_po'] ?? false);
         $isUnreadable = (bool) ($parsedResult['is_scanned_or_unreadable'] ?? false);
 
-        $upload = WorkOrderUpload::create([
-            'company_id' => $companyId,
-            'uploaded_by' => $actor->id,
-            'original_filename' => $pdfFile->getClientOriginalName(),
-            'file_path' => $storedPath,
-            'file_size' => (int) $pdfFile->getSize(),
-            'mime_type' => $pdfFile->getClientMimeType() ?: 'application/pdf',
-            'status' => $isUnreadable ? WorkOrderUpload::STATUS_UNREADABLE : WorkOrderUpload::STATUS_UPLOADED,
-            'is_scanned_or_unreadable' => $isUnreadable,
-            'is_draft_po' => $isDraftPo,
-            'extracted_payload' => $parsedResult['payload'],
-            'reviewed_payload' => $parsedResult['payload'],
-            'validation_errors' => $parsedResult['validation_errors'],
-        ]);
+        try {
+            $upload = DB::transaction(function () use ($companyId, $actor, $pdfFile, $storedPath, $diskName, $isUnreadable, $isDraftPo, $parsedResult) {
+                $uploadPayload = [
+                    'company_id' => $companyId,
+                    'uploaded_by' => $actor->id,
+                    'original_filename' => $pdfFile->getClientOriginalName(),
+                    'file_path' => $storedPath,
+                    'file_size' => (int) $pdfFile->getSize(),
+                    'mime_type' => $pdfFile->getClientMimeType() ?: 'application/pdf',
+                    'status' => $isUnreadable ? WorkOrderUpload::STATUS_UNREADABLE : WorkOrderUpload::STATUS_UPLOADED,
+                    'is_scanned_or_unreadable' => $isUnreadable,
+                    'is_draft_po' => $isDraftPo,
+                    'extracted_payload' => $parsedResult['payload'],
+                    'reviewed_payload' => $parsedResult['payload'],
+                    'validation_errors' => $parsedResult['validation_errors'],
+                ];
+                if (Schema::hasColumn('work_order_uploads', 'storage_disk')) {
+                    $uploadPayload['storage_disk'] = $diskName;
+                }
+                $upload = WorkOrderUpload::create($uploadPayload);
 
-        AuditLog::record(
-            'work_order_upload.uploaded',
-            $upload,
-            null,
-            [
-                'upload_id' => $upload->id,
-                'po_number' => $parsedResult['payload']['header']['po_number'] ?? null,
-                'items_count' => count($parsedResult['payload']['items'] ?? []),
-                'is_draft_po' => $isDraftPo,
-                'is_scanned_or_unreadable' => $isUnreadable,
-            ],
-            sprintf('Work order PDF "%s" uploaded and parsed (%s).', $upload->original_filename, $isUnreadable ? 'scanned/unreadable' : 'structured draft ready'),
-            $actor->id,
-            $companyId
-        );
+                AuditLog::record(
+                    'work_order_upload.uploaded',
+                    $upload,
+                    null,
+                    [
+                        'upload_id' => $upload->id,
+                        'po_number' => $parsedResult['payload']['header']['po_number'] ?? null,
+                        'items_count' => count($parsedResult['payload']['items'] ?? []),
+                        'is_draft_po' => $isDraftPo,
+                        'is_scanned_or_unreadable' => $isUnreadable,
+                    ],
+                    sprintf('Work order PDF "%s" uploaded and parsed (%s).', $upload->original_filename, $isUnreadable ? 'scanned/unreadable' : 'structured draft ready'),
+                    $actor->id,
+                    $companyId
+                );
+
+                return $upload;
+            });
+        } catch (\Throwable $e) {
+            VaultStorage::delete($storedPath, $diskName);
+
+            throw $e;
+        }
 
         return $upload;
     }
@@ -161,7 +179,7 @@ class WorkOrderUploadService
         $upload->reviewed_payload = $updatedPayload;
         $upload->validation_errors = $validationErrors;
         $upload->is_draft_po = $isDraftPo;
-        if (!empty($items) && !empty($header['po_number'])) {
+        if (! empty($items) && ! empty($header['po_number'])) {
             $upload->is_scanned_or_unreadable = false;
             $upload->status = WorkOrderUpload::STATUS_REVIEW_PENDING;
         }
@@ -282,10 +300,10 @@ class WorkOrderUploadService
         $validationErrors = $this->pdfReader->validateExtractedPayload($payload);
         $upload->validation_errors = $validationErrors;
 
-        if (!empty($validationErrors) && trim((string) $overrideReason) === '') {
+        if (! empty($validationErrors) && trim((string) $overrideReason) === '') {
             $upload->save();
             throw ValidationException::withMessages([
-                'validation_mismatch' => 'Confirm is blocked because arithmetic totals do not match: ' . implode(' ', array_values($validationErrors)) . ' Fix the quantities/totals on the review screen or provide an override reason.',
+                'validation_mismatch' => 'Confirm is blocked because arithmetic totals do not match: '.implode(' ', array_values($validationErrors)).' Fix the quantities/totals on the review screen or provide an override reason.',
             ]);
         }
 
@@ -301,11 +319,11 @@ class WorkOrderUploadService
                 ->where('name', $clientName)
                 ->first();
 
-            if (!$client) {
+            if (! $client) {
                 $client = Client::create([
                     'company_id' => $companyId,
                     'name' => $clientName,
-                    'code' => 'CL-' . strtoupper(Str::random(5)),
+                    'code' => 'CL-'.strtoupper(Str::random(5)),
                     'gstin' => $header['client_gstin'] ?: null,
                     'address' => $header['client_address'] ?: null,
                     'contact_person' => $header['user_department_person'] ?: ($header['buyer_name'] ?: null),
@@ -497,7 +515,7 @@ class WorkOrderUploadService
                 'work_order_id' => $workOrder->id,
                 'revision_number' => 0,
                 'status' => 'approved',
-                'reason' => "Confirmed from uploaded JSW Service Order PDF ({$upload->original_filename})" . ($overrideReason ? " [Override: {$overrideReason}]" : ''),
+                'reason' => "Confirmed from uploaded JSW Service Order PDF ({$upload->original_filename})".($overrideReason ? " [Override: {$overrideReason}]" : ''),
                 'previous_base_value' => 0,
                 'new_base_value' => $baseValue,
                 'items_snapshot' => $boqSnapshot,
@@ -507,15 +525,18 @@ class WorkOrderUploadService
                 'approved_at' => now(),
             ]);
 
-            WorkOrderAttachment::create([
+            $attachmentPayload = [
                 'work_order_id' => $workOrder->id,
                 'uploaded_by' => $actor->id,
                 'file_name' => $upload->original_filename,
                 'file_path' => $upload->file_path,
-                'disk' => 'local',
                 'mime_type' => $upload->mime_type,
                 'file_size' => $upload->file_size,
-            ]);
+            ];
+            if (Schema::hasColumn('work_order_attachments', 'storage_disk')) {
+                $attachmentPayload['storage_disk'] = $upload->storage_disk ?: VaultStorage::activeDiskName();
+            }
+            WorkOrderAttachment::create($attachmentPayload);
 
             $upload->update([
                 'work_order_id' => $workOrder->id,
@@ -563,7 +584,7 @@ class WorkOrderUploadService
         User $actor,
         ?string $notes = null
     ): WorkOrder {
-        if (!array_key_exists($nextLifecycleStatus, WorkOrder::LIFECYCLE_STATUSES)) {
+        if (! array_key_exists($nextLifecycleStatus, WorkOrder::LIFECYCLE_STATUSES)) {
             throw ValidationException::withMessages([
                 'lifecycle_status' => 'Invalid work order lifecycle status.',
             ]);
@@ -584,17 +605,17 @@ class WorkOrderUploadService
         ], true)) {
             $workOrder->status = 'completed';
             $dlpMonths = (int) ($workOrder->defect_liability_months ?: 12);
-            if (!$workOrder->defect_liability_ends_on) {
+            if (! $workOrder->defect_liability_ends_on) {
                 $workOrder->defect_liability_ends_on = Carbon::today()->addMonths($dlpMonths);
             }
-            if (!$workOrder->retention_release_due_on) {
+            if (! $workOrder->retention_release_due_on) {
                 $workOrder->retention_release_due_on = $workOrder->defect_liability_ends_on;
             }
         }
 
         if ($nextLifecycleStatus === WorkOrder::LIFECYCLE_CLOSED) {
             $workOrder->status = 'completed';
-            if (!$workOrder->retention_released_at) {
+            if (! $workOrder->retention_released_at) {
                 $workOrder->retention_released_at = now();
             }
         }
@@ -710,7 +731,7 @@ class WorkOrderUploadService
             'work_order_id' => $workOrder->id,
             'revision_number' => $nextRevisionNumber,
             'status' => 'approved',
-            'reason' => "Revision {$nextRevisionNumber} uploaded from PO {$workOrder->po_number} ({$upload->original_filename})" . ($overrideReason ? " [Override: {$overrideReason}]" : ''),
+            'reason' => "Revision {$nextRevisionNumber} uploaded from PO {$workOrder->po_number} ({$upload->original_filename})".($overrideReason ? " [Override: {$overrideReason}]" : ''),
             'previous_base_value' => $previousBaseValue,
             'new_base_value' => $finalBase,
             'items_snapshot' => $newSnapshot,
@@ -720,15 +741,18 @@ class WorkOrderUploadService
             'approved_at' => now(),
         ]);
 
-        WorkOrderAttachment::create([
+        $revisionAttachmentPayload = [
             'work_order_id' => $workOrder->id,
             'uploaded_by' => $actor->id,
             'file_name' => $upload->original_filename,
             'file_path' => $upload->file_path,
-            'disk' => 'local',
             'mime_type' => $upload->mime_type,
             'file_size' => $upload->file_size,
-        ]);
+        ];
+        if (Schema::hasColumn('work_order_attachments', 'storage_disk')) {
+            $revisionAttachmentPayload['storage_disk'] = $upload->storage_disk ?: VaultStorage::activeDiskName();
+        }
+        WorkOrderAttachment::create($revisionAttachmentPayload);
 
         AuditLog::record(
             'work_order.revised_from_po',
@@ -745,12 +769,12 @@ class WorkOrderUploadService
 
     protected function uniqueProjectCode(int $companyId, string $poNumber): string
     {
-        $base = 'PRJ-' . substr(preg_replace('/[^A-Z0-9]/i', '', $poNumber), -10);
+        $base = 'PRJ-'.substr(preg_replace('/[^A-Z0-9]/i', '', $poNumber), -10);
         $candidate = $base;
         $suffix = 1;
         while (Project::withoutGlobalScopes()->where('company_id', $companyId)->where('code', $candidate)->exists()) {
             $suffix++;
-            $candidate = $base . '-' . $suffix;
+            $candidate = $base.'-'.$suffix;
         }
 
         return $candidate;
@@ -758,12 +782,12 @@ class WorkOrderUploadService
 
     protected function uniqueSiteCode(int $companyId, string $poNumber): string
     {
-        $base = 'PO-' . substr(preg_replace('/[^A-Z0-9]/i', '', $poNumber), -12);
+        $base = 'PO-'.substr(preg_replace('/[^A-Z0-9]/i', '', $poNumber), -12);
         $candidate = $base;
         $suffix = 1;
         while (Site::withoutGlobalScopes()->where('company_id', $companyId)->where('code', $candidate)->exists()) {
             $suffix++;
-            $candidate = $base . '-' . $suffix;
+            $candidate = $base.'-'.$suffix;
         }
 
         return $candidate;
@@ -771,7 +795,7 @@ class WorkOrderUploadService
 
     protected function notifyManagersSiteNeedsSetup(int $companyId, Site $site, string $poNumber): void
     {
-        if (!Schema::hasTable('crm_notifications')) {
+        if (! Schema::hasTable('crm_notifications')) {
             return;
         }
 

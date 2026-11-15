@@ -10,7 +10,7 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class RaBill extends Model
 {
-    use HasFactory, BelongsToCompany;
+    use BelongsToCompany, HasFactory;
 
     public const APPROVED_STATUSES = ['approved', 'invoiced', 'paid'];
 
@@ -30,10 +30,13 @@ class RaBill extends Model
         'current_bill_amount',
         'cumulative_bill_amount',
         'excess_unbilled_amount',
+        'tax_mode',
         'cgst_rate',
         'sgst_rate',
+        'igst_rate',
         'cgst_amount',
         'sgst_amount',
+        'igst_amount',
         'gross_amount',
         'retention_percent',
         'retention_deduction',
@@ -68,8 +71,10 @@ class RaBill extends Model
             'excess_unbilled_amount' => 'decimal:2',
             'cgst_rate' => 'decimal:2',
             'sgst_rate' => 'decimal:2',
+            'igst_rate' => 'decimal:2',
             'cgst_amount' => 'decimal:2',
             'sgst_amount' => 'decimal:2',
+            'igst_amount' => 'decimal:2',
             'gross_amount' => 'decimal:2',
             'retention_percent' => 'decimal:2',
             'retention_deduction' => 'decimal:2',
@@ -102,6 +107,11 @@ class RaBill extends Model
     public function isLocked(): bool
     {
         return in_array($this->status, self::APPROVED_STATUSES, true);
+    }
+
+    public function isIgst(): bool
+    {
+        return ($this->tax_mode ?? 'cgst_sgst') === 'igst';
     }
 
     public function workOrder(): BelongsTo
@@ -149,4 +159,3 @@ class RaBill extends Model
         return $this->belongsTo(User::class, 'senior_manager_id');
     }
 }
-

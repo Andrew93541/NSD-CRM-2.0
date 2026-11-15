@@ -41,6 +41,9 @@
             <a href="{{ route('workforce.index') }}" class="px-3.5 py-2 text-xs font-bold rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-800 border border-slate-200 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700 dark:border-slate-700 transition">
                 &larr; {{ __('Back to Workforce') }}
             </a>
+            <a href="{{ route('workforce.id_card_pdf', $worker) }}" class="px-3.5 py-2 text-xs font-bold rounded-xl bg-indigo-500/15 hover:bg-indigo-500/25 text-indigo-700 dark:text-indigo-300 border border-indigo-500/30 transition">
+                {{ __('QR ID Card PDF') }} &darr;
+            </a>
             @can('update', $worker)
                 <a href="{{ route('workforce.edit', $worker) }}" class="px-4 py-2 text-xs font-extrabold rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 shadow-lg shadow-amber-500/20 transition">
                     {{ __('Edit Worker Profile') }}
@@ -287,6 +290,194 @@
                 </div>
             </details>
         </div>
+    </div>
+
+    <!-- Statutory Payroll Configuration (PF / ESIC / Professional Tax) -->
+    @php
+        $pfState = $worker->pf_status ?: 'unconfigured';
+        $esicState = $worker->esic_status ?: 'unconfigured';
+        $ptState = $worker->pt_status ?: 'unconfigured';
+        $overallStatutory = $worker->statutoryOverallState();
+        $badgeClass = fn (string $st) => match ($st) {
+            'applicable' => 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/30',
+            'not_applicable' => 'bg-slate-200/70 dark:bg-slate-800 text-slate-600 dark:text-slate-300 border-slate-300 dark:border-slate-700',
+            default => 'bg-amber-500/15 text-amber-700 dark:text-amber-300 border-amber-500/30',
+        };
+        $badgeLabel = fn (string $st) => match ($st) {
+            'applicable' => __('Applicable'),
+            'not_applicable' => __('Not Applicable'),
+            default => __('Unconfigured'),
+        };
+    @endphp
+    <div id="statutory-payroll" class="p-6 sm:p-8 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-sm space-y-5" x-data="{ editingStatutory: false }">
+        <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-4 border-b border-slate-200 dark:border-slate-800">
+            <div>
+                <div class="flex items-center gap-2">
+                    <h2 class="text-base font-extrabold text-slate-900 dark:text-white tracking-tight">{{ __('Statutory Payroll Deductions (PF / ESIC / PT)') }}</h2>
+                    <span class="px-2.5 py-0.5 rounded-full text-[11px] font-bold border {{ $badgeClass($overallStatutory) }}">
+                        {{ $badgeLabel($overallStatutory) }}
+                    </span>
+                </div>
+                <p class="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+                    {{ __('Configured individually per employee or worker. Historical locked payroll periods keep their original snapshot.') }}
+                    @if($worker->statutory_effective_from)
+                        &bull; {{ __('Effective From') }}: <span class="font-mono font-bold text-slate-700 dark:text-slate-300">{{ $worker->statutory_effective_from->format('Y-m-d') }}</span>
+                    @endif
+                </p>
+            </div>
+            @if(!empty($canConfigureStatutory))
+                <button type="button" @click="editingStatutory = !editingStatutory" class="self-start sm:self-auto px-3.5 py-2 rounded-xl bg-amber-500/15 hover:bg-amber-500/25 text-amber-700 dark:text-amber-300 border border-amber-500/30 text-xs font-extrabold transition">
+                    <span x-text="editingStatutory ? '{{ __('Close Statutory Form') }}' : '{{ __('Configure PF / ESIC / PT') }}'">{{ __('Configure PF / ESIC / PT') }}</span>
+                </button>
+            @endif
+        </div>
+
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-4 text-xs">
+            <!-- PF Summary -->
+            <div class="p-4 rounded-xl bg-slate-50 dark:bg-slate-950/60 border border-slate-200 dark:border-slate-800 space-y-2">
+                <div class="flex items-center justify-between">
+                    <span class="font-extrabold text-slate-900 dark:text-white uppercase">{{ __('Provident Fund (PF)') }}</span>
+                    <span class="px-2 py-0.5 rounded text-[10px] font-bold border {{ $badgeClass($pfState) }}">{{ $badgeLabel($pfState) }}</span>
+                </div>
+                @if($pfState === 'applicable')
+                    <div class="text-slate-600 dark:text-slate-300 space-y-0.5 font-mono">
+                        <div>{{ __('Employee') }}: {{ number_format((float) $worker->pf_employee_rate, 2) }}% &bull; {{ __('Employer') }}: {{ number_format((float) ($worker->pf_employer_rate ?? 0), 2) }}%</div>
+                        <div>{{ __('Wage Ceiling') }}: {{ $worker->pf_wage_ceiling ? '₹' . number_format((float) $worker->pf_wage_ceiling, 2) : __('No Ceiling') }}</div>
+                        @if($worker->uan_number)<div>UAN: {{ $worker->uan_number }}</div>@endif
+                    </div>
+                @elseif($pfState === 'not_applicable')
+                    <p class="text-slate-500">{{ __('Marked Not Applicable — ₹0 deduction.') }}</p>
+                @else
+                    <p class="text-amber-700 dark:text-amber-400 font-semibold">{{ __('Not configured yet — confirm before locking payroll.') }}</p>
+                @endif
+            </div>
+
+            <!-- ESIC Summary -->
+            <div class="p-4 rounded-xl bg-slate-50 dark:bg-slate-950/60 border border-slate-200 dark:border-slate-800 space-y-2">
+                <div class="flex items-center justify-between">
+                    <span class="font-extrabold text-slate-900 dark:text-white uppercase">{{ __('ESIC') }}</span>
+                    <span class="px-2 py-0.5 rounded text-[10px] font-bold border {{ $badgeClass($esicState) }}">{{ $badgeLabel($esicState) }}</span>
+                </div>
+                @if($esicState === 'applicable')
+                    <div class="text-slate-600 dark:text-slate-300 space-y-0.5 font-mono">
+                        <div>{{ __('Employee') }}: {{ number_format((float) $worker->esic_employee_rate, 2) }}% &bull; {{ __('Employer') }}: {{ number_format((float) ($worker->esic_employer_rate ?? 0), 2) }}%</div>
+                        <div>{{ __('Wage Ceiling') }}: {{ $worker->esic_wage_ceiling ? '₹' . number_format((float) $worker->esic_wage_ceiling, 2) : __('No Ceiling') }}</div>
+                        @if($worker->esic_ip_number)<div>IP No: {{ $worker->esic_ip_number }}</div>@endif
+                    </div>
+                @elseif($esicState === 'not_applicable')
+                    <p class="text-slate-500">{{ __('Marked Not Applicable — ₹0 deduction.') }}</p>
+                @else
+                    <p class="text-amber-700 dark:text-amber-400 font-semibold">{{ __('Not configured yet — confirm before locking payroll.') }}</p>
+                @endif
+            </div>
+
+            <!-- PT Summary -->
+            <div class="p-4 rounded-xl bg-slate-50 dark:bg-slate-950/60 border border-slate-200 dark:border-slate-800 space-y-2">
+                <div class="flex items-center justify-between">
+                    <span class="font-extrabold text-slate-900 dark:text-white uppercase">{{ __('Professional Tax (PT)') }}</span>
+                    <span class="px-2 py-0.5 rounded text-[10px] font-bold border {{ $badgeClass($ptState) }}">{{ $badgeLabel($ptState) }}</span>
+                </div>
+                @if($ptState === 'applicable')
+                    <div class="text-slate-600 dark:text-slate-300 font-mono">
+                        {{ __('Monthly Deduction') }}: ₹{{ number_format((float) $worker->pt_monthly_amount, 2) }}
+                    </div>
+                @elseif($ptState === 'not_applicable')
+                    <p class="text-slate-500">{{ __('Marked Not Applicable — ₹0 deduction.') }}</p>
+                @else
+                    <p class="text-amber-700 dark:text-amber-400 font-semibold">{{ __('Not configured yet — confirm before locking payroll.') }}</p>
+                @endif
+            </div>
+        </div>
+
+        @if(!empty($canConfigureStatutory))
+            <form x-show="editingStatutory" x-cloak method="POST" action="{{ route('workforce.statutory.update', $worker) }}"
+                  x-data="{ pf: '{{ old('pf_status', $pfState) }}', esic: '{{ old('esic_status', $esicState) }}', pt: '{{ old('pt_status', $ptState) }}' }"
+                  class="pt-4 border-t border-slate-200 dark:border-slate-800 space-y-5 text-xs">
+                @csrf
+                @method('PUT')
+
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-5">
+                    <!-- PF Controls -->
+                    <div class="space-y-3 p-4 rounded-xl border border-slate-200 dark:border-slate-800">
+                        <label class="block font-extrabold text-slate-900 dark:text-white uppercase">{{ __('Provident Fund (PF)') }}</label>
+                        <select name="pf_status" x-model="pf" class="w-full rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-slate-700 px-3 py-2 text-xs font-bold">
+                            <option value="unconfigured">{{ __('Unconfigured') }}</option>
+                            <option value="applicable">{{ __('Applicable') }}</option>
+                            <option value="not_applicable">{{ __('Not Applicable') }}</option>
+                        </select>
+                        <div x-show="pf === 'applicable'" class="space-y-2">
+                            <div>
+                                <label class="block text-[11px] text-slate-500 font-semibold">{{ __('Employee PF Rate (%)') }} *</label>
+                                <input type="number" step="0.01" min="0" max="100" name="pf_employee_rate" value="{{ old('pf_employee_rate', $worker->pf_employee_rate) }}" class="w-full rounded-lg bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 px-3 py-1.5 font-mono">
+                            </div>
+                            <div>
+                                <label class="block text-[11px] text-slate-500 font-semibold">{{ __('Employer PF Rate (%)') }}</label>
+                                <input type="number" step="0.01" min="0" max="100" name="pf_employer_rate" value="{{ old('pf_employer_rate', $worker->pf_employer_rate) }}" class="w-full rounded-lg bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 px-3 py-1.5 font-mono">
+                            </div>
+                            <div>
+                                <label class="block text-[11px] text-slate-500 font-semibold">{{ __('PF Wage Ceiling (₹, optional)') }}</label>
+                                <input type="number" step="0.01" min="0" name="pf_wage_ceiling" value="{{ old('pf_wage_ceiling', $worker->pf_wage_ceiling) }}" placeholder="Leave blank if no ceiling" class="w-full rounded-lg bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 px-3 py-1.5 font-mono">
+                            </div>
+                        </div>
+                        <div>
+                            <label class="block text-[11px] text-slate-500 font-semibold">{{ __('UAN Number (optional)') }}</label>
+                            <input type="text" maxlength="30" name="uan_number" value="{{ old('uan_number', $worker->uan_number) }}" class="w-full rounded-lg bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 px-3 py-1.5 font-mono">
+                        </div>
+                    </div>
+
+                    <!-- ESIC Controls -->
+                    <div class="space-y-3 p-4 rounded-xl border border-slate-200 dark:border-slate-800">
+                        <label class="block font-extrabold text-slate-900 dark:text-white uppercase">{{ __('ESIC') }}</label>
+                        <select name="esic_status" x-model="esic" class="w-full rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-slate-700 px-3 py-2 text-xs font-bold">
+                            <option value="unconfigured">{{ __('Unconfigured') }}</option>
+                            <option value="applicable">{{ __('Applicable') }}</option>
+                            <option value="not_applicable">{{ __('Not Applicable') }}</option>
+                        </select>
+                        <div x-show="esic === 'applicable'" class="space-y-2">
+                            <div>
+                                <label class="block text-[11px] text-slate-500 font-semibold">{{ __('Employee ESIC Rate (%)') }} *</label>
+                                <input type="number" step="0.01" min="0" max="100" name="esic_employee_rate" value="{{ old('esic_employee_rate', $worker->esic_employee_rate) }}" class="w-full rounded-lg bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 px-3 py-1.5 font-mono">
+                            </div>
+                            <div>
+                                <label class="block text-[11px] text-slate-500 font-semibold">{{ __('Employer ESIC Rate (%)') }}</label>
+                                <input type="number" step="0.01" min="0" max="100" name="esic_employer_rate" value="{{ old('esic_employer_rate', $worker->esic_employer_rate) }}" class="w-full rounded-lg bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 px-3 py-1.5 font-mono">
+                            </div>
+                            <div>
+                                <label class="block text-[11px] text-slate-500 font-semibold">{{ __('ESIC Wage Ceiling (₹, optional)') }}</label>
+                                <input type="number" step="0.01" min="0" name="esic_wage_ceiling" value="{{ old('esic_wage_ceiling', $worker->esic_wage_ceiling) }}" placeholder="Leave blank if no ceiling" class="w-full rounded-lg bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 px-3 py-1.5 font-mono">
+                            </div>
+                        </div>
+                        <div>
+                            <label class="block text-[11px] text-slate-500 font-semibold">{{ __('ESIC IP Number (optional)') }}</label>
+                            <input type="text" maxlength="30" name="esic_ip_number" value="{{ old('esic_ip_number', $worker->esic_ip_number) }}" class="w-full rounded-lg bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 px-3 py-1.5 font-mono">
+                        </div>
+                    </div>
+
+                    <!-- PT & Effective Date Controls -->
+                    <div class="space-y-3 p-4 rounded-xl border border-slate-200 dark:border-slate-800">
+                        <label class="block font-extrabold text-slate-900 dark:text-white uppercase">{{ __('Professional Tax (PT)') }}</label>
+                        <select name="pt_status" x-model="pt" class="w-full rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-slate-700 px-3 py-2 text-xs font-bold">
+                            <option value="unconfigured">{{ __('Unconfigured') }}</option>
+                            <option value="applicable">{{ __('Applicable') }}</option>
+                            <option value="not_applicable">{{ __('Not Applicable') }}</option>
+                        </select>
+                        <div x-show="pt === 'applicable'">
+                            <label class="block text-[11px] text-slate-500 font-semibold">{{ __('Monthly PT Deduction (₹)') }} *</label>
+                            <input type="number" step="0.01" min="0" max="10000" name="pt_monthly_amount" value="{{ old('pt_monthly_amount', $worker->pt_monthly_amount) }}" class="w-full rounded-lg bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 px-3 py-1.5 font-mono">
+                        </div>
+                        <div class="pt-2 border-t border-slate-200 dark:border-slate-800">
+                            <label class="block text-[11px] text-slate-500 font-semibold">{{ __('Effective From Date (optional)') }}</label>
+                            <input type="date" name="statutory_effective_from" value="{{ old('statutory_effective_from', $worker->statutory_effective_from?->format('Y-m-d')) }}" class="w-full rounded-lg bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 px-3 py-1.5 font-mono">
+                        </div>
+                    </div>
+                </div>
+
+                <div class="flex justify-end gap-2">
+                    <button type="button" @click="editingStatutory = false" class="px-4 py-2 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 font-bold">{{ __('Cancel') }}</button>
+                    <button type="submit" class="px-5 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-extrabold shadow-sm transition">{{ __('Save Statutory Settings') }}</button>
+                </div>
+            </form>
+        @endif
     </div>
 
     <!-- 6. Worker Documents Management Section -->

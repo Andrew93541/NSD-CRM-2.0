@@ -10,7 +10,7 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class Material extends Model
 {
-    use HasFactory, BelongsToCompany;
+    use BelongsToCompany, HasFactory;
 
     protected $fillable = [
         'company_id',
@@ -18,6 +18,7 @@ class Material extends Model
         'name',
         'code',
         'unit_of_measure',
+        'hsn_code',
         'minimum_stock_level',
         'standard_unit_cost',
         'is_active',

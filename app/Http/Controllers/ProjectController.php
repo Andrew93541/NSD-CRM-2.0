@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\AuditLog;
 use App\Models\Project;
 use App\Models\ProjectDocument;
 use App\Models\ProjectMilestone;
@@ -9,6 +10,7 @@ use App\Models\Site;
 use App\Models\SiteAssignment;
 use App\Models\User;
 use App\Services\Security\TenantContext;
+use App\Services\Storage\VaultStorage;
 use Carbon\Carbon;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -17,7 +19,6 @@ use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Facades\Schema;
-use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
@@ -39,9 +40,9 @@ class ProjectController extends Controller
 
         // Scope projects for site-restricted users to only those linked to their assigned sites
         $hasUnrestrictedSiteAccess = $user->hasRole(['super_admin', 'company_admin'])
-            || (!$user->isRestrictedToAssignedSites() && $user->hasRole(['senior_manager', 'office_staff']));
+            || (! $user->isRestrictedToAssignedSites() && $user->hasRole(['senior_manager', 'office_staff']));
 
-        if (!$hasUnrestrictedSiteAccess) {
+        if (! $hasUnrestrictedSiteAccess) {
             $accessibleSiteIds = $user->accessibleSiteIds();
             $query->where(function ($q) use ($user, $accessibleSiteIds) {
                 $q->where('projects.manager_id', $user->id)
@@ -55,7 +56,7 @@ class ProjectController extends Controller
 
         // Apply active topbar site switcher filter if present
         $activeSiteId = $request->query('site_id', session('active_site_id'));
-        if (!empty($activeSiteId)) {
+        if (! empty($activeSiteId)) {
             $query->where(function ($q) use ($activeSiteId) {
                 $q->whereHas('sites', fn ($sq) => $sq->where('sites.id', $activeSiteId));
                 if (Schema::hasTable('project_sites')) {
@@ -65,7 +66,7 @@ class ProjectController extends Controller
         }
 
         if ($request->filled('search')) {
-            $search = '%' . trim((string) $request->query('search')) . '%';
+            $search = '%'.trim((string) $request->query('search')).'%';
             $query->where(function ($q) use ($search) {
                 $q->where('name', 'like', $search)
                     ->orWhere('code', 'like', $search)
@@ -125,7 +126,7 @@ class ProjectController extends Controller
                         ->lockForUpdate()
                         ->first();
 
-                    if (!$seq) {
+                    if (! $seq) {
                         DB::table('worker_sequences')->insertOrIgnore([
                             'company_id' => $companyId,
                             'prefix' => 'PRJ',
@@ -161,7 +162,7 @@ class ProjectController extends Controller
 
             $this->syncProjectSites($project, (array) $request->input('site_ids', []));
 
-            \App\Models\AuditLog::record(
+            AuditLog::record(
                 'project.created',
                 $project,
                 null,
@@ -183,7 +184,7 @@ class ProjectController extends Controller
 
         $user = Auth::user();
         $activeTab = $request->query('tab', 'overview');
-        if (!in_array($activeTab, ['overview', 'sites', 'milestones', 'documents', 'activity'], true)) {
+        if (! in_array($activeTab, ['overview', 'sites', 'milestones', 'documents', 'activity'], true)) {
             $activeTab = 'overview';
         }
 
@@ -191,9 +192,9 @@ class ProjectController extends Controller
 
         $allProjectSites = $project->allSites();
         $hasUnrestrictedSiteAccess = $user->hasRole(['super_admin', 'company_admin'])
-            || (!$user->isRestrictedToAssignedSites() && $user->hasRole(['senior_manager', 'office_staff']));
+            || (! $user->isRestrictedToAssignedSites() && $user->hasRole(['senior_manager', 'office_staff']));
 
-        if (!$hasUnrestrictedSiteAccess) {
+        if (! $hasUnrestrictedSiteAccess) {
             $accessibleIds = $user->accessibleSiteIds();
             $visibleSites = $allProjectSites->filter(fn (Site $s) => in_array($s->id, $accessibleIds, true))->values();
         } else {
@@ -205,7 +206,7 @@ class ProjectController extends Controller
         $milestones = collect();
         if (Schema::hasTable('project_milestones')) {
             $milestoneQuery = $project->milestones()->with(['site', 'creator']);
-            if (!$hasUnrestrictedSiteAccess) {
+            if (! $hasUnrestrictedSiteAccess) {
                 $milestoneQuery->where(function ($q) use ($visibleSiteIds) {
                     $q->whereNull('site_id')->orWhereIn('site_id', $visibleSiteIds);
                 });
@@ -220,7 +221,7 @@ class ProjectController extends Controller
         }
 
         $recentAssignments = collect();
-        if (Schema::hasTable('site_assignments') && !empty($visibleSiteIds)) {
+        if (Schema::hasTable('site_assignments') && ! empty($visibleSiteIds)) {
             $recentAssignments = SiteAssignment::whereIn('site_id', $visibleSiteIds)
                 ->with(['site', 'user', 'worker', 'assigner'])
                 ->latest()
@@ -234,6 +235,32 @@ class ProjectController extends Controller
         $allSites = $visibleSites;
         $visibleDocuments = $documents;
         $recentLogs = collect();
+        if (Schema::hasTable('activity_logs')) {
+            $recentLogs = AuditLog::forCompany((int) $project->company_id)
+                ->with(['user', 'site'])
+                ->where(function ($q) use ($project, $visibleSiteIds) {
+                    $q->where('project_id', $project->id)
+                        ->orWhere(function ($sub) use ($project) {
+                            $sub->where('subject_type', Project::class)
+                                ->where('subject_id', $project->id);
+                        });
+                    if (! empty($visibleSiteIds)) {
+                        $q->orWhereIn('site_id', $visibleSiteIds);
+                    }
+                })
+                ->when(! $hasUnrestrictedSiteAccess, function ($q) use ($visibleSiteIds) {
+                    $q->where(function ($sub) use ($visibleSiteIds) {
+                        $sub->whereNull('site_id')
+                            ->orWhereIn('site_id', $visibleSiteIds);
+                    });
+                })
+                ->where('action', 'not like', 'auth.%')
+                ->where('action', 'not like', 'payroll.%')
+                ->latest('created_at')
+                ->latest('id')
+                ->limit(30)
+                ->get();
+        }
 
         return view('projects.show', compact(
             'project',
@@ -293,7 +320,7 @@ class ProjectController extends Controller
                 $this->syncProjectSites($project, (array) $request->input('site_ids', []));
             }
 
-            \App\Models\AuditLog::record(
+            AuditLog::record(
                 'project.updated',
                 $project,
                 $oldValues,
@@ -326,13 +353,13 @@ class ProjectController extends Controller
             'percent_complete' => ['required', 'integer', 'min:0', 'max:100'],
         ]);
 
-        if (!empty($validated['site_id'])) {
+        if (! empty($validated['site_id'])) {
             $siteId = (int) $validated['site_id'];
-            if (!Auth::user()->isAssignedToSite($siteId)) {
+            if (! Auth::user()->isAssignedToSite($siteId)) {
                 abort(403, 'Unauthorized to create a milestone for an unassigned site.');
             }
             $projectSiteIds = $project->allSites()->pluck('id')->map(fn ($id) => (int) $id)->all();
-            if (!in_array($siteId, $projectSiteIds, true)) {
+            if (! in_array($siteId, $projectSiteIds, true)) {
                 throw ValidationException::withMessages([
                     'site_id' => ['The selected site does not belong to this project.'],
                 ]);
@@ -373,14 +400,37 @@ class ProjectController extends Controller
             abort(404);
         }
 
-        if ($milestone->site_id && !Auth::user()->isAssignedToSite((int) $milestone->site_id)) {
+        if ($milestone->site_id && ! Auth::user()->isAssignedToSite((int) $milestone->site_id)) {
             abort(403);
         }
 
+        $companyId = TenantContext::getCompanyId();
+
         $validated = $request->validate([
+            'title' => ['nullable', 'string', 'max:200'],
+            'description' => ['nullable', 'string', 'max:1000'],
+            'due_date' => ['nullable', 'date'],
+            'site_id' => [
+                'nullable',
+                'integer',
+                Rule::exists('sites', 'id')->where(fn ($q) => $q->where('company_id', $companyId)),
+            ],
             'status' => ['required', Rule::in(array_keys(ProjectMilestone::STATUSES))],
             'percent_complete' => ['required', 'integer', 'min:0', 'max:100'],
         ]);
+
+        if (array_key_exists('site_id', $validated) && ! empty($validated['site_id'])) {
+            $siteId = (int) $validated['site_id'];
+            if (! Auth::user()->isAssignedToSite($siteId)) {
+                abort(403, 'Unauthorized to assign milestone to an unassigned site.');
+            }
+            $projectSiteIds = $project->allSites()->pluck('id')->map(fn ($id) => (int) $id)->all();
+            if (! in_array($siteId, $projectSiteIds, true)) {
+                throw ValidationException::withMessages([
+                    'site_id' => ['The selected site does not belong to this project.'],
+                ]);
+            }
+        }
 
         $percent = (int) $validated['percent_complete'];
         $status = $validated['status'];
@@ -390,15 +440,66 @@ class ProjectController extends Controller
             $percent = 100;
         }
 
-        $milestone->update([
+        $updates = [
             'status' => $status,
             'percent_complete' => $percent,
             'completed_at' => $status === 'completed' ? ($milestone->completed_at ?? Carbon::now()) : null,
-        ]);
+        ];
+        if (! empty($validated['title'])) {
+            $updates['title'] = trim($validated['title']);
+        }
+        if (array_key_exists('description', $validated)) {
+            $updates['description'] = $validated['description'];
+        }
+        if (array_key_exists('due_date', $validated)) {
+            $updates['due_date'] = $validated['due_date'];
+        }
+        if (array_key_exists('site_id', $validated)) {
+            $updates['site_id'] = $validated['site_id'] ?? null;
+        }
+
+        $milestone->update($updates);
+
+        AuditLog::record(
+            'project.milestone.updated',
+            $milestone,
+            null,
+            ['project_id' => $project->id, 'title' => $milestone->title, 'status' => $status, 'percent_complete' => $percent],
+            "Updated milestone '{$milestone->title}' on project {$project->code}"
+        );
 
         return redirect()
             ->route('projects.show', ['project' => $project->id, 'tab' => 'milestones'])
-            ->with('success', 'Milestone progress updated.');
+            ->with('success', 'Milestone updated.');
+    }
+
+    public function destroyMilestone(Project $project, ProjectMilestone $milestone): RedirectResponse
+    {
+        Gate::authorize('manageMilestones', $project);
+
+        if ((int) $milestone->project_id !== (int) $project->id) {
+            abort(404);
+        }
+
+        if ($milestone->site_id && ! Auth::user()->isAssignedToSite((int) $milestone->site_id)) {
+            abort(403);
+        }
+
+        $title = $milestone->title;
+        $milestoneId = $milestone->id;
+        $milestone->delete();
+
+        AuditLog::record(
+            'project.milestone.deleted',
+            $project,
+            ['milestone_id' => $milestoneId, 'title' => $title],
+            null,
+            "Deleted milestone '{$title}' from project {$project->code}"
+        );
+
+        return redirect()
+            ->route('projects.show', ['project' => $project->id, 'tab' => 'milestones'])
+            ->with('success', "Milestone '{$title}' deleted.");
     }
 
     public function storeDocument(Request $request, Project $project): RedirectResponse
@@ -431,13 +532,13 @@ class ProjectController extends Controller
             'visibility_roles.*' => ['string', 'max:50'],
         ]);
 
-        if (!empty($validated['site_id'])) {
+        if (! empty($validated['site_id'])) {
             $siteId = (int) $validated['site_id'];
-            if (!Auth::user()->isAssignedToSite($siteId)) {
+            if (! Auth::user()->isAssignedToSite($siteId)) {
                 abort(403, 'Unauthorized to upload a document for an unassigned site.');
             }
             $projectSiteIds = $project->allSites()->pluck('id')->map(fn ($id) => (int) $id)->all();
-            if (!in_array($siteId, $projectSiteIds, true)) {
+            if (! in_array($siteId, $projectSiteIds, true)) {
                 throw ValidationException::withMessages([
                     'site_id' => ['The selected site does not belong to this project.'],
                 ]);
@@ -448,12 +549,12 @@ class ProjectController extends Controller
         $file = $request->file('document');
         $originalName = basename($file->getClientOriginalName());
         $ext = strtolower($file->getClientOriginalExtension());
-        if (!in_array($ext, ProjectDocument::ALLOWED_EXTENSIONS, true)) {
+        if (! in_array($ext, ProjectDocument::ALLOWED_EXTENSIONS, true)) {
             throw ValidationException::withMessages(['document' => ['Unsupported file extension.']]);
         }
 
         $detectedMime = $file->getMimeType();
-        if (!is_string($detectedMime) || !in_array($detectedMime, ProjectDocument::ALLOWED_MIME_TYPES, true)) {
+        if (! is_string($detectedMime) || ! in_array($detectedMime, ProjectDocument::ALLOWED_MIME_TYPES, true)) {
             throw ValidationException::withMessages(['document' => ['Unsupported file content MIME type.']]);
         }
 
@@ -461,13 +562,15 @@ class ProjectController extends Controller
             $existingMaxVersion = ProjectDocument::where('project_id', $project->id)
                 ->where('document_type', $validated['document_type'])
                 ->where('title', trim($validated['title']))
-                ->when(!empty($validated['site_id']), fn ($q) => $q->where('site_id', $validated['site_id']), fn ($q) => $q->whereNull('site_id'))
+                ->when(! empty($validated['site_id']), fn ($q) => $q->where('site_id', $validated['site_id']), fn ($q) => $q->whereNull('site_id'))
                 ->max('version');
 
             $nextVersion = ((int) $existingMaxVersion) + 1;
-            $generatedName = Str::uuid()->toString() . '.' . $ext;
+            $generatedName = Str::uuid()->toString().'.'.$ext;
             $directory = "project-documents/{$companyId}/{$project->id}";
-            $storedPath = $file->storeAs($directory, $generatedName, 'local');
+            $stored = VaultStorage::storeUploaded($file, $directory, $generatedName);
+            $storedPath = $stored['path'];
+            $diskName = $stored['disk'];
 
             try {
                 return ProjectDocument::create([
@@ -478,17 +581,15 @@ class ProjectController extends Controller
                     'title' => trim($validated['title']),
                     'version' => $nextVersion,
                     'original_name' => mb_substr(preg_replace('/[\x00-\x1F\x7F]/u', '', $originalName) ?: 'project-document', 0, 255),
-                    'storage_disk' => 'local',
+                    'storage_disk' => $diskName,
                     'file_path' => $storedPath,
                     'mime_type' => $detectedMime,
                     'file_size' => (int) $file->getSize(),
-                    'visibility_roles' => !empty($validated['visibility_roles']) ? array_values($validated['visibility_roles']) : null,
+                    'visibility_roles' => ! empty($validated['visibility_roles']) ? array_values($validated['visibility_roles']) : null,
                     'uploaded_by' => Auth::id(),
                 ]);
             } catch (\Throwable $e) {
-                if ($storedPath && Storage::disk('local')->exists($storedPath)) {
-                    Storage::disk('local')->delete($storedPath);
-                }
+                VaultStorage::delete($storedPath, $diskName);
                 throw $e;
             }
         });
@@ -504,21 +605,20 @@ class ProjectController extends Controller
 
         Gate::authorize('downloadDocument', [$project, $doc]);
 
-        if ($doc->storage_disk !== 'local' || str_contains($doc->file_path, '..')) {
+        if (! in_array($doc->storage_disk, ['local', 'vault'], true) || str_contains($doc->file_path, '..')) {
             abort(403, 'Invalid project document storage path.');
         }
 
-        $disk = Storage::disk('local');
-        if (!$disk->exists($doc->file_path)) {
+        if (! VaultStorage::exists($doc->file_path, $doc->storage_disk)) {
             abort(404, 'Project document file not found in private storage.');
         }
 
         $safeDownloadName = sprintf('v%d_%s', $doc->version, preg_replace('/[^A-Za-z0-9._\- ]/', '_', basename($doc->original_name)) ?: 'document');
 
-        return $disk->download($doc->file_path, $safeDownloadName, [
+        return VaultStorage::download($doc->file_path, $safeDownloadName, [
             'Content-Type' => $doc->mime_type,
             'X-Content-Type-Options' => 'nosniff',
-        ]);
+        ], $doc->storage_disk);
     }
 
     public function destroyDocument(Project $project, int $document): RedirectResponse
@@ -527,9 +627,8 @@ class ProjectController extends Controller
 
         Gate::authorize('deleteDocument', [$project, $doc]);
 
-        $disk = Storage::disk('local');
-        if ($doc->storage_disk === 'local' && !str_contains($doc->file_path, '..') && $disk->exists($doc->file_path)) {
-            $disk->delete($doc->file_path);
+        if (in_array($doc->storage_disk, ['local', 'vault'], true) && ! str_contains($doc->file_path, '..')) {
+            VaultStorage::delete($doc->file_path, $doc->storage_disk);
         }
 
         $doc->delete();
@@ -541,7 +640,7 @@ class ProjectController extends Controller
 
     protected function syncProjectSites(Project $project, array $siteIds): void
     {
-        if (!Schema::hasTable('project_sites')) {
+        if (! Schema::hasTable('project_sites')) {
             return;
         }
 
@@ -571,7 +670,7 @@ class ProjectController extends Controller
         $isAutoCodeOnCreate = $ignoreProjectId === null && ($rawCode === '' || (bool) preg_match('/^PRJ-\d+$/', $rawCode));
 
         $codeRules = [$ignoreProjectId === null ? 'nullable' : 'required', 'string', 'max:30'];
-        if (!$isAutoCodeOnCreate) {
+        if (! $isAutoCodeOnCreate) {
             $codeRule = Rule::unique('projects', 'code')->where(fn ($q) => $q->where('company_id', $companyId));
             if ($ignoreProjectId !== null) {
                 $codeRule->ignore($ignoreProjectId);
@@ -606,7 +705,7 @@ class ProjectController extends Controller
     protected function getCompanyStaff()
     {
         $companyId = TenantContext::getCompanyId();
-        if (!$companyId) {
+        if (! $companyId) {
             return collect();
         }
 
@@ -619,4 +718,3 @@ class ProjectController extends Controller
             ->get();
     }
 }
-

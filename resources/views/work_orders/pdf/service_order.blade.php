@@ -139,20 +139,28 @@
                 $baseVal = (float) ($workOrder->base_order_value ?: $workOrder->estimated_amount);
                 $cgstVal = $workOrder->cgstAmount();
                 $sgstVal = $workOrder->sgstAmount();
-                $grossVal = round($baseVal + $cgstVal + $sgstVal, 2);
+                $igstVal = $workOrder->igstAmount();
+                $grossVal = $workOrder->grossOrderValue();
             @endphp
             <tr style="background: #f1f5f9;">
                 <td colspan="7" class="text-right font-bold">Total Basic Service Order Value (A)</td>
                 <td class="text-right font-bold">{{ \App\Support\IndianCurrencyWords::formatIndianNumber($baseVal, 2) }}</td>
             </tr>
-            <tr>
-                <td colspan="7" class="text-right">Add: CGST @ {{ number_format((float) $workOrder->cgst_rate, 2) }}%</td>
-                <td class="text-right">{{ \App\Support\IndianCurrencyWords::formatIndianNumber($cgstVal, 2) }}</td>
-            </tr>
-            <tr>
-                <td colspan="7" class="text-right">Add: SGST @ {{ number_format((float) $workOrder->sgst_rate, 2) }}%</td>
-                <td class="text-right">{{ \App\Support\IndianCurrencyWords::formatIndianNumber($sgstVal, 2) }}</td>
-            </tr>
+            @if($workOrder->isIgst())
+                <tr>
+                    <td colspan="7" class="text-right">Add: IGST @ {{ number_format((float) $workOrder->igst_rate, 2) }}%</td>
+                    <td class="text-right">{{ \App\Support\IndianCurrencyWords::formatIndianNumber($igstVal, 2) }}</td>
+                </tr>
+            @else
+                <tr>
+                    <td colspan="7" class="text-right">Add: CGST @ {{ number_format((float) $workOrder->cgst_rate, 2) }}%</td>
+                    <td class="text-right">{{ \App\Support\IndianCurrencyWords::formatIndianNumber($cgstVal, 2) }}</td>
+                </tr>
+                <tr>
+                    <td colspan="7" class="text-right">Add: SGST @ {{ number_format((float) $workOrder->sgst_rate, 2) }}%</td>
+                    <td class="text-right">{{ \App\Support\IndianCurrencyWords::formatIndianNumber($sgstVal, 2) }}</td>
+                </tr>
+            @endif
             <tr style="background: #fef3c7;">
                 <td colspan="7" class="text-right font-bold">Total Gross Service Order Value (Incl. GST) [Retention: {{ number_format((float) $workOrder->retention_percent, 2) }}%]</td>
                 <td class="text-right font-bold">₹ {{ \App\Support\IndianCurrencyWords::formatIndianNumber($grossVal, 2) }}</td>

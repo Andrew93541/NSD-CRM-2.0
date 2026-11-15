@@ -2,7 +2,9 @@
 
 namespace App\Http\Middleware;
 
+use App\Models\AuditLog;
 use App\Models\Company;
+use App\Models\Site;
 use App\Services\Security\TenantContext;
 use Closure;
 use Illuminate\Http\Request;
@@ -18,7 +20,7 @@ class SetTenantContext
         TenantContext::reset();
 
         // Defense-in-depth: block direct HTTP requests to sensitive files, dotfiles, and internal directories
-        $relPath = '/' . ltrim($request->getPathInfo(), '/');
+        $relPath = '/'.ltrim($request->getPathInfo(), '/');
         $blockedPattern = '#^/(?:\.(?!well-known(?:/|$))|artisan$|composer\.(?:json|lock)$|package(?:-lock)?\.json$|phpunit\.xml|vite\.config\.js$|(?:app|bootstrap|config|database|docs|lang|node_modules|resources|routes|storage|tests|vendor)(?:/|$)|.*\.(?:sql|sqlite|sqlite3|log|bak|env)$)#i';
         if (preg_match($blockedPattern, $relPath)) {
             abort(403, 'Access to protected system path is forbidden.');
@@ -27,8 +29,8 @@ class SetTenantContext
         if (Auth::check()) {
             $user = Auth::user()->fresh() ?? Auth::user();
 
-            if (!$user->is_active) {
-                \App\Models\AuditLog::record('auth.deactivated_lockout', $user, null, [
+            if (! $user->is_active) {
+                AuditLog::record('auth.deactivated_lockout', $user, null, [
                     'user_id' => $user->id,
                     'email' => $user->email,
                     'reason' => 'user_deactivated',
@@ -36,6 +38,7 @@ class SetTenantContext
                 Auth::logout();
                 $request->session()->invalidate();
                 $request->session()->regenerateToken();
+
                 return redirect()->route('login')->withErrors(['email' => 'Your account has been deactivated.']);
             }
 
@@ -49,13 +52,13 @@ class SetTenantContext
                     ->where('companies.is_active', true)
                     ->first();
 
-                if (!$company) {
+                if (! $company) {
                     // Forged or revoked company ID in session: purge it
                     $request->session()->forget('current_company_id');
                 }
             }
 
-            if (!$company) {
+            if (! $company) {
                 $company = $user->companies()
                     ->wherePivot('status', 'active')
                     ->where('companies.is_active', true)
@@ -67,10 +70,10 @@ class SetTenantContext
                 }
             }
 
-            if (!$company) {
+            if (! $company) {
                 TenantContext::setCompanyId(null);
 
-                \App\Models\AuditLog::record('auth.deactivated_lockout', $user, null, [
+                AuditLog::record('auth.deactivated_lockout', $user, null, [
                     'user_id' => $user->id,
                     'email' => $user->email,
                     'reason' => 'company_membership_deactivated',
@@ -80,7 +83,7 @@ class SetTenantContext
                 $request->session()->regenerateToken();
 
                 // Fail closed when company context cannot be safely resolved
-                if (!$request->routeIs('logout')) {
+                if (! $request->routeIs('logout')) {
                     abort(403, 'No active company membership found. Access denied.');
                 }
             } else {
@@ -90,16 +93,23 @@ class SetTenantContext
 
                 $accessibleSites = ($user->hasRole(['company_admin', 'super_admin']) || ($user->hasRole('senior_manager') && ! $user->isRestrictedToAssignedSites($company->id)))
                     ? $company->sites()->where('status', 'active')->orderBy('code')->get()
-                    : \App\Models\Site::whereIn('id', $user->accessibleSiteIds())->where('status', 'active')->orderBy('code')->get();
+                    : Site::whereIn('id', $user->accessibleSiteIds())->where('status', 'active')->orderBy('code')->get();
 
                 $activeSiteId = $request->session()->get('active_site_id');
-                if ($activeSiteId && !$user->isAssignedToSite((int) $activeSiteId)) {
+                if ($activeSiteId && ! $user->isAssignedToSite((int) $activeSiteId)) {
                     $request->session()->forget('active_site_id');
                     $activeSiteId = null;
                 }
 
+                $userCompanies = $user->companies()
+                    ->wherePivot('status', 'active')
+                    ->where('companies.is_active', true)
+                    ->orderBy('name')
+                    ->get();
+
                 View::share([
                     'currentCompany' => $company,
+                    'userCompanies' => $userCompanies,
                     'currentUser' => $user,
                     'currentRole' => $currentRole,
                     'accessibleSites' => $accessibleSites,
@@ -107,14 +117,14 @@ class SetTenantContext
                 ]);
 
                 $twoFactorPending = (bool) $request->session()->get('two_factor_pending', false)
-                    || ((bool) config('auth.enforce_manager_2fa', false) && $user->isManagerOrAbove($company->id) && !$user->two_factor_verified_at);
+                    || ((bool) config('auth.enforce_manager_2fa', false) && $user->isManagerOrAbove($company->id) && ! $user->two_factor_verified_at);
 
-                if ($twoFactorPending && !$request->routeIs('two-factor.*', 'logout', 'switch_locale', 'switch_theme')) {
+                if ($twoFactorPending && ! $request->routeIs('two-factor.*', 'logout', 'switch_locale', 'switch_theme')) {
                     return redirect()->route('two-factor.challenge');
                 }
 
                 if ((bool) ($user->must_change_password ?? false)
-                    && !$request->routeIs('account.password.*', 'two-factor.*', 'logout', 'switch_locale', 'switch_theme')
+                    && ! $request->routeIs('account.password.*', 'two-factor.*', 'logout', 'switch_locale', 'switch_theme')
                 ) {
                     return redirect()->route('account.password.show');
                 }

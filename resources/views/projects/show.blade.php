@@ -200,17 +200,24 @@
                         </div>
 
                         @can('manageMilestones', $project)
-                            <form method="POST" action="{{ route('projects.milestones.update', [$project, $ms]) }}" class="flex items-center gap-2">
-                                @csrf
-                                @method('PUT')
-                                <select name="status" class="rounded-lg bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-slate-700 px-2 py-1 text-xs">
-                                    @foreach(\App\Models\ProjectMilestone::STATUSES as $stKey => $stLabel)
-                                        <option value="{{ $stKey }}" {{ $ms->status === $stKey ? 'selected' : '' }}>{{ __($stLabel) }}</option>
-                                    @endforeach
-                                </select>
-                                <input type="number" name="percent_complete" min="0" max="100" value="{{ $ms->percent_complete }}" class="w-16 rounded-lg bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-slate-700 px-2 py-1 text-xs font-mono">
-                                <button type="submit" class="px-3 py-1 rounded-lg bg-slate-900 dark:bg-amber-500 text-white dark:text-slate-950 font-bold text-xs">{{ __('Update') }}</button>
-                            </form>
+                            <div class="flex items-center gap-2">
+                                <form method="POST" action="{{ route('projects.milestones.update', [$project, $ms]) }}" class="flex items-center gap-2">
+                                    @csrf
+                                    @method('PUT')
+                                    <select name="status" class="rounded-lg bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-slate-700 px-2 py-1 text-xs">
+                                        @foreach(\App\Models\ProjectMilestone::STATUSES as $stKey => $stLabel)
+                                            <option value="{{ $stKey }}" {{ $ms->status === $stKey ? 'selected' : '' }}>{{ __($stLabel) }}</option>
+                                        @endforeach
+                                    </select>
+                                    <input type="number" name="percent_complete" min="0" max="100" value="{{ $ms->percent_complete }}" class="w-16 rounded-lg bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-slate-700 px-2 py-1 text-xs font-mono">
+                                    <button type="submit" class="px-3 py-1 rounded-lg bg-slate-900 dark:bg-amber-500 text-white dark:text-slate-950 font-bold text-xs">{{ __('Update') }}</button>
+                                </form>
+                                <form method="POST" action="{{ route('projects.milestones.destroy', [$project, $ms]) }}" onsubmit="return confirm('Delete this milestone?')">
+                                    @csrf
+                                    @method('DELETE')
+                                    <button type="submit" class="px-2.5 py-1 rounded-lg border border-rose-300 dark:border-rose-800 text-rose-600 dark:text-rose-400 font-bold text-xs hover:bg-rose-50 dark:hover:bg-rose-950">{{ __('Delete') }}</button>
+                                </form>
+                            </div>
                         @endcan
                     </div>
                 @empty
@@ -319,15 +326,26 @@
             <h2 class="text-sm font-bold text-slate-900 dark:text-white uppercase tracking-wider">{{ __('Recent Project Activity') }}</h2>
             <div class="divide-y divide-slate-200 dark:divide-slate-800 text-xs">
                 @forelse($recentLogs as $log)
-                    <div class="py-2.5 flex items-center justify-between">
+                    <div class="py-3 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
                         <div>
-                            <span class="font-mono font-bold text-amber-600 dark:text-amber-400">{{ $log->action }}</span>
-                            <span class="text-slate-700 dark:text-slate-300 ml-2">{{ $log->user->name ?? __('System') }}</span>
+                            <div class="flex flex-wrap items-center gap-2">
+                                <span class="font-mono font-bold text-amber-600 dark:text-amber-400">{{ $log->action }}</span>
+                                @if($log->site)
+                                    <span class="px-2 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-[11px] font-semibold text-slate-600 dark:text-slate-300">{{ $log->site->code }}</span>
+                                @endif
+                                <span class="text-slate-700 dark:text-slate-300 font-semibold">{{ $log->user->name ?? __('System') }}</span>
+                            </div>
+                            @if($log->description)
+                                <div class="text-slate-500 dark:text-slate-400 mt-0.5">{{ $log->description }}</div>
+                            @endif
                         </div>
-                        <span class="font-mono text-slate-500">{{ $log->created_at?->format('Y-m-d H:i') }}</span>
+                        <span class="font-mono text-slate-500 shrink-0">{{ $log->created_at?->format('Y-m-d H:i') }}</span>
                     </div>
                 @empty
-                    <div class="py-4 text-slate-500">{{ __('No recent activity logs recorded for this project.') }}</div>
+                    <div class="py-6 text-center space-y-1">
+                        <div class="text-sm font-bold text-slate-700 dark:text-slate-300">{{ __('No recent activity logs recorded for this project.') }}</div>
+                        <p class="text-xs text-slate-500 dark:text-slate-400">{{ __('Project updates, milestone changes, document uploads, and site actions will appear here automatically.') }}</p>
+                    </div>
                 @endforelse
             </div>
         </div>

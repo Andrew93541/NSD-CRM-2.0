@@ -4,12 +4,16 @@ namespace App\Http\Controllers;
 
 use App\Models\AuditLog;
 use App\Models\Company;
+use App\Models\User;
+use App\Models\Worker;
 use App\Services\Security\TenantContext;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\RateLimiter;
+use Illuminate\Support\Facades\Schema;
 use Illuminate\View\View;
 
 class AuthController extends Controller
@@ -30,9 +34,10 @@ class AuthController extends Controller
             'password' => ['required'],
         ]);
 
-        $throttleKey = 'staff-login:' . strtolower(trim($credentials['email'])) . '|' . $request->ip();
+        $throttleKey = 'staff-login:'.strtolower(trim($credentials['email'])).'|'.$request->ip();
         if (RateLimiter::tooManyAttempts($throttleKey, 5)) {
             $seconds = RateLimiter::availableIn($throttleKey);
+
             return back()->withErrors([
                 'email' => "Too many login attempts. Please try again in {$seconds} seconds.",
             ])->onlyInput('email');
@@ -45,7 +50,7 @@ class AuthController extends Controller
             $request->session()->regenerate();
             $user = Auth::user();
 
-            if (\Illuminate\Support\Facades\Schema::hasColumn('users', 'last_login_at')) {
+            if (Schema::hasColumn('users', 'last_login_at')) {
                 $user->forceFill([
                     'last_login_at' => now(),
                     'last_login_ip' => $request->ip(),
@@ -142,15 +147,16 @@ class AuthController extends Controller
             ->where('companies.is_active', true)
             ->first();
 
-        if (!$company) {
+        if (! $company) {
             abort(403, 'Unauthorized company selection or inactive membership.');
         }
 
         $request->session()->put('current_company_id', $company->id);
+        $request->session()->put('active_company_id', $company->id);
         $request->session()->forget('active_site_id');
         TenantContext::setCompanyId($company->id);
 
-        return back()->with('success', 'Switched organization to ' . $company->name);
+        return redirect()->route('dashboard')->with('success', 'Switched organization to '.$company->name);
     }
 
     public function switchSite(Request $request): RedirectResponse
@@ -162,11 +168,12 @@ class AuthController extends Controller
         $siteId = $validated['site_id'] ?? null;
         if (empty($siteId)) {
             $request->session()->forget('active_site_id');
+
             return back()->with('success', __('Viewing all accessible sites.'));
         }
 
         $user = Auth::user();
-        if (!$user || !$user->isAssignedToSite((int) $siteId)) {
+        if (! $user || ! $user->isAssignedToSite((int) $siteId)) {
             abort(403, 'Unauthorized site selection.');
         }
 
@@ -185,6 +192,7 @@ class AuthController extends Controller
 
         return back()->with('success', __('Language changed successfully.'));
     }
+
     public function switchTheme(Request $request): RedirectResponse|JsonResponse
     {
         $validated = $request->validate([
@@ -212,18 +220,18 @@ class AuthController extends Controller
     public function showTwoFactorChallenge(Request $request): View|RedirectResponse
     {
         $user = Auth::user()?->fresh();
-        if (!$user) {
+        if (! $user) {
             return redirect()->route('login');
         }
 
         $pending = (bool) $request->session()->get('two_factor_pending', false)
-            || ((bool) config('auth.enforce_manager_2fa', false) && $user->isManagerOrAbove() && !$user->two_factor_verified_at);
+            || ((bool) config('auth.enforce_manager_2fa', false) && $user->isManagerOrAbove() && ! $user->two_factor_verified_at);
 
-        if (!$pending) {
+        if (! $pending) {
             return redirect()->route('dashboard');
         }
 
-        if (!$user->two_factor_code || !$user->two_factor_expires_at || $user->two_factor_expires_at->isPast()) {
+        if (! $user->two_factor_code || ! $user->two_factor_expires_at || $user->two_factor_expires_at->isPast()) {
             $user->issueTwoFactorCode(false);
         } else {
             $user->ensureTotpSecret();
@@ -244,13 +252,14 @@ class AuthController extends Controller
     public function verifyTwoFactorChallenge(Request $request): RedirectResponse
     {
         $user = Auth::user()?->fresh();
-        if (!$user) {
+        if (! $user) {
             return redirect()->route('login');
         }
 
-        $throttleKey = 'two-factor:' . $user->id . '|' . $request->ip();
+        $throttleKey = 'two-factor:'.$user->id.'|'.$request->ip();
         if (RateLimiter::tooManyAttempts($throttleKey, 5)) {
             $seconds = RateLimiter::availableIn($throttleKey);
+
             return back()->withErrors([
                 'code' => "Too many verification attempts. Please try again in {$seconds} seconds.",
             ]);
@@ -291,13 +300,14 @@ class AuthController extends Controller
     public function resendTwoFactorChallenge(Request $request): RedirectResponse
     {
         $user = Auth::user()?->fresh();
-        if (!$user) {
+        if (! $user) {
             return redirect()->route('login');
         }
 
-        $throttleKey = 'two-factor-resend:' . $user->id . '|' . $request->ip();
+        $throttleKey = 'two-factor-resend:'.$user->id.'|'.$request->ip();
         if (RateLimiter::tooManyAttempts($throttleKey, 3)) {
             $seconds = RateLimiter::availableIn($throttleKey);
+
             return back()->withErrors([
                 'code' => "Too many code resend requests. Please wait {$seconds} seconds before requesting another email code.",
             ]);
@@ -318,7 +328,7 @@ class AuthController extends Controller
         return back()->with('success', __('A fresh 6-digit verification code has been issued.'));
     }
 
-    public function toggleTwoFactor(Request $request, \App\Models\User $user): RedirectResponse
+    public function toggleTwoFactor(Request $request, User $user): RedirectResponse
     {
         $actor = Auth::user();
         $companyId = TenantContext::getCompanyId();
@@ -326,18 +336,18 @@ class AuthController extends Controller
         $isAdmin = $actor->hasRole(['super_admin', 'company_admin']);
         $isSelf = (int) $actor->id === (int) $user->id;
 
-        if (!$isAdmin && !$isSelf) {
+        if (! $isAdmin && ! $isSelf) {
             abort(403, 'Unauthorized to manage Two-Factor Authentication for this user.');
         }
 
-        if (!$isSelf && $companyId) {
+        if (! $isSelf && $companyId) {
             $belongsToCompany = $user->companies()->where('companies.id', $companyId)->exists();
-            if (!$belongsToCompany && !$actor->hasRole('super_admin')) {
+            if (! $belongsToCompany && ! $actor->hasRole('super_admin')) {
                 abort(403, 'Target user does not belong to your company.');
             }
         }
 
-        $enabled = $request->has('enabled') ? $request->boolean('enabled') : !$user->two_factor_enabled;
+        $enabled = $request->has('enabled') ? $request->boolean('enabled') : ! $user->two_factor_enabled;
         if ($enabled) {
             $user->ensureTotpSecret();
             $user->forceFill([
@@ -350,7 +360,7 @@ class AuthController extends Controller
         AuditLog::record(
             'auth.2fa_toggled',
             $user,
-            ['two_factor_enabled' => !$enabled],
+            ['two_factor_enabled' => ! $enabled],
             ['two_factor_enabled' => $enabled, 'toggled_by' => $actor->id]
         );
 
@@ -359,18 +369,18 @@ class AuthController extends Controller
             : __('Two-Factor Authentication disabled for :name.', ['name' => $user->name]));
     }
 
-    public function resetTwoFactor(Request $request, \App\Models\User $user): RedirectResponse
+    public function resetTwoFactor(Request $request, User $user): RedirectResponse
     {
         $actor = Auth::user();
         $companyId = TenantContext::getCompanyId();
 
-        if (!$actor || !$actor->hasRole(['super_admin', 'company_admin'])) {
+        if (! $actor || ! $actor->hasRole(['super_admin', 'company_admin'])) {
             abort(403, 'Only Company Administrators can reset Two-Factor Authentication recovery.');
         }
 
-        if ($companyId && !$actor->hasRole('super_admin')) {
+        if ($companyId && ! $actor->hasRole('super_admin')) {
             $belongsToCompany = $user->companies()->where('companies.id', $companyId)->exists();
-            if (!$belongsToCompany) {
+            if (! $belongsToCompany) {
                 abort(403, 'Target user does not belong to your company.');
             }
         }
@@ -387,12 +397,12 @@ class AuthController extends Controller
         return back()->with('success', __('Two-Factor Authentication enrollment has been reset for :name.', ['name' => $user->name]));
     }
 
-    public function toggleUserActive(Request $request, \App\Models\User $user): RedirectResponse
+    public function toggleUserActive(Request $request, User $user): RedirectResponse
     {
         $actor = Auth::user();
         $companyId = TenantContext::getCompanyId();
 
-        if (!$actor->hasRole(['super_admin', 'company_admin'])) {
+        if (! $actor->hasRole(['super_admin', 'company_admin'])) {
             abort(403, 'Only Company Administrators can activate or deactivate user accounts.');
         }
 
@@ -400,36 +410,73 @@ class AuthController extends Controller
             return back()->with('error', __('You cannot deactivate your own account.'));
         }
 
-        if ($companyId && !$actor->hasRole('super_admin')) {
+        if ($companyId && ! $actor->hasRole('super_admin')) {
             $belongsToCompany = $user->companies()->where('companies.id', $companyId)->exists();
-            if (!$belongsToCompany) {
+            if (! $belongsToCompany) {
                 abort(403, 'Target user does not belong to your company.');
             }
         }
 
-        $newStatus = $request->has('is_active') ? $request->boolean('is_active') : !$user->is_active;
+        $newStatus = $request->has('is_active') ? $request->boolean('is_active') : ! $user->is_active;
         $oldStatus = (bool) $user->is_active;
 
-        if (!$newStatus && $companyId && $user->isLastActiveCompanyAdmin((int) $companyId)) {
+        if (! $newStatus && $companyId && $user->isLastActiveCompanyAdmin((int) $companyId)) {
             return back()->with('error', __('Cannot deactivate the last active Company Administrator account.'));
         }
 
-        $user->forceFill([
-            'is_active' => $newStatus,
-        ])->save();
+        DB::transaction(function () use ($user, $companyId, $newStatus, $oldStatus, $actor) {
+            if ($companyId) {
+                DB::table('company_user')
+                    ->where('company_id', $companyId)
+                    ->where('user_id', $user->id)
+                    ->update([
+                        'status' => $newStatus ? 'active' : 'inactive',
+                        'updated_at' => now(),
+                    ]);
+            }
 
-        if (!$newStatus && \Illuminate\Support\Facades\Schema::hasTable('sessions')) {
-            \Illuminate\Support\Facades\DB::table('sessions')
-                ->where('user_id', $user->id)
-                ->delete();
-        }
+            if ($newStatus) {
+                $user->forceFill(['is_active' => true])->save();
+            } else {
+                $remainingActiveCompanies = $companyId
+                    ? DB::table('company_user')
+                        ->where('user_id', $user->id)
+                        ->where('status', 'active')
+                        ->exists()
+                    : false;
 
-        AuditLog::record(
-            $newStatus ? 'user.activated' : 'user.deactivated',
-            $user,
-            ['is_active' => $oldStatus],
-            ['is_active' => $newStatus, 'acted_by' => $actor->id]
-        );
+                if (! $remainingActiveCompanies) {
+                    $user->forceFill(['is_active' => false])->save();
+                    if (Schema::hasTable('sessions')) {
+                        DB::table('sessions')
+                            ->where('user_id', $user->id)
+                            ->delete();
+                    }
+                }
+
+                if ($companyId && Schema::hasColumn('workers', 'user_id')) {
+                    $linkedWorkers = Worker::withoutGlobalScopes()
+                        ->where('company_id', $companyId)
+                        ->where('user_id', $user->id)
+                        ->where('status', 'active')
+                        ->get();
+
+                    foreach ($linkedWorkers as $lw) {
+                        $lw->update([
+                            'status' => 'inactive',
+                            'exit_date' => $lw->exit_date ?: now()->toDateString(),
+                        ]);
+                    }
+                }
+            }
+
+            AuditLog::record(
+                $newStatus ? 'user.activated' : 'user.deactivated',
+                $user,
+                ['is_active' => $oldStatus],
+                ['is_active' => (bool) $user->is_active, 'company_status' => $newStatus ? 'active' : 'inactive', 'acted_by' => $actor->id]
+            );
+        });
 
         return back()->with('success', $newStatus
             ? __('User account :name has been reactivated.', ['name' => $user->name])

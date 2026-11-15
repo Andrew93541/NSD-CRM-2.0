@@ -9,8 +9,10 @@ use App\Models\InventoryStock;
 use App\Models\Project;
 use App\Models\Site;
 use App\Models\Task;
-use App\Models\WorkOrder;
+use App\Models\User;
 use App\Models\Worker;
+use App\Models\WorkOrder;
+use App\Services\Security\TenantContext;
 use App\Services\Workforce\AttendanceService;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
@@ -22,11 +24,9 @@ use Symfony\Component\HttpFoundation\StreamedResponse;
 
 class ReportsController extends Controller
 {
-    public function __construct(protected AttendanceService $attendanceService)
-    {
-    }
+    public function __construct(protected AttendanceService $attendanceService) {}
 
-    protected function hasUnrestrictedReportSiteAccess(\App\Models\User $user, array $roles = ['super_admin', 'company_admin', 'senior_manager', 'office_staff']): bool
+    protected function hasUnrestrictedReportSiteAccess(User $user, array $roles = ['super_admin', 'company_admin', 'senior_manager', 'office_staff']): bool
     {
         if ($user->hasRole(['super_admin', 'company_admin'])) {
             return true;
@@ -59,7 +59,7 @@ class ReportsController extends Controller
             : Site::whereIn('id', $accessibleSiteIds)->where('status', 'active')->orderBy('code')->get();
 
         $mode = $request->query('mode', 'date');
-        if (!in_array($mode, ['date', 'month'], true)) {
+        if (! in_array($mode, ['date', 'month'], true)) {
             $mode = 'date';
         }
 
@@ -72,7 +72,7 @@ class ReportsController extends Controller
 
         if ($siteId) {
             $site = Site::findOrFail($siteId);
-            if (!$user->isAssignedToSite($site)) {
+            if (! $user->isAssignedToSite($site)) {
                 abort(403, 'Unauthorized to view attendance report for this site.');
             }
         }
@@ -115,7 +115,7 @@ class ReportsController extends Controller
         ));
     }
 
-    public function workOrders(): View
+    public function workOrders(Request $request): View
     {
         Gate::authorize('viewAny', WorkOrder::class);
 
@@ -125,53 +125,60 @@ class ReportsController extends Controller
         }
 
         $hasAllSiteAccess = $this->hasUnrestrictedReportSiteAccess($user);
+        $perPage = max(5, min(100, (int) $request->query('per_page', 25)));
 
         $baseQuery = WorkOrder::query();
-        if (!$hasAllSiteAccess) {
+        if (! $hasAllSiteAccess) {
             $accessibleSiteIds = $user->accessibleSiteIds();
             $baseQuery->where(function ($q) use ($accessibleSiteIds) {
                 $q->whereNull('site_id')
-                  ->orWhereIn('site_id', $accessibleSiteIds);
+                    ->orWhereIn('site_id', $accessibleSiteIds);
             });
+        }
+
+        if ($request->filled('status')) {
+            $baseQuery->where('status', (string) $request->query('status'));
         }
 
         $totalOrders = (clone $baseQuery)->count();
         $byStatus = (clone $baseQuery)->selectRaw('status, count(*) as count')->groupBy('status')->pluck('count', 'status')->toArray();
         $byType = (clone $baseQuery)->selectRaw('order_type, count(*) as count')->groupBy('order_type')->pluck('count', 'order_type')->toArray();
-        $orders = (clone $baseQuery)->with(['site', 'project', 'siteManager', 'seniorManager'])->latest()->get();
+        $orders = (clone $baseQuery)->with(['site', 'project', 'siteManager', 'seniorManager'])->latest()->paginate($perPage)->withQueryString();
 
         return view('reports.work_orders', compact('totalOrders', 'byStatus', 'byType', 'orders'));
     }
 
-    public function inventory(): View
+    public function inventory(Request $request): View
     {
         $user = Auth::user();
         if ($user->isExplicitlyDenied('reports.view') || $user->isExplicitlyDenied('inventory.view')) {
             abort(403, 'Unauthorized to view inventory reports.');
         }
 
-        if (!$user->hasRole(['super_admin', 'company_admin', 'senior_manager', 'site_manager', 'site_supervisor', 'warehouse_manager', 'office_staff'])
-            && !$user->hasPermission('inventory.view')
-            && !$user->hasPermission('reports.view')
+        if (! $user->hasRole(['super_admin', 'company_admin', 'senior_manager', 'site_manager', 'site_supervisor', 'warehouse_manager', 'office_staff'])
+            && ! $user->hasPermission('inventory.view')
+            && ! $user->hasPermission('reports.view')
         ) {
             abort(403, 'Unauthorized to view inventory reports.');
         }
 
         $hasAllSiteAccess = $this->hasUnrestrictedReportSiteAccess($user, ['super_admin', 'company_admin', 'senior_manager', 'warehouse_manager', 'office_staff']);
         $accessibleSiteIds = $hasAllSiteAccess ? null : $user->accessibleSiteIds();
+        $perPage = max(5, min(100, (int) $request->query('per_page', 25)));
 
-        $stocks = InventoryStock::with(['material.category', 'warehouse'])
+        $stocksBaseQuery = InventoryStock::with(['material.category', 'warehouse'])
             ->when($accessibleSiteIds !== null, function ($q) use ($accessibleSiteIds) {
                 $q->whereHas('warehouse', function ($wq) use ($accessibleSiteIds) {
                     $wq->whereNull('site_id')
-                       ->orWhereIn('site_id', $accessibleSiteIds);
+                        ->orWhereIn('site_id', $accessibleSiteIds);
                 });
-            })
-            ->get();
+            });
 
-        $totalValuation = $stocks->sum(function ($s) {
+        $totalValuation = (clone $stocksBaseQuery)->get()->sum(function ($s) {
             return $s->quantity * ($s->material->standard_unit_cost ?? 0);
         });
+
+        $stocks = $stocksBaseQuery->orderByDesc('updated_at')->orderByDesc('id')->paginate($perPage)->withQueryString();
 
         return view('reports.inventory', compact('stocks', 'totalValuation'));
     }
@@ -204,7 +211,7 @@ class ReportsController extends Controller
         $siteRows = [];
         $siteIds = $sites->pluck('id')->all();
 
-        $workerCountsBySite = !empty($siteIds)
+        $workerCountsBySite = ! empty($siteIds)
             ? Worker::where('status', 'active')
                 ->whereIn('assigned_site_id', $siteIds)
                 ->selectRaw('assigned_site_id, COUNT(*) as aggregate_count')
@@ -212,7 +219,7 @@ class ReportsController extends Controller
                 ->pluck('aggregate_count', 'assigned_site_id')
             : collect();
 
-        $attendancesBySite = !empty($siteIds)
+        $attendancesBySite = ! empty($siteIds)
             ? DailyAttendance::whereIn('site_id', $siteIds)
                 ->whereDate('attendance_date', '>=', $startDate)
                 ->whereDate('attendance_date', '<=', $endDate)
@@ -220,7 +227,7 @@ class ReportsController extends Controller
                 ->groupBy('site_id')
             : collect();
 
-        $openFlagsBySite = (!empty($siteIds) && Schema::hasTable('attendance_flags'))
+        $openFlagsBySite = (! empty($siteIds) && Schema::hasTable('attendance_flags'))
             ? AttendanceFlag::whereIn('site_id', $siteIds)
                 ->where('status', 'open')
                 ->selectRaw('site_id, COUNT(*) as aggregate_count')
@@ -228,7 +235,7 @@ class ReportsController extends Controller
                 ->pluck('aggregate_count', 'site_id')
             : collect();
 
-        $openTasksBySite = (!empty($siteIds) && Schema::hasTable('tasks'))
+        $openTasksBySite = (! empty($siteIds) && Schema::hasTable('tasks'))
             ? Task::whereIn('site_id', $siteIds)
                 ->whereIn('status', ['pending', 'in_progress', 'blocked'])
                 ->selectRaw('site_id, COUNT(*) as aggregate_count')
@@ -236,7 +243,7 @@ class ReportsController extends Controller
                 ->pluck('aggregate_count', 'site_id')
             : collect();
 
-        $completedTasksBySite = (!empty($siteIds) && Schema::hasTable('tasks'))
+        $completedTasksBySite = (! empty($siteIds) && Schema::hasTable('tasks'))
             ? Task::whereIn('site_id', $siteIds)
                 ->where('status', 'completed')
                 ->selectRaw('site_id, COUNT(*) as aggregate_count')
@@ -277,11 +284,11 @@ class ReportsController extends Controller
     public function auditLogs(Request $request): View
     {
         $user = Auth::user();
-        if (!$user->canPerform('audit_logs.view', ['super_admin', 'company_admin', 'senior_manager', 'site_manager', 'office_staff'])) {
+        if (! $user->canPerform('audit_logs.view', ['super_admin', 'company_admin', 'senior_manager', 'site_manager', 'office_staff'])) {
             abort(403, 'Unauthorized to view operational audit logs.');
         }
 
-        $companyId = \App\Services\Security\TenantContext::getCompanyId();
+        $companyId = TenantContext::getCompanyId();
         $hasAllSiteAccess = $this->hasUnrestrictedReportSiteAccess($user);
         $accessibleSiteIds = $hasAllSiteAccess ? null : $user->accessibleSiteIds();
 
@@ -292,7 +299,7 @@ class ReportsController extends Controller
 
         if ($siteId !== null) {
             $site = Site::findOrFail($siteId);
-            if (!$hasAllSiteAccess && !$user->isAssignedToSite($site)) {
+            if (! $hasAllSiteAccess && ! $user->isAssignedToSite($site)) {
                 abort(403, 'Unauthorized to view audit logs for this site.');
             }
         }
@@ -303,6 +310,7 @@ class ReportsController extends Controller
 
         $logs = collect();
         $distinctEvents = collect();
+        $perPage = max(5, min(100, (int) $request->query('per_page', 50)));
 
         if (Schema::hasTable('activity_logs') && $companyId) {
             $distinctEvents = AuditLog::where('company_id', $companyId)
@@ -321,8 +329,8 @@ class ReportsController extends Controller
                 ->when($endDate, fn ($q) => $q->whereDate('created_at', '<=', $endDate))
                 ->latest('created_at')
                 ->latest('id')
-                ->limit(250)
-                ->get();
+                ->paginate($perPage)
+                ->withQueryString();
         }
 
         return view('reports.audit_logs', compact(
@@ -343,40 +351,48 @@ class ReportsController extends Controller
             abort(403, 'Unauthorized to export audit logs.');
         }
 
-        if (!$user->canPerform('audit_logs.export', ['super_admin', 'company_admin', 'senior_manager', 'office_staff'])
-            && !$user->hasPermission('audit_logs.view')
+        if (! $user->canPerform('audit_logs.export', ['super_admin', 'company_admin', 'senior_manager', 'office_staff'])
+            && ! $user->hasPermission('audit_logs.view')
         ) {
             abort(403, 'Unauthorized to export audit logs.');
         }
 
-        $companyId = \App\Services\Security\TenantContext::getCompanyId();
+        $companyId = TenantContext::getCompanyId();
         $hasAllSiteAccess = $this->hasUnrestrictedReportSiteAccess($user);
         $accessibleSiteIds = $hasAllSiteAccess ? null : $user->accessibleSiteIds();
 
         $eventFilter = $request->query('event');
         $siteId = $request->filled('site_id') ? (int) $request->query('site_id') : null;
+        $startDate = $request->query('start_date');
+        $endDate = $request->query('end_date');
 
         if ($siteId !== null) {
             $site = Site::findOrFail($siteId);
-            if (!$hasAllSiteAccess && !$user->isAssignedToSite($site)) {
+            if (! $hasAllSiteAccess && ! $user->isAssignedToSite($site)) {
                 abort(403, 'Unauthorized to export audit logs for this site.');
             }
         }
 
-        $logs = (Schema::hasTable('activity_logs') && $companyId)
+        $logsQuery = (Schema::hasTable('activity_logs') && $companyId)
             ? AuditLog::with(['actor', 'site', 'project'])
                 ->where('company_id', $companyId)
                 ->when($accessibleSiteIds !== null, fn ($q) => $q->whereIn('site_id', $accessibleSiteIds))
                 ->when($eventFilter, fn ($q) => $q->where('action', $eventFilter))
                 ->when($siteId, fn ($q) => $q->where('site_id', $siteId))
-                ->latest('created_at')
-                ->limit(1000)
-                ->get()
-            : collect();
+                ->when($startDate, fn ($q) => $q->whereDate('created_at', '>=', $startDate))
+                ->when($endDate, fn ($q) => $q->whereDate('created_at', '<=', $endDate))
+            : null;
 
-        $filename = 'nsd_audit_logs_' . Carbon::now()->format('Ymd_His') . '.csv';
+        $filename = 'nsd_audit_logs_'.Carbon::now()->format('Ymd_His').'.csv';
+        $sanitizeCell = static function (?string $value): string {
+            $str = (string) ($value ?? '');
 
-        return response()->streamDownload(function () use ($logs) {
+            return ($str !== '' && in_array($str[0], ['=', '+', '-', '@', "\t", "\r"], true))
+                ? "'".$str
+                : $str;
+        };
+
+        return response()->streamDownload(function () use ($logsQuery, $sanitizeCell) {
             $out = fopen('php://output', 'w');
             fputcsv($out, [
                 'Timestamp',
@@ -389,17 +405,19 @@ class ReportsController extends Controller
                 'New Values JSON',
             ]);
 
-            foreach ($logs as $log) {
-                fputcsv($out, [
-                    $log->created_at?->format('Y-m-d H:i:s'),
-                    $log->action ?? $log->event,
-                    $log->actor?->name ?? 'System',
-                    $log->site?->code ?? '-',
-                    class_basename($log->subject_type ?? ''),
-                    $log->subject_id ?? '-',
-                    $log->ip_address ?? '-',
-                    $log->new_values ? json_encode($log->new_values) : '',
-                ]);
+            if ($logsQuery !== null) {
+                foreach ($logsQuery->lazyByIdDesc(250, 'id') as $log) {
+                    fputcsv($out, [
+                        $log->created_at?->format('Y-m-d H:i:s'),
+                        $sanitizeCell($log->action ?? $log->event),
+                        $sanitizeCell($log->actor?->name ?? 'System'),
+                        $sanitizeCell($log->site?->code ?? '-'),
+                        $sanitizeCell(class_basename($log->subject_type ?? '')),
+                        $log->subject_id ?? '-',
+                        $sanitizeCell($log->ip_address ?? '-'),
+                        $sanitizeCell($log->new_values ? json_encode($log->new_values) : ''),
+                    ]);
+                }
             }
 
             fclose($out);

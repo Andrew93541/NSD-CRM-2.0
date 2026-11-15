@@ -7,6 +7,7 @@ use App\Models\Role;
 use App\Models\Site;
 use App\Models\SiteAssignment;
 use App\Models\User;
+use App\Models\Worker;
 use App\Services\Security\PermissionCatalog;
 use App\Services\Security\TenantContext;
 use Illuminate\Http\RedirectResponse;
@@ -77,7 +78,7 @@ class UserManagementController extends Controller
             ]);
 
         if ($request->filled('search')) {
-            $term = '%' . trim((string) $request->query('search')) . '%';
+            $term = '%'.trim((string) $request->query('search')).'%';
             $query->where(function ($q) use ($term) {
                 $q->where('users.name', 'like', $term)
                     ->orWhere('users.email', 'like', $term);
@@ -468,6 +469,21 @@ class UserManagementController extends Controller
 
             if (! $newActive && Schema::hasTable('sessions')) {
                 DB::table('sessions')->where('user_id', $user->id)->delete();
+            }
+
+            if (! $newActive && Schema::hasColumn('workers', 'user_id')) {
+                $linkedWorkers = Worker::withoutGlobalScopes()
+                    ->where('company_id', $companyId)
+                    ->where('user_id', $user->id)
+                    ->where('status', 'active')
+                    ->get();
+
+                foreach ($linkedWorkers as $lw) {
+                    $lw->update([
+                        'status' => 'inactive',
+                        'exit_date' => $lw->exit_date ?: now()->toDateString(),
+                    ]);
+                }
             }
         });
 

@@ -59,6 +59,13 @@ A production-grade, multi-site operational CRM built from scratch for **NSD Eart
 - **Work Orders Funnel**: Active contract orders categorized by lifecycle stage and order type.
 - **Inventory Stock Valuation**: Live physical quantities on hand and total valuation based on standard unit rates.
 
+### Release 1 — Product Completion (`BL-01` – `BL-15` & Individual Statutory Payroll)
+- **Master Data & Administration**: Editable Company Legal/GST/Bank settings, Client Master, Vendor Master, Subcontractor Master, Warehouse & Material Catalog CRUD, Holiday Calendar, and Leave Types.
+- **Security & Access Control**: Password reset & forced rotation flows, strict per-user `deny` override precedence, opt-in `procurement.request` permission for Office Staff, and private `VaultStorage` document abstraction (`storage/app/private`).
+- **Inventory & Procurement**: Dynamic per-company document numbering (`PR`, `PO`, `GRN`, `ISS`, `TRF`, `RTN`, `ADJ`), Stock Issue/Transfer/Return ledger, maker-checker Stock Adjustments, PR reject/cancel, and printable PO & GRN PDFs.
+- **Approvals, Finance & Workforce**: Unified `/approvals` center with deduplicated notifications, `IGST` vs `CGST + SGST` tax modes, standalone `/ra-bills` register, maker-checker site measurements, Worker QR ID & Payslip PDFs, formula-safe Bank Payout CSV, `Worker <-> User` account linking, individual per-worker `PF` / `ESIC` / `PT` statutory payroll with immutable snapshots, and server-side pagination across registers and reports.
+- See [`docs/RELEASE_1_IMPLEMENTATION_GUIDE.md`](docs/RELEASE_1_IMPLEMENTATION_GUIDE.md) for complete technical and operational details.
+
 ---
 
 ## 3. Seeded Demo Accounts (Password: `password`)

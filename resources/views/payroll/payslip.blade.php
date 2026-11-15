@@ -19,6 +19,9 @@
                 <span class="font-bold text-amber-400">{{ __('Official Worker Payslip') }}</span> &bull; {{ $worker?->full_name }} ({{ $worker?->code }})
             </div>
             <div class="flex items-center gap-2">
+                <a href="{{ route('payroll.payslip_pdf', [$period, $entry]) }}" class="px-4 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-700 text-white text-xs font-bold transition">
+                    {{ __('Download PDF') }} &darr;
+                </a>
                 <button onclick="window.print()" class="px-4 py-1.5 rounded-lg bg-amber-500 hover:bg-amber-400 text-slate-950 text-xs font-extrabold transition">
                     {{ __('Print / Save as PDF') }}
                 </button>
@@ -103,28 +106,56 @@
                     </div>
                 </div>
 
+                @php
+                    $snap = is_array($entry->statutory_snapshot ?? null) ? $entry->statutory_snapshot : [];
+                    $pfStatusLabel = strtoupper($snap['pf']['status'] ?? ($worker?->pf_status ?? 'unconfigured'));
+                    $esicStatusLabel = strtoupper($snap['esic']['status'] ?? ($worker?->esic_status ?? 'unconfigured'));
+                    $ptStatusLabel = strtoupper($snap['pt']['status'] ?? ($worker?->pt_status ?? 'unconfigured'));
+                    $pfEmpAmt = (float) ($entry->pf_employee_amount ?? 0);
+                    $esicEmpAmt = (float) ($entry->esic_employee_amount ?? 0);
+                    $ptAmt = (float) ($entry->pt_amount ?? 0);
+                    $pfEmployerAmt = (float) ($entry->pf_employer_amount ?? 0);
+                    $esicEmployerAmt = (float) ($entry->esic_employer_amount ?? 0);
+                    $totalEmployeeDeductions = round((float) $entry->advance_deduction + (float) $entry->other_deduction + $pfEmpAmt + $esicEmpAmt + $ptAmt, 2);
+                @endphp
                 <div class="border border-slate-300 rounded-lg overflow-hidden">
                     <div class="bg-slate-900 text-white px-4 py-2 text-xs font-extrabold uppercase">{{ __('Deductions') }}</div>
                     <div class="divide-y divide-slate-200 text-xs">
-                        <div class="px-4 py-2.5 flex justify-between">
+                        <div class="px-4 py-2 flex justify-between">
                             <span>{{ __('Salary Advance Recovery') }}</span>
                             <span class="font-mono font-bold text-rose-600">₹{{ number_format((float) $entry->advance_deduction, 2) }}</span>
                         </div>
-                        <div class="px-4 py-2.5 flex justify-between">
+                        <div class="px-4 py-2 flex justify-between">
+                            <span>{{ __('Employee PF') }} <span class="text-[10px] text-slate-500">({{ $pfStatusLabel }})</span></span>
+                            <span class="font-mono font-bold text-rose-600">₹{{ number_format($pfEmpAmt, 2) }}</span>
+                        </div>
+                        <div class="px-4 py-2 flex justify-between">
+                            <span>{{ __('Employee ESIC') }} <span class="text-[10px] text-slate-500">({{ $esicStatusLabel }})</span></span>
+                            <span class="font-mono font-bold text-rose-600">₹{{ number_format($esicEmpAmt, 2) }}</span>
+                        </div>
+                        <div class="px-4 py-2 flex justify-between">
+                            <span>{{ __('Professional Tax (PT)') }} <span class="text-[10px] text-slate-500">({{ $ptStatusLabel }})</span></span>
+                            <span class="font-mono font-bold text-rose-600">₹{{ number_format($ptAmt, 2) }}</span>
+                        </div>
+                        <div class="px-4 py-2 flex justify-between">
                             <span>{{ __('Other Deductions') }} {{ $entry->deduction_notes ? '(' . $entry->deduction_notes . ')' : '' }}</span>
                             <span class="font-mono font-bold text-rose-600">₹{{ number_format((float) $entry->other_deduction, 2) }}</span>
                         </div>
-                        <div class="px-4 py-2.5 flex justify-between text-slate-400">
-                            <span>&nbsp;</span>
-                            <span>&nbsp;</span>
-                        </div>
                         <div class="px-4 py-3 flex justify-between bg-slate-50 font-extrabold">
                             <span>{{ __('Total Deductions') }}</span>
-                            <span class="font-mono text-rose-600">₹{{ number_format((float) $entry->advance_deduction + (float) $entry->other_deduction, 2) }}</span>
+                            <span class="font-mono text-rose-600">₹{{ number_format($totalEmployeeDeductions, 2) }}</span>
                         </div>
                     </div>
                 </div>
             </div>
+
+            @if($pfEmployerAmt > 0 || $esicEmployerAmt > 0)
+                <div class="text-xs bg-slate-50 border border-slate-200 rounded-lg px-4 py-2.5 text-slate-600">
+                    <span class="font-bold text-slate-800">{{ __('Employer Statutory Contributions (Non-Deductible)') }}:</span>
+                    {{ __('Employer PF') }}: <span class="font-mono font-semibold">₹{{ number_format($pfEmployerAmt, 2) }}</span> &bull;
+                    {{ __('Employer ESIC') }}: <span class="font-mono font-semibold">₹{{ number_format($esicEmployerAmt, 2) }}</span>
+                </div>
+            @endif
 
             <!-- Net Payable Banner -->
             <div class="p-4 rounded-xl bg-slate-900 text-white flex items-center justify-between">

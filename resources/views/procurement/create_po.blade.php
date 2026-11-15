@@ -8,17 +8,41 @@
     </div>
 
     <div class="p-6 sm:p-8 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-xl transition-colors duration-200">
-        <form method="POST" action="{{ route('procurement.store_po', $purchaseRequest) }}" class="space-y-5">
+        <form method="POST" action="{{ route('procurement.store_po', $purchaseRequest) }}" class="space-y-5"
+            x-data="{
+                vendorMap: {{ Js::from(($vendors ?? collect())->mapWithKeys(fn ($v) => [$v->id => ['name' => $v->name, 'phone' => $v->phone ?? '']])) }},
+                selectedVendor: '{{ old('vendor_id', '') }}',
+                supplierName: '{{ old('supplier_name', '') }}',
+                supplierPhone: '{{ old('supplier_phone', '') }}',
+                applyVendor() {
+                    if (this.selectedVendor && this.vendorMap[this.selectedVendor]) {
+                        this.supplierName = this.vendorMap[this.selectedVendor].name;
+                        this.supplierPhone = this.vendorMap[this.selectedVendor].phone;
+                    }
+                }
+            }">
             @csrf
+
+            @if(isset($vendors) && $vendors->isNotEmpty())
+                <div>
+                    <label class="block text-xs font-bold text-slate-700 dark:text-slate-300 uppercase mb-1">{{ __('Select Registered Supplier (Optional)') }}</label>
+                    <select name="vendor_id" x-model="selectedVendor" @change="applyVendor()" class="w-full rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-slate-800 p-2.5 text-sm text-slate-900 dark:text-white focus:border-amber-500 outline-none">
+                        <option value="">{{ __('— Enter supplier manually below —') }}</option>
+                        @foreach($vendors as $vendor)
+                            <option value="{{ $vendor->id }}">{{ $vendor->code }} — {{ $vendor->name }}{{ $vendor->gstin ? ' (GST: '.$vendor->gstin.')' : '' }}</option>
+                        @endforeach
+                    </select>
+                </div>
+            @endif
 
             <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
                     <label class="block text-xs font-bold text-slate-700 dark:text-slate-300 uppercase mb-1">{{ __('Vendor / Supplier Name') }} *</label>
-                    <input type="text" name="supplier_name" required placeholder="e.g. UltraTech Cement Corp / Indian Oil" class="w-full rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-slate-800 p-2.5 text-sm text-slate-900 dark:text-white focus:border-amber-500 outline-none">
+                    <input type="text" name="supplier_name" x-model="supplierName" required placeholder="e.g. UltraTech Cement Corp / Indian Oil" class="w-full rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-slate-800 p-2.5 text-sm text-slate-900 dark:text-white focus:border-amber-500 outline-none">
                 </div>
                 <div>
                     <label class="block text-xs font-bold text-slate-700 dark:text-slate-300 uppercase mb-1">{{ __('Supplier Phone') }}</label>
-                    <input type="text" name="supplier_phone" placeholder="+91 ..." class="w-full rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-slate-800 p-2.5 text-sm text-slate-900 dark:text-white focus:border-amber-500 outline-none">
+                    <input type="text" name="supplier_phone" x-model="supplierPhone" placeholder="+91 ..." class="w-full rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-slate-800 p-2.5 text-sm text-slate-900 dark:text-white focus:border-amber-500 outline-none">
                 </div>
             </div>
 

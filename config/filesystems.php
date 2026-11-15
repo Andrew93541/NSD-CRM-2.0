@@ -17,6 +17,22 @@ return [
 
     /*
     |--------------------------------------------------------------------------
+    | Private Document Vault Disk (Cloud Provider Deferred)
+    |--------------------------------------------------------------------------
+    |
+    | All sensitive CRM documents (worker KYC, project drawings, work order POs,
+    | measurement photos, RA bill/invoice exports, company stamps) resolve
+    | through App\Services\Storage\VaultStorage using this disk name.
+    | Local development uses private local storage (storage/app/private).
+    | When a cloud provider is selected in a future release, point 'vault'
+    | to that Laravel Storage driver and set CRM_VAULT_DISK=vault.
+    |
+    */
+
+    'vault_disk' => env('CRM_VAULT_DISK', 'local'),
+
+    /*
+    |--------------------------------------------------------------------------
     | Filesystem Disks
     |--------------------------------------------------------------------------
     |
@@ -34,6 +50,14 @@ return [
             'driver' => 'local',
             'root' => storage_path('app/private'),
             'serve' => true,
+            'throw' => false,
+            'report' => false,
+        ],
+
+        'vault' => [
+            'driver' => 'local',
+            'root' => storage_path('app/private'),
+            'serve' => false,
             'throw' => false,
             'report' => false,
         ],

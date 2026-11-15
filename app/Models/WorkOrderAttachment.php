@@ -13,6 +13,7 @@ class WorkOrderAttachment extends Model
     protected $fillable = [
         'work_order_id',
         'file_name',
+        'storage_disk',
         'file_path',
         'file_size',
         'mime_type',

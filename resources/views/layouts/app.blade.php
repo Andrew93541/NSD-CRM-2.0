@@ -48,7 +48,7 @@
                         <span class="font-extrabold text-xs sm:text-lg tracking-tight text-slate-900 dark:text-white flex items-center gap-1.5 sm:gap-2 whitespace-nowrap">
                             NSD CRM <span class="hidden sm:inline-block text-[10px] px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-600 dark:text-amber-300 font-bold border border-amber-500/30">2.0</span>
                         </span>
-                        <p class="text-[10px] text-slate-500 dark:text-slate-400 font-medium hidden sm:block">NSD Earth Movers & Construction</p>
+                        <p class="text-[10px] text-slate-500 dark:text-slate-400 font-medium hidden sm:block truncate max-w-[200px]">{{ $currentCompany->name ?? __('Construction & Business Operations') }}</p>
                     </div>
                 </a>
             </div>
@@ -133,7 +133,19 @@
                     </form>
                 @endif
 
-                @if(isset($currentCompany))
+                @if(isset($userCompanies) && $userCompanies->count() > 1 && isset($currentCompany))
+                    <form method="POST" action="{{ route('switch_company') }}" class="hidden md:flex items-center">
+                        @csrf
+                        <label for="topbar-company-switcher" class="sr-only">{{ __('Switch Organization') }}</label>
+                        <select id="topbar-company-switcher" name="company_id" onchange="this.form.submit()" class="rounded-xl bg-slate-100 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700/60 px-2.5 py-1.5 text-xs font-bold text-slate-700 dark:text-slate-200 focus:border-amber-500 outline-none max-w-[200px] truncate">
+                            @foreach($userCompanies as $orgOption)
+                                <option value="{{ $orgOption->id }}" {{ (int) $currentCompany->id === (int) $orgOption->id ? 'selected' : '' }}>
+                                    {{ $orgOption->code }} — {{ $orgOption->name }}
+                                </option>
+                            @endforeach
+                        </select>
+                    </form>
+                @elseif(isset($currentCompany))
                     <div class="hidden xl:flex items-center gap-2 px-3 py-1.5 rounded-xl bg-slate-100 border border-slate-200 text-slate-700 dark:bg-slate-800/80 dark:border-slate-700/60 dark:text-slate-300">
                         <span class="w-2 h-2 rounded-full bg-emerald-500 dark:bg-emerald-400 animate-pulse"></span>
                         <span class="text-xs font-semibold truncate max-w-[180px]">{{ $currentCompany->name }}</span>
@@ -186,6 +198,14 @@
                     <div>
                         <div class="text-sm leading-tight">{{ __('Dashboard') }}</div>
                         <div class="text-[11px] text-slate-500 dark:text-slate-400 font-normal mt-0.5">{{ __('Daily Overview') }}</div>
+                    </div>
+                </a>
+
+                <a href="{{ route('approvals.index') }}" class="group flex items-start gap-3.5 px-3 py-2.5 rounded-xl transition {{ request()->routeIs('approvals.*') ? 'bg-amber-500/10 text-amber-600 border border-amber-500/30 font-bold dark:bg-amber-500/10 dark:text-amber-400 dark:border-amber-500/30' : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900 font-medium dark:text-slate-300 dark:hover:bg-slate-800/60 dark:hover:text-white' }}">
+                    <svg class="w-5 h-5 flex-shrink-0 mt-0.5 text-emerald-600 dark:text-emerald-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+                    <div>
+                        <div class="text-sm leading-tight">{{ __('Pending Approvals') }}</div>
+                        <div class="text-[11px] text-slate-500 dark:text-slate-400 font-normal mt-0.5">{{ __('Actionable sign-offs') }}</div>
                     </div>
                 </a>
 
@@ -264,14 +284,14 @@
                 @endif
 
                 <!-- SECTION 4: FINANCE -->
-                @if(Auth::user()->hasPermission('invoices.view') || Auth::user()->hasPermission('work_orders.view') || Auth::user()->hasPermission('payroll.view') || Auth::user()->hasPermission('procurement.requests.view') || Auth::user()->hasPermission('procurement.orders.view') || Auth::user()->hasPermission('inventory.view'))
+                @if(Auth::user()->hasPermission('invoices.view') || Auth::user()->hasPermission('ra_bills.view') || Auth::user()->hasPermission('work_orders.view') || Auth::user()->hasPermission('payroll.view') || Auth::user()->hasPermission('payroll.create') || Auth::user()->hasPermission('payroll.edit') || Auth::user()->hasPermission('payroll.approve') || Auth::user()->can('viewAny', \App\Models\PurchaseRequest::class) || Auth::user()->hasPermission('inventory.view'))
                 <div class="pt-3 mt-2 border-t border-slate-200 dark:border-slate-800/60">
                     <span class="px-3 text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider">{{ __('Finance') }}</span>
                 </div>
                 @endif
 
-                @if(Auth::user()->hasPermission('invoices.view') || Auth::user()->can('viewAny', \App\Models\WorkOrder::class))
-                <a href="{{ route('work_orders.index') }}" class="group flex items-start gap-3.5 px-3 py-2.5 rounded-xl transition {{ request()->routeIs('work_orders.boq*') ? 'bg-amber-500/10 text-amber-600 border border-amber-500/30 font-bold dark:bg-amber-500/10 dark:text-amber-400 dark:border-amber-500/30' : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900 font-medium dark:text-slate-300 dark:hover:bg-slate-800/60 dark:hover:text-white' }}">
+                @if(!Auth::user()->isExplicitlyDenied('ra_bills.view') && (Auth::user()->hasPermission('invoices.view') || Auth::user()->hasPermission('ra_bills.view') || Auth::user()->canPerform('ra_bills.view', ['super_admin', 'company_admin', 'senior_manager', 'site_manager', 'office_staff'])))
+                <a href="{{ route('ra_bills.index') }}" class="group flex items-start gap-3.5 px-3 py-2.5 rounded-xl transition {{ request()->routeIs('ra_bills.*') || request()->routeIs('work_orders.ra_bills.*') ? 'bg-amber-500/10 text-amber-600 border border-amber-500/30 font-bold dark:bg-amber-500/10 dark:text-amber-400 dark:border-amber-500/30' : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900 font-medium dark:text-slate-300 dark:hover:bg-slate-800/60 dark:hover:text-white' }}">
                     <svg class="w-5 h-5 flex-shrink-0 mt-0.5 text-emerald-600 dark:text-emerald-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 14l6-6m-5.5.5h.01m4.99 5h.01M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16l3.5-2 3.5 2 3.5-2 3.5 2z"/></svg>
                     <div>
                         <div class="text-sm leading-tight">{{ __('Invoices & RA Bills') }}</div>
@@ -280,7 +300,7 @@
                 </a>
                 @endif
 
-                @if(Auth::user()->hasPermission('payroll.view') || Auth::user()->can('viewAny', \App\Models\Worker::class))
+                @if(!Auth::user()->isExplicitlyDenied('payroll.view') && (Auth::user()->canPerform('payroll.view', ['super_admin', 'company_admin', 'senior_manager', 'site_manager', 'office_staff']) || Auth::user()->hasPermission('payroll.create') || Auth::user()->hasPermission('payroll.edit') || Auth::user()->hasPermission('payroll.approve')))
                 <a href="{{ route('payroll.index') }}" class="group flex items-start gap-3.5 px-3 py-2.5 rounded-xl transition {{ request()->routeIs('payroll.*') ? 'bg-amber-500/10 text-amber-600 border border-amber-500/30 font-bold dark:bg-amber-500/10 dark:text-amber-400 dark:border-amber-500/30' : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900 font-medium dark:text-slate-300 dark:hover:bg-slate-800/60 dark:hover:text-white' }}">
                     <svg class="w-5 h-5 flex-shrink-0 mt-0.5 text-teal-600 dark:text-teal-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
                     <div>
@@ -290,7 +310,7 @@
                 </a>
                 @endif
 
-                @if(Auth::user()->hasPermission('procurement.requests.view') || Auth::user()->hasPermission('procurement.orders.view') || Auth::user()->hasPermission('inventory.view'))
+                @if(Auth::user()->can('viewAny', \App\Models\PurchaseRequest::class) || Auth::user()->hasPermission('inventory.view'))
                 <a href="{{ route('procurement.requests') }}" class="group flex items-start gap-3.5 px-3 py-2.5 rounded-xl transition {{ request()->routeIs('procurement.*') ? 'bg-amber-500/10 text-amber-600 border border-amber-500/30 font-bold dark:bg-amber-500/10 dark:text-amber-400 dark:border-amber-500/30' : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900 font-medium dark:text-slate-300 dark:hover:bg-slate-800/60 dark:hover:text-white' }}">
                     <svg class="w-5 h-5 flex-shrink-0 mt-0.5 text-cyan-600 dark:text-cyan-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4"/></svg>
                     <div>
@@ -315,6 +335,16 @@
                 <div class="pt-3 mt-2 border-t border-slate-200 dark:border-slate-800/60">
                     <span class="px-3 text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider">{{ __('Administration') }}</span>
                 </div>
+                @endif
+
+                @if(Auth::user()->hasRole(['super_admin', 'company_admin']) && !Auth::user()->isExplicitlyDenied('settings.manage'))
+                <a href="{{ route('admin.company.edit') }}" class="group flex items-start gap-3.5 px-3 py-2.5 rounded-xl transition {{ request()->routeIs('admin.company.*') ? 'bg-amber-500/10 text-amber-600 border border-amber-500/30 font-bold dark:bg-amber-500/10 dark:text-amber-400 dark:border-amber-500/30' : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900 font-medium dark:text-slate-300 dark:hover:bg-slate-800/60 dark:hover:text-white' }}">
+                    <svg class="w-5 h-5 flex-shrink-0 mt-0.5 text-amber-600 dark:text-amber-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4"/></svg>
+                    <div>
+                        <div class="text-sm leading-tight">{{ __('Company Profile') }}</div>
+                        <div class="text-[11px] text-slate-500 dark:text-slate-400 font-normal mt-0.5">{{ __('GST, bank & invoice rules') }}</div>
+                    </div>
+                </a>
                 @endif
 
                 @if(Auth::user()->hasRole(['super_admin', 'company_admin']) || Auth::user()->hasPermission('users.view') || Auth::user()->hasPermission('roles.view'))
@@ -382,6 +412,9 @@
                         <a href="{{ route('dashboard') }}" class="flex items-center gap-3 px-3 py-2 rounded-xl text-sm font-bold {{ request()->routeIs('dashboard') ? 'bg-amber-500 text-slate-950 shadow' : 'text-slate-700 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800' }}">
                             <span>{{ __('Dashboard') }}</span>
                         </a>
+                        <a href="{{ route('approvals.index') }}" class="flex items-center gap-3 px-3 py-2 rounded-xl text-sm font-bold {{ request()->routeIs('approvals.*') ? 'bg-amber-500 text-slate-950 shadow' : 'text-slate-700 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800' }}">
+                            <span>{{ __('Pending Approvals') }}</span>
+                        </a>
 
                         <div class="px-3 pt-2.5 pb-1 text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider">{{ __('Projects') }}</div>
                         @can('viewAny', \App\Models\Project::class)
@@ -418,12 +451,12 @@
                         @endif
 
                         <div class="px-3 pt-2.5 pb-1 text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider">{{ __('Finance') }}</div>
-                        @if(Auth::user()->hasPermission('ra_bills.view') || Auth::user()->hasPermission('work_orders.view') || Auth::user()->can('viewAny', \App\Models\WorkOrder::class))
-                        <a href="{{ route('work_orders.index', ['billing' => 1]) }}" class="flex items-center gap-3 px-3 py-2 rounded-xl text-sm font-bold {{ request()->routeIs('ra_bills.*') ? 'bg-amber-500 text-slate-950 shadow' : 'text-slate-700 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800' }}">
+                        @if(!Auth::user()->isExplicitlyDenied('ra_bills.view') && (Auth::user()->hasPermission('invoices.view') || Auth::user()->hasPermission('ra_bills.view') || Auth::user()->canPerform('ra_bills.view', ['super_admin', 'company_admin', 'senior_manager', 'site_manager', 'office_staff'])))
+                        <a href="{{ route('ra_bills.index') }}" class="flex items-center gap-3 px-3 py-2 rounded-xl text-sm font-bold {{ request()->routeIs('ra_bills.*') || request()->routeIs('work_orders.ra_bills.*') ? 'bg-amber-500 text-slate-950 shadow' : 'text-slate-700 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800' }}">
                             <span>{{ __('Invoices & RA Bills') }}</span>
                         </a>
                         @endif
-                        @if(Auth::user()->hasPermission('payroll.view') || Auth::user()->can('viewAny', \App\Models\Worker::class))
+                        @if(!Auth::user()->isExplicitlyDenied('payroll.view') && (Auth::user()->canPerform('payroll.view', ['super_admin', 'company_admin', 'senior_manager', 'site_manager', 'office_staff']) || Auth::user()->hasPermission('payroll.create') || Auth::user()->hasPermission('payroll.edit') || Auth::user()->hasPermission('payroll.approve')))
                         <a href="{{ route('payroll.index') }}" class="flex items-center gap-3 px-3 py-2 rounded-xl text-sm font-bold {{ request()->routeIs('payroll.*') ? 'bg-amber-500 text-slate-950 shadow' : 'text-slate-700 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800' }}">
                             <span>{{ __('Payroll & Payslips') }}</span>
                         </a>
@@ -438,6 +471,11 @@
                         @if(Auth::user()->hasPermission('reports.view') || Auth::user()->can('viewAny', \App\Models\Worker::class))
                         <a href="{{ route('reports.multi_site') }}" class="flex items-center gap-3 px-3 py-2 rounded-xl text-sm font-bold {{ request()->routeIs('reports.*') ? 'bg-amber-500 text-slate-950 shadow' : 'text-slate-700 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800' }}">
                             <span>{{ __('Reports') }}</span>
+                        </a>
+                        @endif
+                        @if(Auth::user()->hasRole(['super_admin', 'company_admin']) && !Auth::user()->isExplicitlyDenied('settings.manage'))
+                        <a href="{{ route('admin.company.edit') }}" class="flex items-center gap-3 px-3 py-2 rounded-xl text-sm font-bold {{ request()->routeIs('admin.company.*') ? 'bg-amber-500 text-slate-950 shadow' : 'text-slate-700 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800' }}">
+                            <span>{{ __('Company Profile') }}</span>
                         </a>
                         @endif
                         @if(Auth::user()->hasRole(['super_admin', 'company_admin']) || Auth::user()->hasPermission('users.view') || Auth::user()->hasPermission('roles.view'))

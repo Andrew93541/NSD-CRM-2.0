@@ -261,7 +261,11 @@
             <div>
                 <span class="text-slate-500">{{ __('Tax & Retention') }}:</span>
                 <span class="font-mono text-slate-800 dark:text-white ml-2">
-                    CGST {{ number_format((float) $workOrder->cgst_rate, 1) }}% + SGST {{ number_format((float) $workOrder->sgst_rate, 1) }}% | Ret {{ number_format((float) $workOrder->retention_percent, 1) }}%
+                    @if($workOrder->isIgst())
+                        IGST {{ number_format((float) $workOrder->igst_rate, 1) }}% | Ret {{ number_format((float) $workOrder->retention_percent, 1) }}%
+                    @else
+                        CGST {{ number_format((float) $workOrder->cgst_rate, 1) }}% + SGST {{ number_format((float) $workOrder->sgst_rate, 1) }}% | Ret {{ number_format((float) $workOrder->retention_percent, 1) }}%
+                    @endif
                 </span>
             </div>
         </div>
@@ -560,6 +564,9 @@
                     <p class="text-[11px] text-slate-500">{{ __('Record dimensional (L × B × D) or direct measurements, hold quantities, and generate Quantity-Capped RA Bills.') }}</p>
                 </div>
                 <div class="flex flex-wrap items-center gap-2">
+                    <a href="{{ route('work_orders.measurements.pdf', $workOrder) }}" class="px-3 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700 text-xs font-bold transition">
+                        {{ __('Measurement Book PDF') }} &darr;
+                    </a>
                     @can('recordMeasurement', $workOrder)
                         <a href="{{ route('work_orders.measurements.create', $workOrder) }}" class="px-3.5 py-1.5 rounded-xl bg-indigo-500/15 hover:bg-indigo-500/25 text-indigo-600 dark:text-indigo-400 border border-indigo-500/30 text-xs font-extrabold transition">
                             {{ __('Mobile Field Measurement Sheet') }} &nearr;
@@ -681,6 +688,68 @@
                     </form>
                 </div>
             @endcan
+
+            <!-- Recorded Site Measurements List -->
+            @if($workOrder->measurements->isNotEmpty())
+                <div class="space-y-2 text-xs">
+                    <div class="font-bold text-slate-500 uppercase">{{ __('Site Measurement Entries') }} ({{ $workOrder->measurements->count() }})</div>
+                    <div class="overflow-x-auto rounded-xl border border-slate-200 dark:border-slate-800">
+                        <table class="w-full text-left text-xs">
+                            <thead class="bg-slate-100 dark:bg-slate-950 text-slate-500 uppercase font-bold">
+                                <tr>
+                                    <th class="px-3 py-2">{{ __('Date') }}</th>
+                                    <th class="px-3 py-2">{{ __('BOQ Item') }}</th>
+                                    <th class="px-3 py-2">{{ __('Location') }}</th>
+                                    <th class="px-3 py-2 text-right">{{ __('Computed Qty') }}</th>
+                                    <th class="px-3 py-2">{{ __('Status') }}</th>
+                                    <th class="px-3 py-2 text-right">{{ __('Actions') }}</th>
+                                </tr>
+                            </thead>
+                            <tbody class="divide-y divide-slate-200 dark:divide-slate-800">
+                                @foreach($workOrder->measurements as $m)
+                                    <tr>
+                                        <td class="px-3 py-2 font-mono text-slate-600 dark:text-slate-400">{{ $m->measured_on?->format('d.m.Y') }}</td>
+                                        <td class="px-3 py-2 font-semibold">{{ $m->workOrderItem?->sr_no }} — {{ $m->workOrderItem?->description }}</td>
+                                        <td class="px-3 py-2 text-slate-500">{{ $m->location_chainage ?: '—' }}</td>
+                                        <td class="px-3 py-2 text-right font-mono font-bold">{{ number_format((float) $m->computed_quantity, 3) }} {{ $m->workOrderItem?->unit }}</td>
+                                        <td class="px-3 py-2">
+                                            @if($m->ra_bill_id)
+                                                <span class="px-2 py-0.5 rounded bg-emerald-500/15 text-emerald-700 dark:text-emerald-400 text-[10px] font-bold uppercase">{{ __('Billed') }}</span>
+                                            @elseif($m->status === 'draft')
+                                                <span class="px-2 py-0.5 rounded bg-amber-500/15 text-amber-700 dark:text-amber-400 text-[10px] font-bold uppercase">{{ __('Draft — Awaiting Verification') }}</span>
+                                            @else
+                                                <span class="px-2 py-0.5 rounded bg-sky-500/15 text-sky-700 dark:text-sky-400 text-[10px] font-bold uppercase">{{ __('Verified') }}</span>
+                                            @endif
+                                        </td>
+                                        <td class="px-3 py-2 text-right">
+                                            <div class="inline-flex items-center gap-2">
+                                                @if($m->photo_path)
+                                                    <a href="{{ route('work_orders.measurements.photo', [$workOrder, $m->id]) }}" class="text-sky-600 dark:text-sky-400 font-bold hover:underline">{{ __('Photo') }}</a>
+                                                @endif
+                                                @if(!$m->ra_bill_id && $m->status === 'draft' && (int) $m->recorded_by !== (int) auth()->id() && auth()->user()->canPerform('measurements.approve', ['super_admin', 'company_admin', 'senior_manager', 'site_manager']))
+                                                    <form method="POST" action="{{ route('work_orders.measurements.verify', [$workOrder, $m->id]) }}" class="inline">
+                                                        @csrf
+                                                        <button type="submit" class="px-2.5 py-1 rounded bg-emerald-600 text-white font-bold text-[11px] hover:bg-emerald-700">{{ __('Verify') }}</button>
+                                                    </form>
+                                                @endif
+                                                @if(!$m->ra_bill_id)
+                                                    @can('recordMeasurement', $workOrder)
+                                                        <form method="POST" action="{{ route('work_orders.measurements.destroy', [$workOrder, $m->id]) }}" class="inline" onsubmit="return confirm('Delete this unbilled site measurement?')">
+                                                            @csrf
+                                                            @method('DELETE')
+                                                            <button type="submit" class="text-rose-600 dark:text-rose-400 font-bold hover:underline">{{ __('Delete') }}</button>
+                                                        </form>
+                                                    @endcan
+                                                @endif
+                                            </div>
+                                        </td>
+                                    </tr>
+                                @endforeach
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            @endif
 
             <!-- RA Bills List -->
             @if($workOrder->raBills->isNotEmpty())

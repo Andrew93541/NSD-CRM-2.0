@@ -106,6 +106,11 @@
                 </tbody>
             </table>
         </div>
+        @if($logs instanceof \Illuminate\Pagination\AbstractPaginator && $logs->hasPages())
+            <div class="px-4 py-3 border-t border-slate-200 dark:border-slate-800">
+                {{ $logs->links() }}
+            </div>
+        @endif
     </div>
 </div>
 @endsection

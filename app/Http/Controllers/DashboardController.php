@@ -5,9 +5,7 @@ namespace App\Http\Controllers;
 use App\Models\AttendanceCorrection;
 use App\Models\AttendanceFlag;
 use App\Models\AuditLog;
-use App\Models\CrmNotification;
 use App\Models\DailyAttendance;
-use App\Models\InventoryStock;
 use App\Models\LeaveRequest;
 use App\Models\Material;
 use App\Models\Project;
@@ -18,8 +16,8 @@ use App\Models\Site;
 use App\Models\Task;
 use App\Models\User;
 use App\Models\Worker;
-use App\Models\WorkOrder;
 use App\Models\WorkerDocument;
+use App\Models\WorkOrder;
 use App\Services\Security\TenantContext;
 use Carbon\Carbon;
 use Illuminate\Support\Facades\Auth;
@@ -35,10 +33,10 @@ class DashboardController extends Controller
         $user = Auth::user();
 
         $isSupervisorOnly = $user->hasRole(['site_supervisor', 'supervisor'])
-            && !$user->hasRole(['super_admin', 'company_admin', 'senior_manager', 'site_manager', 'office_staff', 'warehouse_manager']);
+            && ! $user->hasRole(['super_admin', 'company_admin', 'senior_manager', 'site_manager', 'office_staff', 'warehouse_manager']);
 
         $isSiteManagerOnly = $user->hasRole('site_manager')
-            && !$user->hasRole(['super_admin', 'company_admin', 'senior_manager', 'office_staff']);
+            && ! $user->hasRole(['super_admin', 'company_admin', 'senior_manager', 'office_staff']);
 
         $scopedSiteIds = ($isSupervisorOnly || $isSiteManagerOnly || $user->isRestrictedToAssignedSites())
             ? $user->accessibleSiteIds()
@@ -111,7 +109,13 @@ class DashboardController extends Controller
             ->latest()
             ->take(5)
             ->get();
-        $pendingGoodsReceiptOrders = PurchaseOrder::whereIn('status', ['ordered', 'partially_received'])
+        $pendingGoodsReceiptOrders = PurchaseOrder::whereIn('status', ['issued', 'partially_received'])
+            ->when($scopedSiteIds !== null, function ($q) use ($scopedSiteIds) {
+                $q->where(function ($sub) use ($scopedSiteIds) {
+                    $sub->whereNull('site_id')
+                        ->orWhereIn('site_id', $scopedSiteIds);
+                });
+            })
             ->with(['site', 'warehouse', 'items.material'])
             ->latest()
             ->take(5)
@@ -156,8 +160,9 @@ class DashboardController extends Controller
                 ->count()
             : 0;
 
-        $recentActivityLogs = Schema::hasTable('activity_logs')
-            ? AuditLog::with(['actor', 'site'])
+        $recentActivityLogs = (Schema::hasTable('activity_logs') && $companyId)
+            ? AuditLog::forCompany((int) $companyId)
+                ->with(['actor', 'site'])
                 ->when($scopedSiteIds !== null, fn ($q) => $q->whereIn('site_id', $scopedSiteIds))
                 ->latest('created_at')
                 ->take(6)

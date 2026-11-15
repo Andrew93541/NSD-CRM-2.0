@@ -6,22 +6,27 @@ use App\Models\AuditLog;
 use App\Models\Site;
 use App\Models\SiteAssignment;
 use App\Models\Subcontractor;
+use App\Models\User;
 use App\Models\Worker;
 use App\Models\WorkerDocument;
 use App\Services\Security\TenantContext;
+use App\Services\Storage\VaultStorage;
 use App\Services\Workforce\WorkerCodeGenerator;
+use App\Support\QrCodeSvgGenerator;
 use Carbon\Carbon;
+use Dompdf\Dompdf;
+use Dompdf\Options;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\Facades\Schema;
-use Illuminate\Support\Facades\Storage;
-use Illuminate\Support\Facades\Validator;
 use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
@@ -42,18 +47,18 @@ class WorkforceController extends Controller
         }
 
         $hasUnrestrictedSiteAccess = $user->hasRole(['super_admin', 'company_admin'])
-            || (!$user->isRestrictedToAssignedSites() && (
+            || (! $user->isRestrictedToAssignedSites() && (
                 $user->hasRole(['senior_manager', 'office_staff'])
                 || $user->hasPermission('workforce.manage')
                 || $user->hasPermission('workforce.view_all')
             ));
 
-        if (!$hasUnrestrictedSiteAccess) {
+        if (! $hasUnrestrictedSiteAccess) {
             $assignedSiteIds = $user->accessibleSiteIds();
 
             $query->where(function ($q) use ($assignedSiteIds) {
                 $q->whereNull('assigned_site_id')
-                  ->orWhereIn('assigned_site_id', $assignedSiteIds);
+                    ->orWhereIn('assigned_site_id', $assignedSiteIds);
             });
         }
 
@@ -63,7 +68,7 @@ class WorkforceController extends Controller
 
         if ($request->filled('site_id')) {
             $query->where('assigned_site_id', $request->query('site_id'));
-        } elseif (!$request->has('site_id') && session()->has('active_site_id') && session('active_site_id')) {
+        } elseif (! $request->has('site_id') && session()->has('active_site_id') && session('active_site_id')) {
             $query->where('assigned_site_id', session('active_site_id'));
         }
 
@@ -80,13 +85,13 @@ class WorkforceController extends Controller
         }
 
         if ($request->filled('search')) {
-            $search = '%' . $request->query('search') . '%';
+            $search = '%'.$request->query('search').'%';
             $query->where(function ($q) use ($search) {
                 $q->where('first_name', 'like', $search)
-                  ->orWhere('last_name', 'like', $search)
-                  ->orWhere('code', 'like', $search)
-                  ->orWhere('phone', 'like', $search)
-                  ->orWhere('trade_designation', 'like', $search);
+                    ->orWhere('last_name', 'like', $search)
+                    ->orWhere('code', 'like', $search)
+                    ->orWhere('phone', 'like', $search)
+                    ->orWhere('trade_designation', 'like', $search);
             });
         }
 
@@ -134,6 +139,7 @@ class WorkforceController extends Controller
             'subcontractor_worker' => WorkerCodeGenerator::previewNext($companyId, 'subcontractor_worker'),
             'direct_labour' => WorkerCodeGenerator::previewNext($companyId, 'direct_labour'),
         ];
+        $linkableUsers = $this->linkableCompanyUsers($companyId);
 
         return view('workforce.create', compact(
             'sites',
@@ -143,7 +149,8 @@ class WorkforceController extends Controller
             'departments',
             'skillLevels',
             'payTypes',
-            'previewCodes'
+            'previewCodes',
+            'linkableUsers'
         ));
     }
 
@@ -162,16 +169,20 @@ class WorkforceController extends Controller
             return back()->withErrors(['subcontractor_id' => 'Subcontractor company is mandatory for subcontractor workers.'])->withInput();
         }
 
-        if (!empty($validated['assigned_site_id']) && !Auth::user()->isAssignedToSite((int) $validated['assigned_site_id'])) {
+        if (! empty($validated['assigned_site_id']) && ! Auth::user()->isAssignedToSite((int) $validated['assigned_site_id'])) {
             abort(403, 'You are not authorized to assign workers to this site.');
         }
 
-        if (!empty($validated['aadhaar_last_four'])) {
+        if (! empty($validated['user_id']) && ! $this->canManageWorkerUserLinks(Auth::user())) {
+            abort(403, 'Only administrators with user management permission can link employee login accounts.');
+        }
+
+        if (! empty($validated['aadhaar_last_four'])) {
             $candidateDuplicates = Worker::where('company_id', $companyId)
                 ->where('status', 'active')
                 ->whereRaw('LOWER(TRIM(first_name)) = ?', [mb_strtolower(trim((string) $validated['first_name']))])
                 ->when(
-                    !empty($validated['last_name']),
+                    ! empty($validated['last_name']),
                     fn ($q) => $q->whereRaw('LOWER(TRIM(last_name)) = ?', [mb_strtolower(trim((string) $validated['last_name']))]),
                     fn ($q) => $q->where(fn ($sub) => $sub->whereNull('last_name')->orWhere('last_name', ''))
                 )
@@ -179,7 +190,7 @@ class WorkforceController extends Controller
                 ->get();
 
             $incomingPhone = preg_replace('/\D+/', '', (string) ($validated['phone'] ?? ''));
-            $incomingDob = !empty($validated['date_of_birth']) ? Carbon::parse($validated['date_of_birth'])->format('Y-m-d') : '';
+            $incomingDob = ! empty($validated['date_of_birth']) ? Carbon::parse($validated['date_of_birth'])->format('Y-m-d') : '';
 
             $duplicateWorker = $candidateDuplicates->first(function (Worker $existing) use ($incomingPhone, $incomingDob) {
                 $existingPhone = preg_replace('/\D+/', '', (string) ($existing->phone ?? ''));
@@ -205,13 +216,13 @@ class WorkforceController extends Controller
                         'aadhaar_last_four' => "An active worker with the same name and Aadhaar last 4 digits already exists ({$duplicateWorker->full_name} — {$duplicateWorker->code}).",
                     ]);
             }
-        } elseif (!empty($validated['phone'])) {
+        } elseif (! empty($validated['phone'])) {
             $incomingPhone = trim((string) $validated['phone']);
             $duplicateByPhone = Worker::where('company_id', $companyId)
                 ->where('status', 'active')
                 ->whereRaw('LOWER(TRIM(first_name)) = ?', [mb_strtolower(trim((string) $validated['first_name']))])
                 ->when(
-                    !empty($validated['last_name']),
+                    ! empty($validated['last_name']),
                     fn ($q) => $q->whereRaw('LOWER(TRIM(last_name)) = ?', [mb_strtolower(trim((string) $validated['last_name']))]),
                     fn ($q) => $q->where(fn ($sub) => $sub->whereNull('last_name')->orWhere('last_name', ''))
                 )
@@ -228,7 +239,7 @@ class WorkforceController extends Controller
         }
 
         $uploadedFiles = $request->file('documents', []);
-        if (!is_array($uploadedFiles)) {
+        if (! is_array($uploadedFiles)) {
             throw ValidationException::withMessages(['documents' => ['Invalid documents payload.']]);
         }
         $this->validateDocumentBatch($uploadedFiles, (array) $request->input('document_types', []));
@@ -281,14 +292,25 @@ class WorkforceController extends Controller
                 $attributes['upi_id'] = $validated['upi_id'] ?? null;
             }
 
+            if (Schema::hasColumn('workers', 'user_id') && array_key_exists('user_id', $validated)) {
+                $attributes['user_id'] = ! empty($validated['user_id']) ? (int) $validated['user_id'] : null;
+            }
+
             $worker = new Worker($attributes);
             $worker->company_id = $companyId;
             $worker->code = $code;
             $worker->status = $validated['status'] ?? 'active';
-            $worker->joining_date = !empty($validated['joining_date'])
+            $worker->joining_date = ! empty($validated['joining_date'])
                 ? Carbon::parse($validated['joining_date'])
                 : Carbon::today();
             $worker->save();
+
+            if (Schema::hasColumn('workers', 'user_id')
+                && ! empty($worker->user_id)
+                && in_array($worker->status, ['inactive', 'terminated'], true)
+            ) {
+                $this->syncLinkedUserOnWorkerDeactivation($worker, Auth::user());
+            }
 
             SiteAssignment::recordWorkerAssignment(
                 $worker,
@@ -298,7 +320,7 @@ class WorkforceController extends Controller
                 'Initial site assignment'
             );
 
-            if (!empty($uploadedFiles) && Schema::hasTable('worker_documents')) {
+            if (! empty($uploadedFiles) && Schema::hasTable('worker_documents')) {
                 $this->persistUploadedDocuments(
                     $worker,
                     $uploadedFiles,
@@ -324,7 +346,7 @@ class WorkforceController extends Controller
             $worker->ensureQrToken();
         }
 
-        $worker->load(['subcontractor', 'assignedSite']);
+        $worker->load(['subcontractor', 'assignedSite', 'user']);
         $documents = Schema::hasTable('worker_documents')
             ? $worker->documents()->with('uploader')->get()
             : collect();
@@ -334,6 +356,10 @@ class WorkforceController extends Controller
             : collect();
         $sites = $this->authorizedActiveSites();
         $documentTypes = WorkerDocument::documentTypes();
+        $user = Auth::user();
+        $canConfigureStatutory = $user
+            && ! $user->isExplicitlyDenied('payroll.edit')
+            && $user->canPerform('payroll.edit', ['super_admin', 'company_admin', 'senior_manager', 'site_manager', 'office_staff']);
 
         return view('workforce.show', compact(
             'worker',
@@ -341,8 +367,137 @@ class WorkforceController extends Controller
             'recentAttendances',
             'siteAssignments',
             'sites',
-            'documentTypes'
+            'documentTypes',
+            'canConfigureStatutory'
         ));
+    }
+
+    public function updateStatutory(Request $request, Worker $worker): RedirectResponse
+    {
+        Gate::authorize('view', $worker);
+
+        $user = Auth::user();
+        if (! $user
+            || $user->isExplicitlyDenied('payroll.edit')
+            || ! $user->canPerform('payroll.edit', ['super_admin', 'company_admin', 'senior_manager', 'site_manager', 'office_staff'])
+        ) {
+            abort(403, 'You are not authorized to configure statutory payroll settings.');
+        }
+
+        if (! Schema::hasColumn('workers', 'pf_status')) {
+            return back()->withErrors(['pf_status' => 'Statutory payroll columns are pending database migration.']);
+        }
+
+        $validated = $request->validate([
+            'pf_status' => ['required', 'string', 'in:unconfigured,applicable,not_applicable'],
+            'pf_employee_rate' => ['required_if:pf_status,applicable', 'nullable', 'numeric', 'min:0', 'max:100'],
+            'pf_employer_rate' => ['nullable', 'numeric', 'min:0', 'max:100'],
+            'pf_wage_ceiling' => ['nullable', 'numeric', 'min:0', 'max:99999999.99'],
+            'uan_number' => ['nullable', 'string', 'max:30'],
+            'esic_status' => ['required', 'string', 'in:unconfigured,applicable,not_applicable'],
+            'esic_employee_rate' => ['required_if:esic_status,applicable', 'nullable', 'numeric', 'min:0', 'max:100'],
+            'esic_employer_rate' => ['nullable', 'numeric', 'min:0', 'max:100'],
+            'esic_wage_ceiling' => ['nullable', 'numeric', 'min:0', 'max:99999999.99'],
+            'esic_ip_number' => ['nullable', 'string', 'max:30'],
+            'pt_status' => ['required', 'string', 'in:unconfigured,applicable,not_applicable'],
+            'pt_monthly_amount' => ['required_if:pt_status,applicable', 'nullable', 'numeric', 'min:0', 'max:10000'],
+            'statutory_effective_from' => ['nullable', 'date'],
+        ]);
+
+        $oldValues = [
+            'pf_status' => $worker->pf_status,
+            'pf_employee_rate' => $worker->pf_employee_rate,
+            'pf_employer_rate' => $worker->pf_employer_rate,
+            'pf_wage_ceiling' => $worker->pf_wage_ceiling,
+            'uan_number' => $worker->uan_number,
+            'esic_status' => $worker->esic_status,
+            'esic_employee_rate' => $worker->esic_employee_rate,
+            'esic_employer_rate' => $worker->esic_employer_rate,
+            'esic_wage_ceiling' => $worker->esic_wage_ceiling,
+            'esic_ip_number' => $worker->esic_ip_number,
+            'pt_status' => $worker->pt_status,
+            'pt_monthly_amount' => $worker->pt_monthly_amount,
+            'statutory_effective_from' => $worker->statutory_effective_from?->format('Y-m-d'),
+        ];
+
+        $pfApplicable = $validated['pf_status'] === 'applicable';
+        $esicApplicable = $validated['esic_status'] === 'applicable';
+        $ptApplicable = $validated['pt_status'] === 'applicable';
+
+        $newValues = [
+            'pf_status' => $validated['pf_status'],
+            'pf_employee_rate' => $pfApplicable ? (float) $validated['pf_employee_rate'] : null,
+            'pf_employer_rate' => $pfApplicable && isset($validated['pf_employer_rate']) ? (float) $validated['pf_employer_rate'] : null,
+            'pf_wage_ceiling' => $pfApplicable && isset($validated['pf_wage_ceiling']) ? (float) $validated['pf_wage_ceiling'] : null,
+            'uan_number' => ! empty($validated['uan_number']) ? trim((string) $validated['uan_number']) : null,
+            'esic_status' => $validated['esic_status'],
+            'esic_employee_rate' => $esicApplicable ? (float) $validated['esic_employee_rate'] : null,
+            'esic_employer_rate' => $esicApplicable && isset($validated['esic_employer_rate']) ? (float) $validated['esic_employer_rate'] : null,
+            'esic_wage_ceiling' => $esicApplicable && isset($validated['esic_wage_ceiling']) ? (float) $validated['esic_wage_ceiling'] : null,
+            'esic_ip_number' => ! empty($validated['esic_ip_number']) ? trim((string) $validated['esic_ip_number']) : null,
+            'pt_status' => $validated['pt_status'],
+            'pt_monthly_amount' => $ptApplicable ? (float) $validated['pt_monthly_amount'] : null,
+            'statutory_effective_from' => ! empty($validated['statutory_effective_from']) ? $validated['statutory_effective_from'] : null,
+            'statutory_updated_by' => $user->id,
+        ];
+
+        $worker->update($newValues);
+
+        AuditLog::record(
+            'worker.statutory_updated',
+            $worker,
+            $oldValues,
+            $newValues,
+            "Updated individual statutory payroll settings (PF/ESIC/PT) for {$worker->full_name} ({$worker->code})"
+        );
+
+        return redirect()
+            ->route('workforce.show', $worker)
+            ->with('success', "Statutory payroll configuration updated for {$worker->full_name}.");
+    }
+
+    public function downloadIdCardPdf(Worker $worker): StreamedResponse
+    {
+        Gate::authorize('view', $worker);
+
+        $worker->load(['company', 'assignedSite', 'subcontractor']);
+        $qrToken = $worker->ensureQrToken();
+        $qrSvg = QrCodeSvgGenerator::generateSvg($qrToken, 150);
+        $qrDataUri = 'data:image/svg+xml;base64,'.base64_encode($qrSvg);
+
+        $html = view('workforce.pdf.id_card', [
+            'worker' => $worker,
+            'company' => $worker->company,
+            'qrDataUri' => $qrDataUri,
+        ])->render();
+
+        $options = new Options;
+        $options->set('isRemoteEnabled', false);
+        $options->set('defaultFont', 'DejaVu Sans');
+
+        $dompdf = new Dompdf($options);
+        $dompdf->loadHtml($html, 'UTF-8');
+        $dompdf->setPaper('A4', 'portrait');
+        $dompdf->render();
+
+        $fileName = sprintf('%s-id-card.pdf', $worker->code ?: 'worker-'.$worker->id);
+
+        AuditLog::record(
+            'worker.id_card_exported',
+            $worker,
+            null,
+            ['code' => $worker->code, 'file_name' => $fileName],
+            "Exported printable QR ID Card PDF for {$worker->full_name} ({$worker->code})"
+        );
+
+        $pdfBinary = $dompdf->output();
+
+        return response()->streamDownload(function () use ($pdfBinary) {
+            echo $pdfBinary;
+        }, $fileName, [
+            'Content-Type' => 'application/pdf',
+            'X-Content-Type-Options' => 'nosniff',
+        ]);
     }
 
     public function transferSite(Request $request, Worker $worker): RedirectResponse
@@ -361,7 +516,7 @@ class WorkforceController extends Controller
             'notes' => ['nullable', 'string', 'max:255'],
         ]);
 
-        if (!Auth::user()->isAssignedToSite((int) $validated['site_id'])) {
+        if (! Auth::user()->isAssignedToSite((int) $validated['site_id'])) {
             abort(403, 'You are not authorized to transfer workers to this site.');
         }
 
@@ -377,7 +532,7 @@ class WorkforceController extends Controller
                 $validated['notes'] ?? 'Site transfer'
             );
 
-            if ($assignment && !empty($validated['role_on_site'])) {
+            if ($assignment && ! empty($validated['role_on_site'])) {
                 $assignment->role_on_site = $validated['role_on_site'];
                 $assignment->save();
             }
@@ -395,13 +550,13 @@ class WorkforceController extends Controller
         ]);
 
         $worker->update([
-            'pin' => \Illuminate\Support\Facades\Hash::make($validated['pin']),
+            'pin' => Hash::make($validated['pin']),
             'must_change_pin' => true,
         ]);
 
-        \Illuminate\Support\Facades\RateLimiter::clear($worker->getPinLockoutCacheKey());
+        RateLimiter::clear($worker->getPinLockoutCacheKey());
 
-        \App\Models\AuditLog::record(
+        AuditLog::record(
             'worker.pin_reset',
             $worker,
             null,
@@ -416,15 +571,167 @@ class WorkforceController extends Controller
     {
         Gate::authorize('viewAny', Worker::class);
 
-        $subcontractors = Subcontractor::withCount('workers')->get();
-        return view('workforce.subcontractors', compact('subcontractors'));
+        $subcontractors = Subcontractor::withCount('workers')->orderBy('name')->get();
+        $canManage = Auth::user()->can('create', Worker::class);
+
+        return view('workforce.subcontractors', compact('subcontractors', 'canManage'));
+    }
+
+    public function storeSubcontractor(Request $request): RedirectResponse
+    {
+        Gate::authorize('create', Worker::class);
+
+        $companyId = (int) TenantContext::getCompanyId();
+
+        if ($request->filled('code')) {
+            $request->merge(['code' => strtoupper(trim((string) $request->input('code')))]);
+        }
+        if ($request->filled('gst_number')) {
+            $request->merge(['gst_number' => strtoupper(trim((string) $request->input('gst_number')))]);
+        }
+        if ($request->filled('pan_number')) {
+            $request->merge(['pan_number' => strtoupper(trim((string) $request->input('pan_number')))]);
+        }
+
+        $validated = $request->validate([
+            'name' => ['required', 'string', 'max:200'],
+            'code' => [
+                'nullable',
+                'string',
+                'max:40',
+                'regex:/^[A-Z0-9\-_]+$/',
+                Rule::unique('subcontractors', 'code')->where(fn ($q) => $q->where('company_id', $companyId)),
+            ],
+            'contact_person' => ['nullable', 'string', 'max:150'],
+            'phone' => ['nullable', 'string', 'max:40'],
+            'email' => ['nullable', 'email', 'max:150'],
+            'gst_number' => ['nullable', 'string', 'regex:/^[0-9]{2}[A-Z0-9]{13}$/'],
+            'pan_number' => ['nullable', 'string', 'regex:/^[A-Z]{5}[0-9]{4}[A-Z]{1}$/'],
+            'address' => ['nullable', 'string', 'max:1000'],
+            'is_active' => ['nullable', 'boolean'],
+        ]);
+
+        $code = $validated['code'] ?? null;
+        if (empty($code)) {
+            $seq = Subcontractor::withoutGlobalScopes()->where('company_id', $companyId)->count() + 1;
+            do {
+                $candidate = sprintf('SUB-%03d', $seq);
+                $seq++;
+            } while (Subcontractor::withoutGlobalScopes()->where('company_id', $companyId)->where('code', $candidate)->exists());
+            $code = $candidate;
+        }
+
+        $subcontractor = Subcontractor::create([
+            'company_id' => $companyId,
+            'name' => $validated['name'],
+            'code' => $code,
+            'contact_person' => $validated['contact_person'] ?? null,
+            'phone' => $validated['phone'] ?? null,
+            'email' => $validated['email'] ?? null,
+            'gst_number' => $validated['gst_number'] ?? null,
+            'pan_number' => $validated['pan_number'] ?? null,
+            'address' => $validated['address'] ?? null,
+            'is_active' => $request->boolean('is_active', true),
+        ]);
+
+        AuditLog::record(
+            'workforce.subcontractor.created',
+            $subcontractor,
+            null,
+            ['code' => $subcontractor->code, 'name' => $subcontractor->name],
+            "Registered subcontractor {$subcontractor->name} ({$subcontractor->code})"
+        );
+
+        return redirect()->route('workforce.subcontractors')->with('success', "Subcontractor {$subcontractor->name} ({$subcontractor->code}) added.");
+    }
+
+    public function updateSubcontractor(Request $request, Subcontractor $subcontractor): RedirectResponse
+    {
+        Gate::authorize('create', Worker::class);
+
+        $companyId = (int) TenantContext::getCompanyId();
+
+        if ($request->filled('code')) {
+            $request->merge(['code' => strtoupper(trim((string) $request->input('code')))]);
+        }
+        if ($request->filled('gst_number')) {
+            $request->merge(['gst_number' => strtoupper(trim((string) $request->input('gst_number')))]);
+        }
+        if ($request->filled('pan_number')) {
+            $request->merge(['pan_number' => strtoupper(trim((string) $request->input('pan_number')))]);
+        }
+
+        $validated = $request->validate([
+            'name' => ['required', 'string', 'max:200'],
+            'code' => [
+                'required',
+                'string',
+                'max:40',
+                'regex:/^[A-Z0-9\-_]+$/',
+                Rule::unique('subcontractors', 'code')->where(fn ($q) => $q->where('company_id', $companyId))->ignore($subcontractor->id),
+            ],
+            'contact_person' => ['nullable', 'string', 'max:150'],
+            'phone' => ['nullable', 'string', 'max:40'],
+            'email' => ['nullable', 'email', 'max:150'],
+            'gst_number' => ['nullable', 'string', 'regex:/^[0-9]{2}[A-Z0-9]{13}$/'],
+            'pan_number' => ['nullable', 'string', 'regex:/^[A-Z]{5}[0-9]{4}[A-Z]{1}$/'],
+            'address' => ['nullable', 'string', 'max:1000'],
+            'is_active' => ['nullable', 'boolean'],
+        ]);
+
+        $subcontractor->update([
+            'name' => $validated['name'],
+            'code' => $validated['code'],
+            'contact_person' => $validated['contact_person'] ?? null,
+            'phone' => $validated['phone'] ?? null,
+            'email' => $validated['email'] ?? null,
+            'gst_number' => $validated['gst_number'] ?? null,
+            'pan_number' => $validated['pan_number'] ?? null,
+            'address' => $validated['address'] ?? null,
+            'is_active' => $request->boolean('is_active', false),
+        ]);
+
+        AuditLog::record(
+            'workforce.subcontractor.updated',
+            $subcontractor,
+            null,
+            ['code' => $subcontractor->code, 'name' => $subcontractor->name, 'is_active' => $subcontractor->is_active],
+            "Updated subcontractor {$subcontractor->name} ({$subcontractor->code})"
+        );
+
+        return redirect()->route('workforce.subcontractors')->with('success', "Subcontractor {$subcontractor->name} updated.");
+    }
+
+    public function destroySubcontractor(Subcontractor $subcontractor): RedirectResponse
+    {
+        Gate::authorize('create', Worker::class);
+
+        if ($subcontractor->workers()->exists()) {
+            return back()->withErrors([
+                'subcontractor' => "Cannot delete {$subcontractor->name} because workers are linked to this contractor. Mark it Inactive instead.",
+            ]);
+        }
+
+        $code = $subcontractor->code;
+        $name = $subcontractor->name;
+        $subcontractor->delete();
+
+        AuditLog::record(
+            'workforce.subcontractor.deleted',
+            null,
+            ['code' => $code, 'name' => $name],
+            null,
+            "Deleted unreferenced subcontractor {$name} ({$code})"
+        );
+
+        return redirect()->route('workforce.subcontractors')->with('success', "Subcontractor {$name} deleted.");
     }
 
     public function edit(Worker $worker): View
     {
         Gate::authorize('update', $worker);
 
-        $worker->load(['subcontractor', 'assignedSite']);
+        $worker->load(['subcontractor', 'assignedSite', 'user']);
         $documents = Schema::hasTable('worker_documents')
             ? $worker->documents()->with('uploader')->get()
             : collect();
@@ -435,6 +742,7 @@ class WorkforceController extends Controller
         $departments = Worker::DEPARTMENTS;
         $skillLevels = Worker::SKILL_LEVELS;
         $payTypes = Worker::PAY_TYPES;
+        $linkableUsers = $this->linkableCompanyUsers((int) $worker->company_id, $worker->id);
 
         return view('workforce.edit', compact(
             'worker',
@@ -445,7 +753,8 @@ class WorkforceController extends Controller
             'genders',
             'departments',
             'skillLevels',
-            'payTypes'
+            'payTypes',
+            'linkableUsers'
         ));
     }
 
@@ -456,7 +765,7 @@ class WorkforceController extends Controller
         $companyId = TenantContext::getCompanyId();
 
         $validated = $request->validate(array_merge(
-            $this->profileValidationRules($companyId, true),
+            $this->profileValidationRules((int) $companyId, true, $worker->id),
             $this->documentValidationRules()
         ));
 
@@ -468,17 +777,25 @@ class WorkforceController extends Controller
             $validated['subcontractor_id'] = null;
         }
 
-        if (!empty($validated['assigned_site_id']) && !Auth::user()->isAssignedToSite((int) $validated['assigned_site_id'])) {
+        if (! empty($validated['assigned_site_id']) && ! Auth::user()->isAssignedToSite((int) $validated['assigned_site_id'])) {
             abort(403, 'You are not authorized to assign workers to this site.');
         }
 
-        if (!empty($validated['aadhaar_last_four'])) {
+        if (Schema::hasColumn('workers', 'user_id') && array_key_exists('user_id', $request->all())) {
+            $incomingUserId = ! empty($validated['user_id']) ? (int) $validated['user_id'] : null;
+            $existingUserId = $worker->user_id ? (int) $worker->user_id : null;
+            if ($incomingUserId !== $existingUserId && ! $this->canManageWorkerUserLinks(Auth::user())) {
+                abort(403, 'Only administrators with user management permission can link or change employee login accounts.');
+            }
+        }
+
+        if (! empty($validated['aadhaar_last_four'])) {
             $duplicateWorker = Worker::where('company_id', $companyId)
                 ->where('id', '!=', $worker->id)
                 ->where('status', 'active')
                 ->whereRaw('LOWER(TRIM(first_name)) = ?', [mb_strtolower(trim((string) $validated['first_name']))])
                 ->when(
-                    !empty($validated['last_name']),
+                    ! empty($validated['last_name']),
                     fn ($q) => $q->whereRaw('LOWER(TRIM(last_name)) = ?', [mb_strtolower(trim((string) $validated['last_name']))]),
                     fn ($q) => $q->where(fn ($sub) => $sub->whereNull('last_name')->orWhere('last_name', ''))
                 )
@@ -495,7 +812,7 @@ class WorkforceController extends Controller
         }
 
         $uploadedFiles = $request->file('documents', []);
-        if (!is_array($uploadedFiles)) {
+        if (! is_array($uploadedFiles)) {
             throw ValidationException::withMessages(['documents' => ['Invalid documents payload.']]);
         }
         $this->validateDocumentBatch($uploadedFiles, (array) $request->input('document_types', []));
@@ -521,7 +838,7 @@ class WorkforceController extends Controller
                 'contract_rate' => array_key_exists('contract_rate', $rawInput) ? ($validated['contract_rate'] ?? 0.00) : ($worker->contract_rate ?? 0.00),
                 'status' => $validated['status'],
                 'joining_date' => array_key_exists('joining_date', $rawInput)
-                    ? (!empty($validated['joining_date']) ? Carbon::parse($validated['joining_date']) : null)
+                    ? (! empty($validated['joining_date']) ? Carbon::parse($validated['joining_date']) : null)
                     : $worker->joining_date,
             ];
 
@@ -561,8 +878,20 @@ class WorkforceController extends Controller
                 }
             }
 
+            if (Schema::hasColumn('workers', 'user_id') && array_key_exists('user_id', $rawInput)) {
+                $attributes['user_id'] = ! empty($validated['user_id']) ? (int) $validated['user_id'] : null;
+            }
+
             $worker->fill($attributes);
             $worker->save();
+
+            // Atomic bidirectional deactivation sync: terminating/inactivating a linked employee worker deactivates their company login
+            if (Schema::hasColumn('workers', 'user_id')
+                && ! empty($worker->user_id)
+                && in_array($worker->status, ['inactive', 'terminated'], true)
+            ) {
+                $this->syncLinkedUserOnWorkerDeactivation($worker, Auth::user());
+            }
 
             SiteAssignment::recordWorkerAssignment(
                 $worker,
@@ -572,7 +901,7 @@ class WorkforceController extends Controller
                 'Profile site assignment update'
             );
 
-            if (!empty($uploadedFiles) && Schema::hasTable('worker_documents')) {
+            if (! empty($uploadedFiles) && Schema::hasTable('worker_documents')) {
                 $this->persistUploadedDocuments(
                     $worker,
                     $uploadedFiles,
@@ -600,7 +929,7 @@ class WorkforceController extends Controller
         ));
 
         $uploadedFiles = $request->file('documents', []);
-        if (!is_array($uploadedFiles)) {
+        if (! is_array($uploadedFiles)) {
             throw ValidationException::withMessages(['documents' => ['Invalid documents payload.']]);
         }
         $this->validateDocumentBatch($uploadedFiles, (array) $request->input('document_types', []), true);
@@ -624,21 +953,20 @@ class WorkforceController extends Controller
 
         Gate::authorize('downloadDocument', [$worker, $doc]);
 
-        if (!$this->isValidWorkerDocumentPath($worker, $doc)) {
+        if (! $this->isValidWorkerDocumentPath($worker, $doc)) {
             abort(403, 'Invalid document storage path.');
         }
 
-        $disk = Storage::disk('local');
-        if (!$disk->exists($doc->file_path)) {
+        if (! VaultStorage::exists($doc->file_path, $doc->storage_disk)) {
             abort(404, 'The requested document file could not be found in private storage.');
         }
 
         $safeDownloadName = preg_replace('/[^A-Za-z0-9._\- ]/', '_', basename($doc->original_name)) ?: 'worker-document';
 
-        return $disk->download($doc->file_path, $safeDownloadName, [
+        return VaultStorage::download($doc->file_path, $safeDownloadName, [
             'Content-Type' => $doc->mime_type,
             'X-Content-Type-Options' => 'nosniff',
-        ]);
+        ], $doc->storage_disk);
     }
 
     public function destroyDocument(Worker $worker, int $document): RedirectResponse
@@ -647,14 +975,11 @@ class WorkforceController extends Controller
 
         Gate::authorize('deleteDocument', [$worker, $doc]);
 
-        if (!$this->isValidWorkerDocumentPath($worker, $doc)) {
+        if (! $this->isValidWorkerDocumentPath($worker, $doc)) {
             abort(403, 'Invalid document storage path.');
         }
 
-        $disk = Storage::disk('local');
-        if ($disk->exists($doc->file_path)) {
-            $disk->delete($doc->file_path);
-        }
+        VaultStorage::delete($doc->file_path, $doc->storage_disk);
 
         $doc->delete();
 
@@ -666,16 +991,146 @@ class WorkforceController extends Controller
         $user = Auth::user();
         $sites = Site::where('status', 'active')->orderBy('name')->get();
 
-        if ($user && ($user->isRestrictedToAssignedSites() || !$user->hasRole(['super_admin', 'company_admin', 'senior_manager', 'office_staff']))) {
+        if ($user && ($user->isRestrictedToAssignedSites() || ! $user->hasRole(['super_admin', 'company_admin', 'senior_manager', 'office_staff']))) {
             return $sites->filter(fn (Site $site) => $user->isAssignedToSite($site))->values();
         }
 
         return $sites;
     }
 
-    protected function profileValidationRules(int $companyId, bool $isUpdate): array
+    protected function canManageWorkerUserLinks(?User $actor): bool
     {
-        return [
+        if (! $actor) {
+            return false;
+        }
+
+        if ($actor->isExplicitlyDenied('users.edit') || $actor->isExplicitlyDenied('users.manage')) {
+            return false;
+        }
+
+        return $actor->hasRole(['super_admin', 'company_admin'])
+            || $actor->hasPermission('users.edit')
+            || $actor->hasPermission('users.manage');
+    }
+
+    protected function syncLinkedUserOnWorkerDeactivation(Worker $worker, ?User $actor): void
+    {
+        $companyId = (int) $worker->company_id;
+        $linkedUser = User::where('id', (int) $worker->user_id)->lockForUpdate()->first();
+        if (! $linkedUser) {
+            return;
+        }
+
+        $pivotRow = DB::table('company_user')
+            ->where('company_id', $companyId)
+            ->where('user_id', $linkedUser->id)
+            ->lockForUpdate()
+            ->first();
+
+        $isPivotActive = $pivotRow && (($pivotRow->status ?? 'active') === 'active');
+        if (! $isPivotActive && ! $linkedUser->is_active) {
+            return;
+        }
+
+        if (! $actor || $actor->isExplicitlyDenied('users.deactivate')) {
+            abort(403, 'You do not have permission to deactivate a worker linked to an active employee login account.');
+        }
+
+        $linkedRole = $linkedUser->roleInCompany($companyId);
+        if ($linkedRole && $linkedRole->isProtectedAdminRole()) {
+            if (! $actor->hasRole(['super_admin', 'company_admin'])) {
+                abort(403, 'Only a Company Administrator can deactivate a worker linked to an administrator login account.');
+            }
+        } elseif (! $actor->canPerform('users.deactivate', ['super_admin', 'company_admin', 'senior_manager'])) {
+            abort(403, 'You do not have permission to deactivate a worker linked to an active employee login account.');
+        }
+
+        if ($linkedRole && $linkedRole->isProtectedAdminRole()) {
+            $otherActiveAdmins = DB::table('company_user')
+                ->join('roles', 'roles.id', '=', 'company_user.role_id')
+                ->join('users', 'users.id', '=', 'company_user.user_id')
+                ->where('company_user.company_id', $companyId)
+                ->where('company_user.status', 'active')
+                ->where('users.is_active', true)
+                ->where('company_user.user_id', '!=', $linkedUser->id)
+                ->whereIn('roles.slug', ['company_admin', 'super_admin'])
+                ->lockForUpdate()
+                ->count();
+
+            if ($otherActiveAdmins === 0 || $linkedUser->isLastActiveCompanyAdmin($companyId)) {
+                throw ValidationException::withMessages([
+                    'status' => 'Cannot deactivate or terminate this worker because the linked account is the last active Company Administrator.',
+                ]);
+            }
+        }
+
+        if ((int) $linkedUser->id === (int) $actor->id) {
+            throw ValidationException::withMessages([
+                'status' => 'Cannot deactivate or terminate the worker profile linked to your own active login account.',
+            ]);
+        }
+
+        Event::dispatch('workforce.syncing_linked_user_deactivation', [$worker, $linkedUser]);
+
+        if ($pivotRow) {
+            DB::table('company_user')
+                ->where('company_id', $companyId)
+                ->where('user_id', $linkedUser->id)
+                ->update([
+                    'status' => 'inactive',
+                    'updated_at' => now(),
+                ]);
+        }
+
+        $remainingActiveCompanies = DB::table('company_user')
+            ->where('user_id', $linkedUser->id)
+            ->where('status', 'active')
+            ->exists();
+
+        if (! $remainingActiveCompanies) {
+            $linkedUser->forceFill(['is_active' => false])->save();
+            if (Schema::hasTable('sessions')) {
+                DB::table('sessions')->where('user_id', $linkedUser->id)->delete();
+            }
+        }
+
+        AuditLog::record(
+            'worker.linked_user_deactivated',
+            $linkedUser,
+            ['status' => 'active'],
+            ['status' => 'inactive', 'worker_id' => $worker->id, 'worker_code' => $worker->code],
+            "Deactivated linked user account {$linkedUser->email} when worker {$worker->code} became {$worker->status}"
+        );
+    }
+
+    protected function linkableCompanyUsers(int $companyId, ?int $ignoreWorkerId = null): Collection
+    {
+        if ($companyId <= 0 || ! $this->canManageWorkerUserLinks(Auth::user())) {
+            return collect();
+        }
+
+        $alreadyLinkedUserIds = [];
+        if (Schema::hasColumn('workers', 'user_id')) {
+            $alreadyLinkedUserIds = Worker::withoutGlobalScopes()
+                ->where('company_id', $companyId)
+                ->whereNotNull('user_id')
+                ->when($ignoreWorkerId !== null, fn ($q) => $q->where('id', '!=', $ignoreWorkerId))
+                ->pluck('user_id')
+                ->map(fn ($id) => (int) $id)
+                ->all();
+        }
+
+        return User::whereHas('companies', function ($q) use ($companyId) {
+            $q->where('companies.id', $companyId);
+        })
+            ->when(! empty($alreadyLinkedUserIds), fn ($q) => $q->whereNotIn('id', $alreadyLinkedUserIds))
+            ->orderBy('name')
+            ->get();
+    }
+
+    protected function profileValidationRules(int $companyId, bool $isUpdate, ?int $ignoreWorkerId = null): array
+    {
+        $rules = [
             // Personal Information
             'first_name' => ['required', 'string', 'max:100'],
             'last_name' => ['nullable', 'string', 'max:100'],
@@ -725,11 +1180,26 @@ class WorkforceController extends Controller
             'bank_ifsc' => ['nullable', 'string', 'max:20'],
             'upi_id' => ['nullable', 'string', 'max:100'],
         ];
+
+        if (Schema::hasColumn('workers', 'user_id')) {
+            $uniqueRule = Rule::unique('workers', 'user_id')->where(fn ($q) => $q->where('company_id', $companyId));
+            if ($ignoreWorkerId !== null) {
+                $uniqueRule->ignore($ignoreWorkerId);
+            }
+            $rules['user_id'] = [
+                'nullable',
+                'integer',
+                Rule::exists('company_user', 'user_id')->where(fn ($q) => $q->where('company_id', $companyId)),
+                $uniqueRule,
+            ];
+        }
+
+        return $rules;
     }
 
     protected function isValidWorkerDocumentPath(Worker $worker, WorkerDocument $doc): bool
     {
-        if ($doc->storage_disk !== 'local') {
+        if (! in_array($doc->storage_disk, ['local', 'vault'], true)) {
             return false;
         }
 
@@ -796,7 +1266,7 @@ class WorkforceController extends Controller
         $maxBytes = WorkerDocument::MAX_FILE_SIZE_KB * 1024;
 
         foreach ($uploadedFiles as $idx => $file) {
-            if (!$file instanceof UploadedFile || !$file->isValid()) {
+            if (! $file instanceof UploadedFile || ! $file->isValid()) {
                 throw ValidationException::withMessages([
                     "documents.{$idx}" => ['The uploaded file is invalid or corrupted.'],
                 ]);
@@ -818,7 +1288,7 @@ class WorkforceController extends Controller
             }
 
             $ext = end($parts);
-            if (!in_array($ext, WorkerDocument::ALLOWED_EXTENSIONS, true)) {
+            if (! in_array($ext, WorkerDocument::ALLOWED_EXTENSIONS, true)) {
                 throw ValidationException::withMessages([
                     "documents.{$idx}" => ['Unsupported or unsafe file extension.'],
                 ]);
@@ -835,14 +1305,14 @@ class WorkforceController extends Controller
 
             // Server-side finfo MIME check
             $detectedMime = $file->getMimeType();
-            if (!is_string($detectedMime) || !in_array($detectedMime, WorkerDocument::ALLOWED_MIME_TYPES, true)) {
+            if (! is_string($detectedMime) || ! in_array($detectedMime, WorkerDocument::ALLOWED_MIME_TYPES, true)) {
                 throw ValidationException::withMessages([
                     "documents.{$idx}" => ['The file content MIME type is not permitted.'],
                 ]);
             }
 
             $docType = $documentTypes[$idx] ?? null;
-            if (!is_string($docType) || !in_array($docType, $allowedTypeKeys, true)) {
+            if (! is_string($docType) || ! in_array($docType, $allowedTypeKeys, true)) {
                 throw ValidationException::withMessages([
                     "document_types.{$idx}" => ['Please select a valid document category for each uploaded file.'],
                 ]);
@@ -869,7 +1339,7 @@ class WorkforceController extends Controller
             DB::beginTransaction();
 
             foreach ($uploadedFiles as $idx => $file) {
-                if (!$file instanceof UploadedFile) {
+                if (! $file instanceof UploadedFile) {
                     continue;
                 }
 
@@ -878,22 +1348,24 @@ class WorkforceController extends Controller
                 $cleanOriginalName = mb_substr($cleanOriginalName, 0, 255);
 
                 $ext = strtolower($file->getClientOriginalExtension());
-                if (!in_array($ext, WorkerDocument::ALLOWED_EXTENSIONS, true)) {
+                if (! in_array($ext, WorkerDocument::ALLOWED_EXTENSIONS, true)) {
                     throw new \RuntimeException('Invalid document extension.');
                 }
 
-                $generatedFilename = Str::uuid()->toString() . '.' . $ext;
+                $generatedFilename = Str::uuid()->toString().'.'.$ext;
                 $directory = "worker-documents/{$companyId}/{$worker->id}";
-                $storedPath = $file->storeAs($directory, $generatedFilename, 'local');
+                $stored = VaultStorage::storeUploaded($file, $directory, $generatedFilename);
+                $storedPath = $stored['path'];
+                $diskName = $stored['disk'];
 
-                if (!$storedPath) {
+                if (! $storedPath) {
                     throw new \RuntimeException('Failed to write worker document to private storage.');
                 }
 
-                $storedPaths[] = $storedPath;
+                $storedPaths[] = ['path' => $storedPath, 'disk' => $diskName];
 
                 $docType = $documentTypes[$idx] ?? null;
-                if (!is_string($docType) || !array_key_exists($docType, WorkerDocument::DOCUMENT_TYPES)) {
+                if (! is_string($docType) || ! array_key_exists($docType, WorkerDocument::DOCUMENT_TYPES)) {
                     throw new \RuntimeException('Invalid document category.');
                 }
 
@@ -907,7 +1379,7 @@ class WorkforceController extends Controller
                     'document_type' => $docType,
                     'title' => $title,
                     'original_name' => $cleanOriginalName,
-                    'storage_disk' => 'local',
+                    'storage_disk' => $diskName,
                     'file_path' => $storedPath,
                     'mime_type' => $file->getMimeType() ?: 'application/octet-stream',
                     'file_size' => (int) $file->getSize(),
@@ -915,9 +1387,9 @@ class WorkforceController extends Controller
                 ];
 
                 if ($hasDocExpiryColumns) {
-                    $docPayload['document_number'] = !empty($documentNumbers[$idx]) ? mb_substr(trim((string) $documentNumbers[$idx]), 0, 80) : null;
-                    $docPayload['issue_date'] = !empty($documentIssueDates[$idx]) ? Carbon::parse($documentIssueDates[$idx])->format('Y-m-d') : null;
-                    $docPayload['expiry_date'] = !empty($documentExpiryDates[$idx]) ? Carbon::parse($documentExpiryDates[$idx])->format('Y-m-d') : null;
+                    $docPayload['document_number'] = ! empty($documentNumbers[$idx]) ? mb_substr(trim((string) $documentNumbers[$idx]), 0, 80) : null;
+                    $docPayload['issue_date'] = ! empty($documentIssueDates[$idx]) ? Carbon::parse($documentIssueDates[$idx])->format('Y-m-d') : null;
+                    $docPayload['expiry_date'] = ! empty($documentExpiryDates[$idx]) ? Carbon::parse($documentExpiryDates[$idx])->format('Y-m-d') : null;
                 }
 
                 WorkerDocument::create($docPayload);
@@ -926,11 +1398,12 @@ class WorkforceController extends Controller
             }
 
             DB::commit();
+
             return $count;
         } catch (\Throwable $e) {
             DB::rollBack();
-            foreach ($storedPaths as $path) {
-                Storage::disk('local')->delete($path);
+            foreach ($storedPaths as $item) {
+                VaultStorage::delete($item['path'], $item['disk']);
             }
             throw $e;
         }
@@ -1138,7 +1611,7 @@ class WorkforceController extends Controller
             ? (int) $request->input('default_site_id')
             : (session()->has('active_site_id') && session('active_site_id') ? (int) session('active_site_id') : null);
 
-        if ($defaultSiteId && !$user->isAssignedToSite($defaultSiteId)) {
+        if ($defaultSiteId && ! $user->isAssignedToSite($defaultSiteId)) {
             abort(403, 'You are not authorized to assign workers to the selected default site.');
         }
 
@@ -1171,8 +1644,9 @@ class WorkforceController extends Controller
 
         // Read header row and strip UTF-8 BOM if present
         $rawHeaders = fgetcsv($handle, 0, $delimiter);
-        if (!$rawHeaders || count($rawHeaders) < 2) {
+        if (! $rawHeaders || count($rawHeaders) < 2) {
             fclose($handle);
+
             return back()->withErrors(['csv_file' => 'The CSV file is empty or missing a valid header row.']);
         }
 
@@ -1207,15 +1681,17 @@ class WorkforceController extends Controller
             $clean = preg_replace('/^\xEF\xBB\xBF/', '', (string) $h);
             $clean = strtolower(trim(str_replace([' ', '-'], '_', $clean)));
             $clean = preg_replace('/[^a-z0-9_]/', '', $clean);
+
             return $headerAliases[$clean] ?? $clean;
         }, $rawHeaders);
 
         $requiredColumns = ['worker_type', 'first_name', 'trade_designation', 'daily_rate'];
         $missingColumns = array_diff($requiredColumns, $headers);
-        if (!empty($missingColumns)) {
+        if (! empty($missingColumns)) {
             fclose($handle);
+
             return back()->withErrors([
-                'csv_file' => 'Missing required CSV columns: ' . implode(', ', $missingColumns),
+                'csv_file' => 'Missing required CSV columns: '.implode(', ', $missingColumns),
             ]);
         }
 
@@ -1307,42 +1783,49 @@ class WorkforceController extends Controller
             ];
             $workerType = $typeMap[$rawType] ?? $rawType;
 
-            if (!in_array($workerType, ['employee', 'direct_labour', 'subcontractor_worker'], true)) {
+            if (! in_array($workerType, ['employee', 'direct_labour', 'subcontractor_worker'], true)) {
                 $rowErrors[] = "Row {$lineNumber}: Invalid worker_type '{$data['worker_type']}' (allowed: employee, direct_labour, subcontractor_worker).";
+
                 continue;
             }
 
             if (empty($data['first_name'])) {
                 $rowErrors[] = "Row {$lineNumber}: first_name is required.";
+
                 continue;
             }
 
             if (empty($data['trade_designation'])) {
                 $rowErrors[] = "Row {$lineNumber}: trade_designation is required.";
+
                 continue;
             }
 
-            if (!isset($data['daily_rate']) || !is_numeric($data['daily_rate']) || (float) $data['daily_rate'] < 0) {
+            if (! isset($data['daily_rate']) || ! is_numeric($data['daily_rate']) || (float) $data['daily_rate'] < 0) {
                 $rowErrors[] = "Row {$lineNumber}: daily_rate must be a valid non-negative number.";
+
                 continue;
             }
 
             // Validate optional Aadhaar last 4
             $aadhaar = $data['aadhaar_last_four'] ?? '';
-            if ($aadhaar !== '' && !preg_match('/^\d{4}$/', $aadhaar)) {
+            if ($aadhaar !== '' && ! preg_match('/^\d{4}$/', $aadhaar)) {
                 $rowErrors[] = "Row {$lineNumber}: aadhaar_last_four '{$aadhaar}' must be exactly 4 digits.";
+
                 continue;
             }
 
             $parsedDob = $this->parseCsvDate($data['date_of_birth'] ?? null, null);
-            if (!empty($data['date_of_birth']) && $parsedDob === null) {
+            if (! empty($data['date_of_birth']) && $parsedDob === null) {
                 $rowErrors[] = "Row {$lineNumber}: Invalid date_of_birth '{$data['date_of_birth']}'. Use YYYY-MM-DD or DD/MM/YYYY.";
+
                 continue;
             }
 
             $parsedJoiningDate = $this->parseCsvDate($data['joining_date'] ?? null, Carbon::today()->format('Y-m-d'));
-            if (!empty($data['joining_date']) && $parsedJoiningDate === null) {
+            if (! empty($data['joining_date']) && $parsedJoiningDate === null) {
                 $rowErrors[] = "Row {$lineNumber}: Invalid joining_date '{$data['joining_date']}'. Use YYYY-MM-DD or DD/MM/YYYY.";
+
                 continue;
             }
 
@@ -1356,10 +1839,12 @@ class WorkforceController extends Controller
             if ($phoneKey !== '') {
                 if (isset($existingPhones[$phoneKey])) {
                     $rowErrors[] = "Row {$lineNumber}: Duplicate mobile number '{$rawPhone}' — already registered to {$existingPhones[$phoneKey]}.";
+
                     continue;
                 }
                 if (isset($batchPhones[$phoneKey])) {
                     $rowErrors[] = "Row {$lineNumber}: Duplicate mobile number '{$rawPhone}' appears multiple times in this CSV (first seen on Row {$batchPhones[$phoneKey]}).";
+
                     continue;
                 }
             }
@@ -1368,10 +1853,12 @@ class WorkforceController extends Controller
             if ($normEmail !== '') {
                 if (isset($existingEmails[$normEmail])) {
                     $rowErrors[] = "Row {$lineNumber}: Duplicate email '{$normEmail}' — already registered to {$existingEmails[$normEmail]}.";
+
                     continue;
                 }
                 if (isset($batchEmails[$normEmail])) {
                     $rowErrors[] = "Row {$lineNumber}: Duplicate email '{$normEmail}' appears multiple times in this CSV (first seen on Row {$batchEmails[$normEmail]}).";
+
                     continue;
                 }
             }
@@ -1380,10 +1867,12 @@ class WorkforceController extends Controller
             if ($normBank !== '') {
                 if (isset($existingBankAccounts[$normBank])) {
                     $rowErrors[] = "Row {$lineNumber}: Duplicate bank account number '{$data['bank_account_number']}' — already registered to {$existingBankAccounts[$normBank]}.";
+
                     continue;
                 }
                 if (isset($batchBankAccounts[$normBank])) {
                     $rowErrors[] = "Row {$lineNumber}: Duplicate bank account number '{$data['bank_account_number']}' appears multiple times in this CSV (first seen on Row {$batchBankAccounts[$normBank]}).";
+
                     continue;
                 }
             }
@@ -1392,10 +1881,12 @@ class WorkforceController extends Controller
             if ($normUpi !== '') {
                 if (isset($existingUpiIds[$normUpi])) {
                     $rowErrors[] = "Row {$lineNumber}: Duplicate UPI ID '{$normUpi}' — already registered to {$existingUpiIds[$normUpi]}.";
+
                     continue;
                 }
                 if (isset($batchUpiIds[$normUpi])) {
                     $rowErrors[] = "Row {$lineNumber}: Duplicate UPI ID '{$normUpi}' appears multiple times in this CSV (first seen on Row {$batchUpiIds[$normUpi]}).";
+
                     continue;
                 }
             }
@@ -1419,12 +1910,14 @@ class WorkforceController extends Controller
             $rawSiteCode = strtolower($data['site_code'] ?? $data['site'] ?? '');
             if ($rawSiteCode !== '') {
                 $matchedSite = $sitesByCode->get($rawSiteCode) ?? $sitesByName->get($rawSiteCode);
-                if (!$matchedSite) {
+                if (! $matchedSite) {
                     $rowErrors[] = "Row {$lineNumber}: Site '{$data['site_code']}' was not found in your company.";
+
                     continue;
                 }
-                if (!$user->isAssignedToSite($matchedSite)) {
+                if (! $user->isAssignedToSite($matchedSite)) {
                     $rowErrors[] = "Row {$lineNumber}: You are not authorized to assign workers to site '{$matchedSite->code}'.";
+
                     continue;
                 }
                 $resolvedSiteId = $matchedSite->id;
@@ -1436,17 +1929,18 @@ class WorkforceController extends Controller
             if ($workerType === 'subcontractor_worker') {
                 if ($rawSubName === '') {
                     $firstActiveSub = $subsByName->first();
-                    if (!$firstActiveSub) {
+                    if (! $firstActiveSub) {
                         $rowErrors[] = "Row {$lineNumber}: subcontractor_name is required for subcontractor_worker.";
+
                         continue;
                     }
                     $resolvedSubId = $firstActiveSub->id;
                 } else {
                     $matchedSub = $subsByName->get($rawSubName);
-                    if (!$matchedSub) {
+                    if (! $matchedSub) {
                         $matchedSub = Subcontractor::create([
                             'company_id' => $companyId,
-                            'code' => 'SUBV-' . strtoupper(Str::random(5)),
+                            'code' => 'SUBV-'.strtoupper(Str::random(5)),
                             'name' => trim($data['subcontractor_name'] ?? $data['subcontractor']),
                             'is_active' => true,
                         ]);
@@ -1458,27 +1952,29 @@ class WorkforceController extends Controller
 
             // Validate optional skill_level
             $skillLevel = strtolower(str_replace([' ', '-'], '_', $data['skill_level'] ?? ''));
-            if ($skillLevel !== '' && !array_key_exists($skillLevel, Worker::SKILL_LEVELS)) {
+            if ($skillLevel !== '' && ! array_key_exists($skillLevel, Worker::SKILL_LEVELS)) {
                 $rowErrors[] = "Row {$lineNumber}: Invalid skill_level '{$data['skill_level']}'.";
+
                 continue;
             }
 
             // Validate optional gender
             $gender = strtolower($data['gender'] ?? '');
-            if ($gender !== '' && !array_key_exists($gender, Worker::GENDERS)) {
+            if ($gender !== '' && ! array_key_exists($gender, Worker::GENDERS)) {
                 $rowErrors[] = "Row {$lineNumber}: Invalid gender '{$gender}'.";
+
                 continue;
             }
 
             // Validate optional pay_type
             $payType = strtolower(trim($data['pay_type'] ?? 'daily')) ?: 'daily';
-            if (!array_key_exists($payType, Worker::PAY_TYPES)) {
+            if (! array_key_exists($payType, Worker::PAY_TYPES)) {
                 $payType = 'daily';
             }
 
             // Validate optional status
             $status = strtolower($data['status'] ?? 'active') ?: 'active';
-            if (!in_array($status, ['active', 'inactive', 'on_leave'], true)) {
+            if (! in_array($status, ['active', 'inactive', 'on_leave'], true)) {
                 $status = 'active';
             }
 
@@ -1488,10 +1984,10 @@ class WorkforceController extends Controller
                 'subcontractor_id' => $resolvedSubId,
                 'assigned_site_id' => $resolvedSiteId,
                 'first_name' => mb_substr($data['first_name'], 0, 100),
-                'last_name' => !empty($data['last_name']) ? mb_substr($data['last_name'], 0, 100) : null,
+                'last_name' => ! empty($data['last_name']) ? mb_substr($data['last_name'], 0, 100) : null,
                 'trade_designation' => mb_substr($data['trade_designation'], 0, 100),
                 'skill_level' => $skillLevel ?: null,
-                'department' => !empty($data['department']) ? mb_substr($data['department'], 0, 100) : null,
+                'department' => ! empty($data['department']) ? mb_substr($data['department'], 0, 100) : null,
                 'pay_type' => $payType,
                 'daily_rate' => round((float) $data['daily_rate'], 2),
                 'monthly_salary' => isset($data['monthly_salary']) && is_numeric($data['monthly_salary'])
@@ -1506,28 +2002,28 @@ class WorkforceController extends Controller
                 'overtime_rate' => isset($data['overtime_rate']) && is_numeric($data['overtime_rate'])
                     ? round((float) $data['overtime_rate'], 2)
                     : 0.00,
-                'phone' => !empty($data['phone']) ? mb_substr($data['phone'], 0, 25) : null,
-                'alternate_phone' => !empty($data['alternate_phone']) ? mb_substr($data['alternate_phone'], 0, 25) : null,
-                'email' => !empty($data['email']) ? mb_substr($data['email'], 0, 150) : null,
+                'phone' => ! empty($data['phone']) ? mb_substr($data['phone'], 0, 25) : null,
+                'alternate_phone' => ! empty($data['alternate_phone']) ? mb_substr($data['alternate_phone'], 0, 25) : null,
+                'email' => ! empty($data['email']) ? mb_substr($data['email'], 0, 150) : null,
                 'date_of_birth' => $parsedDob,
                 'gender' => $gender ?: null,
                 'aadhaar_last_four' => $aadhaar ?: null,
                 'joining_date' => $parsedJoiningDate,
                 'status' => $status,
-                'address' => !empty($data['address']) ? mb_substr($data['address'], 0, 500) : null,
-                'emergency_contact_name' => !empty($data['emergency_contact_name']) ? mb_substr($data['emergency_contact_name'], 0, 120) : null,
-                'emergency_contact_relation' => !empty($data['emergency_contact_relation']) ? mb_substr($data['emergency_contact_relation'], 0, 60) : null,
-                'emergency_contact_phone' => !empty($data['emergency_contact_phone']) ? mb_substr($data['emergency_contact_phone'], 0, 25) : null,
-                'bank_account_name' => !empty($data['bank_account_name']) ? mb_substr($data['bank_account_name'], 0, 120) : null,
-                'bank_account_number' => !empty($data['bank_account_number']) ? mb_substr($data['bank_account_number'], 0, 50) : null,
-                'bank_ifsc' => !empty($data['bank_ifsc']) ? strtoupper(mb_substr($data['bank_ifsc'], 0, 20)) : null,
-                'upi_id' => !empty($data['upi_id']) ? mb_substr($data['upi_id'], 0, 100) : null,
+                'address' => ! empty($data['address']) ? mb_substr($data['address'], 0, 500) : null,
+                'emergency_contact_name' => ! empty($data['emergency_contact_name']) ? mb_substr($data['emergency_contact_name'], 0, 120) : null,
+                'emergency_contact_relation' => ! empty($data['emergency_contact_relation']) ? mb_substr($data['emergency_contact_relation'], 0, 60) : null,
+                'emergency_contact_phone' => ! empty($data['emergency_contact_phone']) ? mb_substr($data['emergency_contact_phone'], 0, 25) : null,
+                'bank_account_name' => ! empty($data['bank_account_name']) ? mb_substr($data['bank_account_name'], 0, 120) : null,
+                'bank_account_number' => ! empty($data['bank_account_number']) ? mb_substr($data['bank_account_number'], 0, 50) : null,
+                'bank_ifsc' => ! empty($data['bank_ifsc']) ? strtoupper(mb_substr($data['bank_ifsc'], 0, 20)) : null,
+                'upi_id' => ! empty($data['upi_id']) ? mb_substr($data['upi_id'], 0, 100) : null,
             ];
         }
 
         fclose($handle);
 
-        if (!empty($rowErrors)) {
+        if (! empty($rowErrors)) {
             return back()->withErrors($rowErrors)->withInput();
         }
 
@@ -1619,7 +2115,7 @@ class WorkforceController extends Controller
         if (session()->has('active_site_id') && session('active_site_id')) {
             $activeSiteId = (int) session('active_site_id');
             $allMatchActiveSite = collect($importedWorkers)->every(fn ($w) => (int) $w->assigned_site_id === $activeSiteId);
-            if (!$allMatchActiveSite) {
+            if (! $allMatchActiveSite) {
                 session()->forget('active_site_id');
             }
         }

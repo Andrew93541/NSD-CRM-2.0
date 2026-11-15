@@ -10,7 +10,7 @@
                 {{ __('Multi-category compensation engine (Daily Wage, Monthly Salary, Hourly Rate, and Fixed Contract) with advance deductions and printable payslips.') }}
             </p>
         </div>
-        @if(auth()->user()->hasRole(['super_admin', 'company_admin', 'senior_manager', 'site_manager', 'office_staff']))
+        @if(!auth()->user()->isExplicitlyDenied('payroll.view') && auth()->user()->canPerform('payroll.create', ['super_admin', 'company_admin', 'senior_manager', 'site_manager', 'office_staff']))
             <div class="flex flex-wrap items-center gap-2.5">
                 <button type="button" @click="showAdvanceModal = true" class="px-4 py-2.5 text-xs font-extrabold rounded-xl bg-slate-900 dark:bg-slate-800 hover:bg-slate-800 dark:hover:bg-slate-700 text-white border border-slate-700 transition">
                     + {{ __('Record Salary Advance') }}

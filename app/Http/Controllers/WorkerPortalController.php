@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\Company;
 use App\Models\DailyAttendance;
 use App\Models\LeaveRequest;
 use App\Models\Site;
@@ -18,9 +19,7 @@ use Illuminate\View\View;
 
 class WorkerPortalController extends Controller
 {
-    public function __construct(protected AttendanceService $attendanceService)
-    {
-    }
+    public function __construct(protected AttendanceService $attendanceService) {}
 
     public function showLogin(): View
     {
@@ -37,7 +36,7 @@ class WorkerPortalController extends Controller
         ]);
 
         $normalizedCode = strtoupper(trim($validated['worker_code']));
-        $ipThrottleKey = 'worker-login-ip:' . $request->ip();
+        $ipThrottleKey = 'worker-login-ip:'.$request->ip();
 
         if (RateLimiter::tooManyAttempts($ipThrottleKey, 25)) {
             return back()->withErrors([
@@ -45,9 +44,9 @@ class WorkerPortalController extends Controller
             ]);
         }
 
-        $requestedCompanyId = !empty($validated['company_id']) ? (int) $validated['company_id'] : null;
-        if (!$requestedCompanyId && !empty($validated['company_code'])) {
-            $requestedCompanyId = (int) (\App\Models\Company::where('code', strtoupper(trim($validated['company_code'])))->value('id') ?: 0);
+        $requestedCompanyId = ! empty($validated['company_id']) ? (int) $validated['company_id'] : null;
+        if (! $requestedCompanyId && ! empty($validated['company_code'])) {
+            $requestedCompanyId = (int) (Company::where('code', strtoupper(trim($validated['company_code'])))->value('id') ?: 0);
         }
 
         $workersQuery = Worker::withoutGlobalScopes()
@@ -66,13 +65,13 @@ class WorkerPortalController extends Controller
         $worker = null;
         foreach ($candidates as $candidate) {
             $candidateKey = $candidate->getPinLockoutCacheKey();
-            if (!RateLimiter::tooManyAttempts($candidateKey, 5) && !empty($candidate->pin) && Hash::check($validated['pin'], $candidate->pin)) {
+            if (! RateLimiter::tooManyAttempts($candidateKey, 5) && ! empty($candidate->pin) && Hash::check($validated['pin'], $candidate->pin)) {
                 $worker = $candidate;
                 break;
             }
         }
 
-        if (!$worker) {
+        if (! $worker) {
             $worker = $candidates->first();
         }
 
@@ -85,9 +84,10 @@ class WorkerPortalController extends Controller
             ]);
         }
 
-        if (!$worker || empty($worker->pin) || !Hash::check($validated['pin'], $worker->pin)) {
+        if (! $worker || empty($worker->pin) || ! Hash::check($validated['pin'], $worker->pin)) {
             RateLimiter::hit($ipThrottleKey, 60);
             RateLimiter::hit($pinLockoutKey, 900);
+
             return back()->withErrors(['worker_code' => 'Invalid worker code or PIN, or account is not active.'])->withInput(['worker_code' => $validated['worker_code']]);
         }
 
@@ -113,18 +113,19 @@ class WorkerPortalController extends Controller
     public function logout(Request $request): RedirectResponse
     {
         $request->session()->forget(['worker_auth_id', 'worker_company_id']);
+
         return redirect()->route('worker.login');
     }
 
     protected function resolveAuthenticatedWorker(): Worker
     {
         $workerId = session('worker_auth_id');
-        if (!$workerId) {
+        if (! $workerId) {
             abort(401, 'Unauthenticated worker session.');
         }
 
         $worker = Worker::withoutGlobalScopes()->where('id', $workerId)->where('status', 'active')->first();
-        if (!$worker) {
+        if (! $worker) {
             session()->forget(['worker_auth_id', 'worker_company_id']);
             abort(403, 'Worker account is deactivated or unavailable.');
         }
@@ -136,7 +137,7 @@ class WorkerPortalController extends Controller
 
     public function showPinChange(): View|RedirectResponse
     {
-        if (!session('worker_auth_id')) {
+        if (! session('worker_auth_id')) {
             return redirect()->route('worker.login');
         }
 
@@ -147,7 +148,7 @@ class WorkerPortalController extends Controller
 
     public function updatePin(Request $request): RedirectResponse
     {
-        if (!session('worker_auth_id')) {
+        if (! session('worker_auth_id')) {
             return redirect()->route('worker.login');
         }
 
@@ -167,7 +168,7 @@ class WorkerPortalController extends Controller
 
     public function punchScreen(): View|RedirectResponse
     {
-        if (!session('worker_auth_id')) {
+        if (! session('worker_auth_id')) {
             return redirect()->route('worker.login');
         }
 
@@ -195,7 +196,7 @@ class WorkerPortalController extends Controller
 
     public function storePunch(Request $request): RedirectResponse
     {
-        if (!session('worker_auth_id')) {
+        if (! session('worker_auth_id')) {
             return redirect()->route('worker.login');
         }
 
@@ -204,7 +205,7 @@ class WorkerPortalController extends Controller
             return redirect()->route('worker.pin.show');
         }
 
-        $punchThrottleKey = 'worker-punch:' . $worker->id . '|' . $request->ip();
+        $punchThrottleKey = 'worker-punch:'.$worker->id.'|'.$request->ip();
         if (RateLimiter::tooManyAttempts($punchThrottleKey, 15)) {
             return back()->withErrors(['site_id' => 'Too many punch requests. Please wait a moment before trying again.']);
         }
@@ -220,7 +221,7 @@ class WorkerPortalController extends Controller
         ]);
 
         $siteId = $validated['site_id'] ?? $worker->assigned_site_id;
-        if (!$siteId) {
+        if (! $siteId) {
             return back()->withErrors(['site_id' => 'No assigned site found for punch recording.']);
         }
 
@@ -233,7 +234,7 @@ class WorkerPortalController extends Controller
                 'latitude' => $validated['latitude'] ?? null,
                 'longitude' => $validated['longitude'] ?? null,
                 'accuracy_m' => $validated['accuracy_m'] ?? null,
-                'device_id' => $validated['device_id'] ?? ('WEB-' . substr(sha1((string) $request->userAgent()), 0, 12)),
+                'device_id' => $validated['device_id'] ?? ('WEB-'.substr(sha1((string) $request->userAgent()), 0, 12)),
                 'ip_address' => $request->ip(),
             ], null);
         } catch (DomainException $e) {
@@ -252,38 +253,23 @@ class WorkerPortalController extends Controller
 
     public function storeLeaveRequest(Request $request): RedirectResponse
     {
-        if (!session('worker_auth_id')) {
+        if (! session('worker_auth_id')) {
             return redirect()->route('worker.login');
         }
 
         $worker = $this->resolveAuthenticatedWorker();
 
         $validated = $request->validate([
-            'leave_type_name' => ['required', 'string', 'max:60'],
+            'leave_type_id' => ['nullable', 'integer'],
+            'leave_type_name' => ['required_without:leave_type_id', 'nullable', 'string', 'max:60'],
             'start_date' => ['required', 'date'],
             'end_date' => ['required', 'date', 'after_or_equal:start_date'],
             'reason' => ['required', 'string', 'min:5', 'max:500'],
         ]);
 
-        $start = Carbon::parse($validated['start_date']);
-        $end = Carbon::parse($validated['end_date']);
-        $daysCount = (int) $start->diffInDays($end) + 1;
-
-        LeaveRequest::create([
-            'company_id' => $worker->company_id,
-            'worker_id' => $worker->id,
-            'site_id' => $worker->assigned_site_id,
-            'leave_type_name' => $validated['leave_type_name'],
-            'is_paid' => true,
-            'start_date' => $validated['start_date'],
-            'end_date' => $validated['end_date'],
-            'days_count' => $daysCount,
-            'reason' => $validated['reason'],
-            'status' => 'pending',
-            'requested_by' => null,
-        ]);
+        $payload = $this->attendanceService->validateAndBuildLeavePayload($worker, $validated, null);
+        LeaveRequest::create($payload);
 
         return redirect()->route('worker.punch')->with('success', 'Leave request submitted for supervisor/manager approval.');
     }
 }
-

@@ -9,7 +9,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 class MeasurementEntry extends Model
 {
-    use HasFactory, BelongsToCompany;
+    use BelongsToCompany, HasFactory;
 
     protected $fillable = [
         'company_id',
@@ -26,6 +26,7 @@ class MeasurementEntry extends Model
         'direct_quantity',
         'computed_quantity',
         'hold_quantity',
+        'storage_disk',
         'photo_path',
         'remarks',
         'status',
@@ -96,4 +97,3 @@ class MeasurementEntry extends Model
         return $this->belongsTo(User::class, 'verified_by');
     }
 }
-

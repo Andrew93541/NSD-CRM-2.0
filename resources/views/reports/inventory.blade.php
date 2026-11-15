@@ -73,6 +73,11 @@
                 </div>
             @endforelse
         </div>
+        @if($stocks instanceof \Illuminate\Pagination\AbstractPaginator && $stocks->hasPages())
+            <div class="px-4 py-3 border-t border-slate-200 dark:border-slate-800">
+                {{ $stocks->links() }}
+            </div>
+        @endif
     </div>
 </div>
 @endsection

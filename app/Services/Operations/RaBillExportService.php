@@ -7,12 +7,13 @@ use App\Models\BillExport;
 use App\Models\RaBill;
 use App\Models\User;
 use App\Models\WorkOrder;
+use App\Services\Storage\VaultStorage;
 use App\Support\IndianCurrencyWords;
 use Carbon\Carbon;
 use Dompdf\Dompdf;
 use Dompdf\Options;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Facades\Schema;
 use InvalidArgumentException;
 use PhpOffice\PhpSpreadsheet\Cell\DataType;
 use PhpOffice\PhpSpreadsheet\Spreadsheet;
@@ -46,7 +47,7 @@ class RaBillExportService
      */
     public function ensureInvoiceNumberAssigned(RaBill $raBill): string
     {
-        if (!empty($raBill->invoice_number)) {
+        if (! empty($raBill->invoice_number)) {
             return $raBill->invoice_number;
         }
 
@@ -54,8 +55,9 @@ class RaBillExportService
             /** @var RaBill $lockedBill */
             $lockedBill = RaBill::where('id', $raBill->id)->lockForUpdate()->firstOrFail();
 
-            if (!empty($lockedBill->invoice_number)) {
+            if (! empty($lockedBill->invoice_number)) {
                 $raBill->invoice_number = $lockedBill->invoice_number;
+
                 return $lockedBill->invoice_number;
             }
 
@@ -75,7 +77,7 @@ class RaBillExportService
                 ->lockForUpdate()
                 ->first();
 
-            if (!$seqRow) {
+            if (! $seqRow) {
                 DB::table('invoice_sequences')->insert([
                     'company_id' => $company->id,
                     'prefix' => $prefix,
@@ -124,7 +126,7 @@ class RaBillExportService
      */
     public function exportPdf(RaBill $raBill, string $exportType, User $actor): BillExport
     {
-        if (!in_array($exportType, ['tax_invoice_pdf', 'abstract_pdf', 'combined_pdf'], true)) {
+        if (! in_array($exportType, ['tax_invoice_pdf', 'abstract_pdf', 'combined_pdf'], true)) {
             throw new InvalidArgumentException("Unsupported PDF export type: {$exportType}");
         }
 
@@ -154,7 +156,7 @@ class RaBillExportService
             'amountInWords' => $amountInWords,
         ])->render();
 
-        $options = new Options();
+        $options = new Options;
         $options->set('isRemoteEnabled', false);
         $options->set('defaultFont', 'DejaVu Sans');
 
@@ -175,9 +177,10 @@ class RaBillExportService
         );
         $relativePath = "companies/{$workOrder->company_id}/work_orders/{$workOrder->id}/ra_bills/{$raBill->id}/exports/{$fileName}";
 
-        Storage::disk('local')->put($relativePath, $pdfBinary);
+        $stored = VaultStorage::put($relativePath, $pdfBinary);
+        $diskName = $stored['disk'];
 
-        $export = BillExport::create([
+        $exportPayload = [
             'company_id' => $workOrder->company_id,
             'work_order_id' => $workOrder->id,
             'ra_bill_id' => $raBill->id,
@@ -186,7 +189,11 @@ class RaBillExportService
             'file_path' => $relativePath,
             'invoice_number' => $raBill->invoice_number,
             'exported_by' => $actor->id,
-        ]);
+        ];
+        if (Schema::hasColumn('bill_exports', 'storage_disk')) {
+            $exportPayload['storage_disk'] = $diskName;
+        }
+        $export = BillExport::create($exportPayload);
 
         AuditLog::record(
             "ra_bill.export.{$exportType}",
@@ -218,7 +225,7 @@ class RaBillExportService
             $raBill->refresh();
         }
 
-        $spreadsheet = new Spreadsheet();
+        $spreadsheet = new Spreadsheet;
 
         // Sheet 1: INV (Tax Invoice)
         $invSheet = $spreadsheet->getActiveSheet();
@@ -229,11 +236,11 @@ class RaBillExportService
         $abstractSheet->setTitle('ABSTRACT');
 
         // Populate ABSTRACT sheet first so we know exact summary row coordinates for INV cross-sheet formulas
-        $abstractSheet->setCellValue('A1', strtoupper($company->name ?? 'NSD EARTH MOVERS & CONSTRUCTION') . ' — ABSTRACT OF ' . $raBill->ra_label);
-        $abstractSheet->setCellValue('A2', 'Client: ' . ($raBill->client?->name ?? 'JSW STEEL LIMITED'));
-        $abstractSheet->setCellValue('D2', 'PO / Service Order No: ' . ($workOrder->po_number ?? $workOrder->order_number));
-        $abstractSheet->setCellValue('H2', 'Invoice No: ' . ($raBill->invoice_number ?? 'DRAFT'));
-        $abstractSheet->setCellValue('L2', 'Period: ' . $raBill->period_from->format('d.m.Y') . ' to ' . $raBill->period_to->format('d.m.Y'));
+        $abstractSheet->setCellValue('A1', strtoupper($company->name ?? 'NSD EARTH MOVERS & CONSTRUCTION').' — ABSTRACT OF '.$raBill->ra_label);
+        $abstractSheet->setCellValue('A2', 'Client: '.($raBill->client?->name ?? 'JSW STEEL LIMITED'));
+        $abstractSheet->setCellValue('D2', 'PO / Service Order No: '.($workOrder->po_number ?? $workOrder->order_number));
+        $abstractSheet->setCellValue('H2', 'Invoice No: '.($raBill->invoice_number ?? 'DRAFT'));
+        $abstractSheet->setCellValue('L2', 'Period: '.$raBill->period_from->format('d.m.Y').' to '.$raBill->period_to->format('d.m.Y'));
 
         $headers = [
             'A5' => 'Sr. No.',
@@ -297,19 +304,31 @@ class RaBillExportService
         $abstractSheet->setCellValue("L{$totalBasicRow}", "=SUM(L{$firstDataRow}:L{$lastDataRow})");
         $abstractSheet->setCellValue("M{$totalBasicRow}", "=SUM(M{$firstDataRow}:M{$lastDataRow})");
 
-        $abstractSheet->setCellValue("D{$cgstRow}", "ADD: CGST @ {$raBill->cgst_rate}%");
-        $abstractSheet->setCellValue("L{$cgstRow}", "=ROUND(L{$totalBasicRow}*{$cgstDecimal},2)");
+        if ($raBill->isIgst()) {
+            $igstDecimal = round(((float) $raBill->igst_rate) / 100, 4);
+            $abstractSheet->setCellValue("D{$cgstRow}", "ADD: IGST @ {$raBill->igst_rate}%");
+            $abstractSheet->setCellValue("L{$cgstRow}", "=ROUND(L{$totalBasicRow}*{$igstDecimal},2)");
 
-        $abstractSheet->setCellValue("D{$sgstRow}", "ADD: SGST @ {$raBill->sgst_rate}%");
-        $abstractSheet->setCellValue("L{$sgstRow}", "=ROUND(L{$totalBasicRow}*{$sgstDecimal},2)");
+            $abstractSheet->setCellValue("D{$sgstRow}", 'ADD: SGST @ 0.00%');
+            $abstractSheet->setCellValue("L{$sgstRow}", '=0');
 
-        $abstractSheet->setCellValue("D{$grossRow}", 'TOTAL GROSS VALUE (A + CGST + SGST)');
-        $abstractSheet->setCellValue("L{$grossRow}", "=L{$totalBasicRow}+L{$cgstRow}+L{$sgstRow}");
+            $abstractSheet->setCellValue("D{$grossRow}", 'TOTAL GROSS VALUE (A + IGST)');
+            $abstractSheet->setCellValue("L{$grossRow}", "=L{$totalBasicRow}+L{$cgstRow}");
+        } else {
+            $abstractSheet->setCellValue("D{$cgstRow}", "ADD: CGST @ {$raBill->cgst_rate}%");
+            $abstractSheet->setCellValue("L{$cgstRow}", "=ROUND(L{$totalBasicRow}*{$cgstDecimal},2)");
+
+            $abstractSheet->setCellValue("D{$sgstRow}", "ADD: SGST @ {$raBill->sgst_rate}%");
+            $abstractSheet->setCellValue("L{$sgstRow}", "=ROUND(L{$totalBasicRow}*{$sgstDecimal},2)");
+
+            $abstractSheet->setCellValue("D{$grossRow}", 'TOTAL GROSS VALUE (A + CGST + SGST)');
+            $abstractSheet->setCellValue("L{$grossRow}", "=L{$totalBasicRow}+L{$cgstRow}+L{$sgstRow}");
+        }
 
         // Populate Sheet 1: INV (Tax Invoice) with cross-sheet formula referencing ABSTRACT!L{$totalBasicRow}
         $invSheet->setCellValue('A1', strtoupper($company->name ?? 'NSD EARTH MOVERS & CONSTRUCTION'));
         $invSheet->setCellValue('A2', $company->registered_address ?? '');
-        $invSheet->setCellValue('A3', 'GSTIN: ' . ($company->gstin ?? '') . ' | PAN: ' . ($company->pan ?? '') . ' | Vendor Code: ' . ($company->vendor_code ?? ''));
+        $invSheet->setCellValue('A3', 'GSTIN: '.($company->gstin ?? '').' | PAN: '.($company->pan ?? '').' | Vendor Code: '.($company->vendor_code ?? ''));
         $invSheet->setCellValue('A4', 'TAX INVOICE');
 
         $invSheet->setCellValue('A6', 'Billed To:');
@@ -330,7 +349,7 @@ class RaBillExportService
         $invSheet->setCellValue('E10', 'JOB LOCATION:');
         $invSheet->setCellValue('F10', $workOrder->job_location ?? $workOrder->site?->name ?? '');
         $invSheet->setCellValue('E11', 'BILLING PERIOD:');
-        $invSheet->setCellValue('F11', $raBill->period_from->format('d.m.Y') . ' to ' . $raBill->period_to->format('d.m.Y'));
+        $invSheet->setCellValue('F11', $raBill->period_from->format('d.m.Y').' to '.$raBill->period_to->format('d.m.Y'));
 
         $invSheet->setCellValue('A13', 'Sr. No.');
         $invSheet->setCellValue('B13', 'Particulars / Description of Works');
@@ -338,25 +357,37 @@ class RaBillExportService
         $invSheet->setCellValue('G13', 'Amount (INR)');
 
         $invSheet->setCellValue('A14', 1);
-        $invSheet->setCellValue('B14', $workOrder->title . ' — As per attached Abstract Sheet (' . $raBill->ra_label . ')');
+        $invSheet->setCellValue('B14', $workOrder->title.' — As per attached Abstract Sheet ('.$raBill->ra_label.')');
         $invSheet->setCellValueExplicit('E14', (string) ($raBill->items->first()?->sac_code ?? '995419'), DataType::TYPE_STRING);
         // Cross-sheet formula referencing ABSTRACT Basic Total
         $invSheet->setCellValue('G14', "=ABSTRACT!L{$totalBasicRow}");
 
-        $invSheet->setCellValue('B15', "Add: CGST @ {$raBill->cgst_rate}%");
-        $invSheet->setCellValue('G15', "=ROUND(G14*{$cgstDecimal},2)");
+        if ($raBill->isIgst()) {
+            $igstDecimal = round(((float) $raBill->igst_rate) / 100, 4);
+            $invSheet->setCellValue('B15', "Add: IGST @ {$raBill->igst_rate}%");
+            $invSheet->setCellValue('G15', "=ROUND(G14*{$igstDecimal},2)");
 
-        $invSheet->setCellValue('B16', "Add: SGST @ {$raBill->sgst_rate}%");
-        $invSheet->setCellValue('G16', "=ROUND(G14*{$sgstDecimal},2)");
+            $invSheet->setCellValue('B16', 'Add: SGST (Not Applicable — Inter-State IGST)');
+            $invSheet->setCellValue('G16', '=0');
 
-        $invSheet->setCellValue('B17', 'Total Gross Invoice Amount (A + CGST + SGST)');
-        $invSheet->setCellValue('G17', '=G14+G15+G16');
+            $invSheet->setCellValue('B17', 'Total Gross Invoice Amount (A + IGST)');
+            $invSheet->setCellValue('G17', '=G14+G15');
+        } else {
+            $invSheet->setCellValue('B15', "Add: CGST @ {$raBill->cgst_rate}%");
+            $invSheet->setCellValue('G15', "=ROUND(G14*{$cgstDecimal},2)");
+
+            $invSheet->setCellValue('B16', "Add: SGST @ {$raBill->sgst_rate}%");
+            $invSheet->setCellValue('G16', "=ROUND(G14*{$sgstDecimal},2)");
+
+            $invSheet->setCellValue('B17', 'Total Gross Invoice Amount (A + CGST + SGST)');
+            $invSheet->setCellValue('G17', '=G14+G15+G16');
+        }
 
         $totalDeductions = round((float) $raBill->retention_deduction + (float) $raBill->advance_recovery + (float) $raBill->other_deductions, 2);
         $invSheet->setCellValue('B18', 'Less: Retention / Advance / Other Deductions');
         $invSheet->setCellValue('G18', $totalDeductions);
 
-        $invSheet->setCellValue('B19', 'Net Payable Amount (' . strtoupper($raBill->rounding_mode) . ')');
+        $invSheet->setCellValue('B19', 'Net Payable Amount ('.strtoupper($raBill->rounding_mode).')');
         $netFormula = $raBill->rounding_mode === 'rupee' ? '=ROUND(G17-G18,0)' : '=ROUND(G17-G18,2)';
         $invSheet->setCellValue('G19', $netFormula);
 
@@ -379,16 +410,17 @@ class RaBillExportService
         );
         $relativePath = "companies/{$workOrder->company_id}/work_orders/{$workOrder->id}/ra_bills/{$raBill->id}/exports/{$fileName}";
 
-        $tempPath = tempnam(sys_get_temp_dir(), 'nsd_rabill_') . '.xlsx';
+        $tempPath = tempnam(sys_get_temp_dir(), 'nsd_rabill_').'.xlsx';
         $writer = new Xlsx($spreadsheet);
         // Disable pre-calculate formulas on save only if needed, or leave true so Excel has both formula and cached value
         $writer->setPreCalculateFormulas(true);
         $writer->save($tempPath);
 
-        Storage::disk('local')->put($relativePath, file_get_contents($tempPath));
+        $stored = VaultStorage::put($relativePath, (string) file_get_contents($tempPath));
+        $diskName = $stored['disk'];
         @unlink($tempPath);
 
-        $export = BillExport::create([
+        $exportPayload = [
             'company_id' => $workOrder->company_id,
             'work_order_id' => $workOrder->id,
             'ra_bill_id' => $raBill->id,
@@ -397,7 +429,11 @@ class RaBillExportService
             'file_path' => $relativePath,
             'invoice_number' => $raBill->invoice_number,
             'exported_by' => $actor->id,
-        ]);
+        ];
+        if (Schema::hasColumn('bill_exports', 'storage_disk')) {
+            $exportPayload['storage_disk'] = $diskName;
+        }
+        $export = BillExport::create($exportPayload);
 
         AuditLog::record(
             'ra_bill.export.ra_bill_xlsx',
@@ -423,8 +459,7 @@ class RaBillExportService
         $workOrder->load(['company', 'client', 'project', 'site', 'creator', 'siteManager', 'seniorManager', 'items']);
         $company = $workOrder->company;
 
-        $baseVal = (float) ($workOrder->base_order_value ?: $workOrder->estimated_amount);
-        $grossVal = round($baseVal + $workOrder->cgstAmount() + $workOrder->sgstAmount(), 2);
+        $grossVal = $workOrder->grossOrderValue();
         $amountInWords = IndianCurrencyWords::toWords($grossVal);
 
         $html = view('work_orders.pdf.service_order', [
@@ -433,7 +468,7 @@ class RaBillExportService
             'amountInWords' => $amountInWords,
         ])->render();
 
-        $options = new Options();
+        $options = new Options;
         $options->set('isRemoteEnabled', false);
         $options->set('defaultFont', 'DejaVu Sans');
 
@@ -453,9 +488,10 @@ class RaBillExportService
         );
         $relativePath = "companies/{$workOrder->company_id}/work_orders/{$workOrder->id}/exports/{$fileName}";
 
-        Storage::disk('local')->put($relativePath, $pdfBinary);
+        $stored = VaultStorage::put($relativePath, $pdfBinary);
+        $diskName = $stored['disk'];
 
-        $export = BillExport::create([
+        $exportPayload = [
             'company_id' => $workOrder->company_id,
             'work_order_id' => $workOrder->id,
             'ra_bill_id' => null,
@@ -464,7 +500,11 @@ class RaBillExportService
             'file_path' => $relativePath,
             'invoice_number' => null,
             'exported_by' => $actor->id,
-        ]);
+        ];
+        if (Schema::hasColumn('bill_exports', 'storage_disk')) {
+            $exportPayload['storage_disk'] = $diskName;
+        }
+        $export = BillExport::create($exportPayload);
 
         AuditLog::record(
             'work_order.export.work_order_pdf',
@@ -479,5 +519,60 @@ class RaBillExportService
         );
 
         return $export;
+    }
+
+    /**
+     * Render a standalone Measurement Book PDF binary for a Work Order.
+     */
+    public function renderMeasurementBookPdf(WorkOrder $workOrder, User $actor): array
+    {
+        $workOrder->load([
+            'company',
+            'client',
+            'project',
+            'site',
+            'items',
+            'measurements.workOrderItem',
+            'measurements.recorder',
+            'measurements.verifier',
+            'measurements.raBill',
+        ]);
+
+        $html = view('ra_bills.pdf.measurement_book', [
+            'workOrder' => $workOrder,
+            'company' => $workOrder->company,
+            'measurements' => $workOrder->measurements->sortBy([
+                ['measured_on', 'asc'],
+                ['id', 'asc'],
+            ]),
+        ])->render();
+
+        $options = new Options;
+        $options->set('isRemoteEnabled', false);
+        $options->set('defaultFont', 'DejaVu Sans');
+
+        $dompdf = new Dompdf($options);
+        $dompdf->loadHtml($html, 'UTF-8');
+        $dompdf->setPaper('A4', 'landscape');
+        $dompdf->render();
+
+        $fileName = sprintf(
+            '%s-measurement-book-%s.pdf',
+            $workOrder->order_number,
+            now()->format('YmdHis')
+        );
+
+        AuditLog::record(
+            'work_order.export.measurement_book_pdf',
+            $workOrder,
+            [],
+            ['file_name' => $fileName, 'entries_count' => $workOrder->measurements->count()],
+            "Exported Measurement Book PDF for {$workOrder->order_number}"
+        );
+
+        return [
+            'file_name' => $fileName,
+            'binary' => $dompdf->output(),
+        ];
     }
 }

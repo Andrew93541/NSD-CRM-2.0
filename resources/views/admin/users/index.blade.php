@@ -17,6 +17,11 @@
         </div>
 
         <div class="flex flex-wrap items-center gap-2">
+            @if(Auth::user()->hasRole(['super_admin', 'company_admin']) && !Auth::user()->isExplicitlyDenied('settings.manage'))
+            <a href="{{ route('admin.company.edit') }}" class="px-3.5 py-2 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-xs font-bold text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 transition">
+                {{ __('Company Profile') }}
+            </a>
+            @endif
             <a href="{{ route('admin.roles.index') }}" class="px-3.5 py-2 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-xs font-bold text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 transition">
                 {{ __('Manage Roles') }}
             </a>

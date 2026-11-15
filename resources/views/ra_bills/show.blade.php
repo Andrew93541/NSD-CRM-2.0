@@ -190,18 +190,29 @@
                             <td colspan="14" class="px-3 py-2 text-right font-bold text-slate-600 dark:text-slate-400">{{ __('Total Basic Value (A)') }}</td>
                             <td class="px-3 py-2 text-right font-extrabold text-slate-900 dark:text-white">₹{{ number_format((float) $raBill->current_bill_amount, 2) }}</td>
                         </tr>
-                        <tr>
-                            <td colspan="14" class="px-3 py-1.5 text-right text-slate-500">{{ __('Add: CGST') }} ({{ number_format((float) $raBill->cgst_rate, 2) }}%)</td>
-                            <td class="px-3 py-1.5 text-right font-bold">₹{{ number_format((float) $raBill->cgst_amount, 2) }}</td>
-                        </tr>
-                        <tr>
-                            <td colspan="14" class="px-3 py-1.5 text-right text-slate-500">{{ __('Add: SGST') }} ({{ number_format((float) $raBill->sgst_rate, 2) }}%)</td>
-                            <td class="px-3 py-1.5 text-right font-bold">₹{{ number_format((float) $raBill->sgst_amount, 2) }}</td>
-                        </tr>
-                        <tr>
-                            <td colspan="14" class="px-3 py-2 text-right font-extrabold text-amber-600 dark:text-amber-400">{{ __('Gross Invoice Amount (A + CGST + SGST)') }}</td>
-                            <td class="px-3 py-2 text-right font-extrabold text-amber-600 dark:text-amber-400">₹{{ number_format((float) $raBill->gross_amount, 2) }}</td>
-                        </tr>
+                        @if($raBill->isIgst())
+                            <tr>
+                                <td colspan="14" class="px-3 py-1.5 text-right text-slate-500">{{ __('Add: IGST') }} ({{ number_format((float) $raBill->igst_rate, 2) }}%)</td>
+                                <td class="px-3 py-1.5 text-right font-bold">₹{{ number_format((float) $raBill->igst_amount, 2) }}</td>
+                            </tr>
+                            <tr>
+                                <td colspan="14" class="px-3 py-2 text-right font-extrabold text-amber-600 dark:text-amber-400">{{ __('Gross Invoice Amount (A + IGST)') }}</td>
+                                <td class="px-3 py-2 text-right font-extrabold text-amber-600 dark:text-amber-400">₹{{ number_format((float) $raBill->gross_amount, 2) }}</td>
+                            </tr>
+                        @else
+                            <tr>
+                                <td colspan="14" class="px-3 py-1.5 text-right text-slate-500">{{ __('Add: CGST') }} ({{ number_format((float) $raBill->cgst_rate, 2) }}%)</td>
+                                <td class="px-3 py-1.5 text-right font-bold">₹{{ number_format((float) $raBill->cgst_amount, 2) }}</td>
+                            </tr>
+                            <tr>
+                                <td colspan="14" class="px-3 py-1.5 text-right text-slate-500">{{ __('Add: SGST') }} ({{ number_format((float) $raBill->sgst_rate, 2) }}%)</td>
+                                <td class="px-3 py-1.5 text-right font-bold">₹{{ number_format((float) $raBill->sgst_amount, 2) }}</td>
+                            </tr>
+                            <tr>
+                                <td colspan="14" class="px-3 py-2 text-right font-extrabold text-amber-600 dark:text-amber-400">{{ __('Gross Invoice Amount (A + CGST + SGST)') }}</td>
+                                <td class="px-3 py-2 text-right font-extrabold text-amber-600 dark:text-amber-400">₹{{ number_format((float) $raBill->gross_amount, 2) }}</td>
+                            </tr>
+                        @endif
                         @if((float) $raBill->retention_deduction > 0 || (float) $raBill->advance_recovery > 0 || (float) $raBill->other_deductions > 0)
                             <tr>
                                 <td colspan="14" class="px-3 py-1.5 text-right text-rose-600 dark:text-rose-400">{{ __('Less: Retention / Advance / Other Deductions') }}</td>

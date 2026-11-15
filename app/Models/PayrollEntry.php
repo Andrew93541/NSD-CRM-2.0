@@ -9,7 +9,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 class PayrollEntry extends Model
 {
-    use HasFactory, BelongsToCompany;
+    use BelongsToCompany, HasFactory;
 
     protected $fillable = [
         'company_id',
@@ -32,6 +32,13 @@ class PayrollEntry extends Model
         'gross_pay',
         'advance_deduction',
         'other_deduction',
+        'pf_employee_amount',
+        'pf_employer_amount',
+        'esic_employee_amount',
+        'esic_employer_amount',
+        'pt_amount',
+        'statutory_config_state',
+        'statutory_snapshot',
         'deduction_notes',
         'net_pay',
         'payment_status',
@@ -56,9 +63,35 @@ class PayrollEntry extends Model
             'gross_pay' => 'decimal:2',
             'advance_deduction' => 'decimal:2',
             'other_deduction' => 'decimal:2',
+            'pf_employee_amount' => 'decimal:2',
+            'pf_employer_amount' => 'decimal:2',
+            'esic_employee_amount' => 'decimal:2',
+            'esic_employer_amount' => 'decimal:2',
+            'pt_amount' => 'decimal:2',
+            'statutory_snapshot' => 'array',
             'net_pay' => 'decimal:2',
             'paid_at' => 'datetime',
         ];
+    }
+
+    public function statutoryEmployeeDeductionTotal(): float
+    {
+        return round(
+            (float) ($this->pf_employee_amount ?? 0)
+            + (float) ($this->esic_employee_amount ?? 0)
+            + (float) ($this->pt_amount ?? 0),
+            2
+        );
+    }
+
+    public function totalEmployeeDeductions(): float
+    {
+        return round(
+            (float) $this->advance_deduction
+            + (float) $this->other_deduction
+            + $this->statutoryEmployeeDeductionTotal(),
+            2
+        );
     }
 
     public function company(): BelongsTo
@@ -81,4 +114,3 @@ class PayrollEntry extends Model
         return $this->belongsTo(Site::class);
     }
 }
-

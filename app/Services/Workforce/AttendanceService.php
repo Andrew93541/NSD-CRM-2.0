@@ -8,6 +8,7 @@ use App\Models\AttendancePunch;
 use App\Models\DailyAttendance;
 use App\Models\Holiday;
 use App\Models\LeaveRequest;
+use App\Models\LeaveType;
 use App\Models\Site;
 use App\Models\Worker;
 use App\Services\Security\TenantContext;
@@ -16,6 +17,7 @@ use Carbon\CarbonPeriod;
 use DomainException;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
+use Illuminate\Validation\ValidationException;
 use InvalidArgumentException;
 
 class AttendanceService
@@ -28,7 +30,7 @@ class AttendanceService
     public function recordMusterRoll(int $siteId, string $date, array $workerEntries, int $recordedByUserId): array
     {
         $companyId = TenantContext::getCompanyId();
-        if (!$companyId) {
+        if (! $companyId) {
             throw new InvalidArgumentException('Tenant context not established.');
         }
 
@@ -45,8 +47,8 @@ class AttendanceService
 
                 foreach ($periodList as $idx => $entry) {
                     $status = $entry['status'] ?? 'present';
-                    $clockIn = !empty($entry['clock_in']) ? Carbon::parse($entry['clock_in'])->format('H:i:s') : null;
-                    $clockOut = !empty($entry['clock_out']) ? Carbon::parse($entry['clock_out'])->format('H:i:s') : null;
+                    $clockIn = ! empty($entry['clock_in']) ? Carbon::parse($entry['clock_in'])->format('H:i:s') : null;
+                    $clockOut = ! empty($entry['clock_out']) ? Carbon::parse($entry['clock_out'])->format('H:i:s') : null;
 
                     if ($status === 'absent') {
                         $clockIn = null;
@@ -59,13 +61,13 @@ class AttendanceService
                         ->where('worker_id', $workerId)
                         ->whereDate('attendance_date', $date);
 
-                    if (!empty($entry['id'])) {
+                    if (! empty($entry['id'])) {
                         $attendance = $query->where('id', $entry['id'])->first();
                     } else {
                         $attendance = $query->where('clock_in', $clockIn)->first();
                     }
 
-                    if (!$attendance) {
+                    if (! $attendance) {
                         $attendance = new DailyAttendance([
                             'company_id' => $companyId,
                             'site_id' => $site->id,
@@ -221,7 +223,7 @@ class AttendanceService
         DailyAttendance $attendance,
         string $dateString
     ): void {
-        if (!Schema::hasTable('attendance_flags')) {
+        if (! Schema::hasTable('attendance_flags')) {
             return;
         }
 
@@ -248,7 +250,7 @@ class AttendanceService
         }
 
         // 2. Shared Device Flag (same device_id used by a different worker on self-punches today)
-        if (!empty($punch->device_id) && $punch->source === 'self') {
+        if (! empty($punch->device_id) && $punch->source === 'self') {
             $otherWorkersOnDevice = AttendancePunch::withoutGlobalScopes()
                 ->where('company_id', $punch->company_id)
                 ->where('device_id', $punch->device_id)
@@ -347,7 +349,7 @@ class AttendanceService
      */
     public function isSiteDateLocked(int $siteId, string $date): bool
     {
-        if (!Schema::hasTable('attendance_locks')) {
+        if (! Schema::hasTable('attendance_locks')) {
             return false;
         }
 
@@ -379,7 +381,7 @@ class AttendanceService
                 ->whereDate('attendance_date', $date)
                 ->first();
 
-            if (!$lock) {
+            if (! $lock) {
                 $lock = new AttendanceLock([
                     'company_id' => $companyId,
                     'site_id' => $site->id,
@@ -396,7 +398,7 @@ class AttendanceService
                 $lock->site_locked_by = $userId;
                 $lock->site_locked_at = $now;
             } elseif ($targetStage === 'payroll_locked') {
-                if (!$lock->site_locked_by) {
+                if (! $lock->site_locked_by) {
                     $lock->site_locked_by = $userId;
                     $lock->site_locked_at = $now;
                 }
@@ -429,28 +431,175 @@ class AttendanceService
     }
 
     /**
+     * Computes effective leave working days between start and end dates,
+     * excluding company-wide and site-specific holidays.
+     *
+     * @return array{days_count: int, holiday_dates: array<int, string>}
+     */
+    public function calculateLeaveWorkingDays(int $companyId, ?int $siteId, string $startDate, string $endDate): array
+    {
+        $holidayDates = [];
+
+        if (Schema::hasTable('holidays')) {
+            $holidayDates = Holiday::withoutGlobalScopes()
+                ->where('company_id', $companyId)
+                ->whereDate('holiday_date', '>=', $startDate)
+                ->whereDate('holiday_date', '<=', $endDate)
+                ->where(function ($q) use ($siteId) {
+                    $q->whereNull('site_id');
+                    if ($siteId) {
+                        $q->orWhere('site_id', $siteId);
+                    }
+                })
+                ->get()
+                ->map(fn (Holiday $h) => $h->holiday_date->format('Y-m-d'))
+                ->unique()
+                ->values()
+                ->all();
+        }
+
+        $period = CarbonPeriod::create($startDate, $endDate);
+        $workingDays = 0;
+        foreach ($period as $date) {
+            if (! in_array($date->format('Y-m-d'), $holidayDates, true)) {
+                $workingDays++;
+            }
+        }
+
+        return [
+            'days_count' => $workingDays,
+            'holiday_dates' => $holidayDates,
+        ];
+    }
+
+    /**
+     * Validates leave overlaps, holiday exclusions, and LeaveType annual quotas,
+     * returning a ready-to-create LeaveRequest attribute array.
+     *
+     * @throws ValidationException
+     */
+    public function validateAndBuildLeavePayload(Worker $worker, array $input, ?int $requestedByUserId = null): array
+    {
+        $companyId = (int) $worker->company_id;
+        $siteId = $worker->assigned_site_id ? (int) $worker->assigned_site_id : null;
+        $startDate = Carbon::parse($input['start_date'])->format('Y-m-d');
+        $endDate = Carbon::parse($input['end_date'])->format('Y-m-d');
+
+        $leaveType = null;
+        if (Schema::hasTable('leave_types')) {
+            if (! empty($input['leave_type_id'])) {
+                $leaveType = LeaveType::withoutGlobalScopes()
+                    ->where('company_id', $companyId)
+                    ->where('id', (int) $input['leave_type_id'])
+                    ->where('is_active', true)
+                    ->first();
+
+                if (! $leaveType) {
+                    throw ValidationException::withMessages([
+                        'leave_type_id' => ['Selected leave type is invalid or inactive.'],
+                    ]);
+                }
+            } elseif (! empty($input['leave_type_name'])) {
+                $leaveType = LeaveType::withoutGlobalScopes()
+                    ->where('company_id', $companyId)
+                    ->where('is_active', true)
+                    ->whereRaw('LOWER(TRIM(name)) = ?', [mb_strtolower(trim((string) $input['leave_type_name']))])
+                    ->first();
+            }
+        }
+
+        $leaveTypeName = $leaveType ? $leaveType->name : trim((string) ($input['leave_type_name'] ?? 'Paid Leave'));
+        $isPaid = $leaveType ? (bool) $leaveType->is_paid : (bool) ($input['is_paid'] ?? true);
+
+        // Prevent overlapping pending/approved leave requests for the same worker
+        $overlapExists = LeaveRequest::withoutGlobalScopes()
+            ->where('company_id', $companyId)
+            ->where('worker_id', $worker->id)
+            ->whereIn('status', ['pending', 'approved'])
+            ->whereDate('start_date', '<=', $endDate)
+            ->whereDate('end_date', '>=', $startDate)
+            ->exists();
+
+        if ($overlapExists) {
+            throw ValidationException::withMessages([
+                'start_date' => ['This worker already has a pending or approved leave request overlapping the selected dates.'],
+            ]);
+        }
+
+        $calc = $this->calculateLeaveWorkingDays($companyId, $siteId, $startDate, $endDate);
+        $daysCount = $calc['days_count'];
+
+        if ($daysCount <= 0) {
+            throw ValidationException::withMessages([
+                'start_date' => ['All selected dates fall on scheduled holidays; no leave days are needed.'],
+            ]);
+        }
+
+        if ($leaveType && (int) $leaveType->annual_quota > 0) {
+            $year = Carbon::parse($startDate)->year;
+            $usedDays = (int) LeaveRequest::withoutGlobalScopes()
+                ->where('company_id', $companyId)
+                ->where('worker_id', $worker->id)
+                ->whereIn('status', ['pending', 'approved'])
+                ->whereYear('start_date', $year)
+                ->where(function ($q) use ($leaveType) {
+                    $q->where('leave_type_id', $leaveType->id)
+                        ->orWhereRaw('LOWER(TRIM(leave_type_name)) = ?', [mb_strtolower($leaveType->name)]);
+                })
+                ->sum('days_count');
+
+            $remaining = max(0, (int) $leaveType->annual_quota - $usedDays);
+            if ($usedDays + $daysCount > (int) $leaveType->annual_quota) {
+                throw ValidationException::withMessages([
+                    'leave_type_name' => ["Requested {$daysCount} working day(s) exceeds the remaining {$leaveType->name} balance ({$remaining} of {$leaveType->annual_quota} day(s) left for {$year})."],
+                ]);
+            }
+        }
+
+        return [
+            'company_id' => $companyId,
+            'worker_id' => $worker->id,
+            'site_id' => $siteId,
+            'leave_type_id' => $leaveType?->id,
+            'leave_type_name' => $leaveTypeName,
+            'is_paid' => $isPaid,
+            'start_date' => $startDate,
+            'end_date' => $endDate,
+            'days_count' => $daysCount,
+            'reason' => $input['reason'],
+            'status' => 'pending',
+            'requested_by' => $requestedByUserId,
+        ];
+    }
+
+    /**
      * Populates DailyAttendance records automatically when a LeaveRequest is approved.
      */
     public function applyApprovedLeave(LeaveRequest $leaveRequest, int $approvedByUserId): void
     {
         $worker = $leaveRequest->worker;
         $siteId = $leaveRequest->site_id ?: $worker?->assigned_site_id;
-        if (!$worker || !$siteId) {
+        if (! $worker || ! $siteId) {
             return;
         }
 
         $site = Site::withoutGlobalScopes()->find($siteId);
-        if (!$site) {
+        if (! $site) {
             return;
         }
 
-        $period = CarbonPeriod::create(
-            $leaveRequest->start_date->format('Y-m-d'),
-            $leaveRequest->end_date->format('Y-m-d')
-        );
+        $startStr = $leaveRequest->start_date->format('Y-m-d');
+        $endStr = $leaveRequest->end_date->format('Y-m-d');
+        $calc = $this->calculateLeaveWorkingDays((int) $leaveRequest->company_id, (int) $site->id, $startStr, $endStr);
+        $holidayDates = $calc['holiday_dates'];
+
+        $period = CarbonPeriod::create($startStr, $endStr);
 
         foreach ($period as $date) {
             $dateStr = $date->format('Y-m-d');
+            if (in_array($dateStr, $holidayDates, true)) {
+                continue;
+            }
             if ($this->isSiteDateLocked($site->id, $dateStr)) {
                 continue;
             }
@@ -462,7 +611,7 @@ class AttendanceService
                 ->whereDate('attendance_date', $dateStr)
                 ->first();
 
-            if (!$existing) {
+            if (! $existing) {
                 $existing = new DailyAttendance([
                     'company_id' => $leaveRequest->company_id,
                     'site_id' => $site->id,
@@ -554,16 +703,16 @@ class AttendanceService
         if ($siteId) {
             $workersQuery->where(function ($q) use ($siteId, $date) {
                 $q->where('assigned_site_id', $siteId)
-                  ->orWhereHas('attendances', function ($aq) use ($siteId, $date) {
-                      $aq->where('site_id', $siteId)->whereDate('attendance_date', $date);
-                  });
+                    ->orWhereHas('attendances', function ($aq) use ($siteId, $date) {
+                        $aq->where('site_id', $siteId)->whereDate('attendance_date', $date);
+                    });
             });
         } elseif ($accessibleSiteIds !== null) {
             $workersQuery->where(function ($q) use ($accessibleSiteIds, $date) {
                 $q->whereIn('assigned_site_id', $accessibleSiteIds)
-                  ->orWhereHas('attendances', function ($aq) use ($accessibleSiteIds, $date) {
-                      $aq->whereIn('site_id', $accessibleSiteIds)->whereDate('attendance_date', $date);
-                  });
+                    ->orWhereHas('attendances', function ($aq) use ($accessibleSiteIds, $date) {
+                        $aq->whereIn('site_id', $accessibleSiteIds)->whereDate('attendance_date', $date);
+                    });
             });
         }
 
@@ -572,12 +721,12 @@ class AttendanceService
         }
 
         if ($search !== null && trim($search) !== '') {
-            $term = '%' . trim($search) . '%';
+            $term = '%'.trim($search).'%';
             $workersQuery->where(function ($q) use ($term) {
                 $q->where('first_name', 'like', $term)
-                  ->orWhere('last_name', 'like', $term)
-                  ->orWhere('code', 'like', $term)
-                  ->orWhere('trade_designation', 'like', $term);
+                    ->orWhere('last_name', 'like', $term)
+                    ->orWhere('code', 'like', $term)
+                    ->orWhere('trade_designation', 'like', $term);
             });
         }
 
@@ -694,8 +843,8 @@ class AttendanceService
                 'badge_code' => $badgeCode,
                 'attended_sites' => $attendedSites,
                 'assigned_site' => $worker->assignedSite,
-                'clock_in' => !empty($clockIns) ? implode(', ', $clockIns) : null,
-                'clock_out' => !empty($clockOuts) ? implode(', ', $clockOuts) : null,
+                'clock_in' => ! empty($clockIns) ? implode(', ', $clockIns) : null,
+                'clock_out' => ! empty($clockOuts) ? implode(', ', $clockOuts) : null,
                 'worked_hours' => $workedHours,
                 'overtime_hours' => $overtimeHours,
                 'late_minutes' => $lateMinutes,
@@ -723,7 +872,8 @@ class AttendanceService
         ?int $siteId = null,
         ?string $workerType = null,
         ?string $search = null,
-        ?array $accessibleSiteIds = null
+        ?array $accessibleSiteIds = null,
+        ?int $perPage = null
     ): array {
         $companyId = TenantContext::getCompanyId();
 
@@ -759,20 +909,20 @@ class AttendanceService
         if ($siteId) {
             $workersQuery->where(function ($q) use ($siteId, $startStr, $endStr) {
                 $q->where('assigned_site_id', $siteId)
-                  ->orWhereHas('attendances', function ($aq) use ($siteId, $startStr, $endStr) {
-                      $aq->where('site_id', $siteId)
-                         ->whereDate('attendance_date', '>=', $startStr)
-                         ->whereDate('attendance_date', '<=', $endStr);
-                  });
+                    ->orWhereHas('attendances', function ($aq) use ($siteId, $startStr, $endStr) {
+                        $aq->where('site_id', $siteId)
+                            ->whereDate('attendance_date', '>=', $startStr)
+                            ->whereDate('attendance_date', '<=', $endStr);
+                    });
             });
         } elseif ($accessibleSiteIds !== null) {
             $workersQuery->where(function ($q) use ($accessibleSiteIds, $startStr, $endStr) {
                 $q->whereIn('assigned_site_id', $accessibleSiteIds)
-                  ->orWhereHas('attendances', function ($aq) use ($accessibleSiteIds, $startStr, $endStr) {
-                      $aq->whereIn('site_id', $accessibleSiteIds)
-                         ->whereDate('attendance_date', '>=', $startStr)
-                         ->whereDate('attendance_date', '<=', $endStr);
-                  });
+                    ->orWhereHas('attendances', function ($aq) use ($accessibleSiteIds, $startStr, $endStr) {
+                        $aq->whereIn('site_id', $accessibleSiteIds)
+                            ->whereDate('attendance_date', '>=', $startStr)
+                            ->whereDate('attendance_date', '<=', $endStr);
+                    });
             });
         }
 
@@ -781,16 +931,27 @@ class AttendanceService
         }
 
         if ($search !== null && trim($search) !== '') {
-            $term = '%' . trim($search) . '%';
+            $term = '%'.trim($search).'%';
             $workersQuery->where(function ($q) use ($term) {
                 $q->where('first_name', 'like', $term)
-                  ->orWhere('last_name', 'like', $term)
-                  ->orWhere('code', 'like', $term)
-                  ->orWhere('trade_designation', 'like', $term);
+                    ->orWhere('last_name', 'like', $term)
+                    ->orWhere('code', 'like', $term)
+                    ->orWhere('trade_designation', 'like', $term);
             });
         }
 
-        $workers = $workersQuery->orderBy('first_name')->orderBy('last_name')->get();
+        $orderedWorkersQuery = $workersQuery->orderBy('first_name')->orderBy('last_name');
+        $paginator = null;
+
+        if ($perPage !== null && $perPage > 0) {
+            $paginator = $orderedWorkersQuery->paginate($perPage)->withQueryString();
+            $workers = $paginator->getCollection();
+            $totalMatchingWorkers = $paginator->total();
+        } else {
+            $workers = $orderedWorkersQuery->get();
+            $totalMatchingWorkers = $workers->count();
+        }
+
         $workerIds = $workers->pluck('id')->all();
 
         $attQuery = DailyAttendance::with(['site'])
@@ -804,7 +965,7 @@ class AttendanceService
             $attQuery->whereIn('site_id', $accessibleSiteIds);
         }
 
-        $allAttendances = $attQuery->get();
+        $allAttendances = empty($workerIds) ? collect() : $attQuery->get();
 
         $holidaysByDate = collect();
         if (Schema::hasTable('holidays')) {
@@ -833,7 +994,8 @@ class AttendanceService
         }
 
         $summary = [
-            'total_workers' => $workers->count(),
+            'total_workers' => $totalMatchingWorkers,
+            'page_workers' => $workers->count(),
             'total_present_days' => 0,
             'total_half_days' => 0,
             'total_paid_leaves' => 0,
@@ -951,6 +1113,7 @@ class AttendanceService
             'summary' => $summary,
             'daily_totals' => $dailyTotals,
             'rows' => $workerRows,
+            'paginator' => $paginator,
         ];
     }
 }

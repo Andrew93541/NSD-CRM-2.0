@@ -1,7 +1,10 @@
 <?php
 
+use App\Http\Controllers\ApprovalCenterController;
 use App\Http\Controllers\AttendanceController;
 use App\Http\Controllers\AuthController;
+use App\Http\Controllers\ClientController;
+use App\Http\Controllers\CompanySettingsController;
 use App\Http\Controllers\DashboardController;
 use App\Http\Controllers\InventoryController;
 use App\Http\Controllers\KioskController;
@@ -92,11 +95,18 @@ Route::middleware('auth')->group(function () {
         Route::post('/roles/{role}/duplicate', [RoleManagementController::class, 'duplicate'])->name('roles.duplicate');
         Route::post('/roles/{role}/toggle-active', [RoleManagementController::class, 'toggleActive'])->name('roles.toggle_active');
         Route::delete('/roles/{role}', [RoleManagementController::class, 'destroy'])->name('roles.destroy');
+
+        // Company Profile, GST, Bank & Invoice Settings
+        Route::get('/company', [CompanySettingsController::class, 'edit'])->name('company.edit');
+        Route::put('/company', [CompanySettingsController::class, 'update'])->name('company.update');
+        Route::get('/company/signature', [CompanySettingsController::class, 'downloadSignature'])->name('company.signature');
     });
 
-    // Dashboard
+    // Dashboard & Unified Pending Approvals
     Route::get('/', [DashboardController::class, 'index'])->name('home');
     Route::get('/dashboard', [DashboardController::class, 'index'])->name('dashboard');
+    Route::get('/approvals', [ApprovalCenterController::class, 'index'])->name('approvals.index');
+    Route::get('/ra-bills', [RaBillController::class, 'globalIndex'])->name('ra_bills.index');
 
     // Construction Projects
     Route::prefix('projects')->name('projects.')->group(function () {
@@ -108,6 +118,7 @@ Route::middleware('auth')->group(function () {
         Route::put('/{project}', [ProjectController::class, 'update'])->name('update');
         Route::post('/{project}/milestones', [ProjectController::class, 'storeMilestone'])->name('milestones.store');
         Route::put('/{project}/milestones/{milestone}', [ProjectController::class, 'updateMilestone'])->name('milestones.update');
+        Route::delete('/{project}/milestones/{milestone}', [ProjectController::class, 'destroyMilestone'])->name('milestones.destroy');
         Route::post('/{project}/documents', [ProjectController::class, 'storeDocument'])->name('documents.store');
         Route::get('/{project}/documents/{document}/download', [ProjectController::class, 'downloadDocument'])->name('documents.download');
         Route::delete('/{project}/documents/{document}', [ProjectController::class, 'destroyDocument'])->name('documents.destroy');
@@ -151,9 +162,14 @@ Route::middleware('auth')->group(function () {
         Route::get('/create', [WorkforceController::class, 'create'])->name('create');
         Route::post('/', [WorkforceController::class, 'store'])->name('store');
         Route::get('/subcontractors', [WorkforceController::class, 'subcontractors'])->name('subcontractors');
+        Route::post('/subcontractors', [WorkforceController::class, 'storeSubcontractor'])->name('subcontractors.store');
+        Route::put('/subcontractors/{subcontractor}', [WorkforceController::class, 'updateSubcontractor'])->name('subcontractors.update');
+        Route::delete('/subcontractors/{subcontractor}', [WorkforceController::class, 'destroySubcontractor'])->name('subcontractors.destroy');
         Route::get('/{worker}', [WorkforceController::class, 'show'])->name('show');
+        Route::get('/{worker}/id-card-pdf', [WorkforceController::class, 'downloadIdCardPdf'])->name('id_card_pdf');
         Route::get('/{worker}/edit', [WorkforceController::class, 'edit'])->name('edit');
         Route::put('/{worker}', [WorkforceController::class, 'update'])->name('update');
+        Route::put('/{worker}/statutory', [WorkforceController::class, 'updateStatutory'])->name('statutory.update');
         Route::post('/{worker}/transfer', [WorkforceController::class, 'transferSite'])->name('transfer');
         Route::post('/{worker}/reset-pin', [WorkforceController::class, 'resetPin'])->name('reset_pin');
         Route::post('/{worker}/documents', [WorkforceController::class, 'storeDocuments'])->name('documents.store');
@@ -173,7 +189,14 @@ Route::middleware('auth')->group(function () {
         Route::post('/flags/{flag}/resolve', [AttendanceController::class, 'resolveFlag'])->name('flags.resolve');
         Route::get('/shifts-leaves', [AttendanceController::class, 'shiftsAndLeaves'])->name('shifts_leaves');
         Route::post('/shifts', [AttendanceController::class, 'storeShift'])->name('shifts.store');
+        Route::put('/shifts/{shift}', [AttendanceController::class, 'updateShift'])->name('shifts.update');
+        Route::delete('/shifts/{shift}', [AttendanceController::class, 'destroyShift'])->name('shifts.destroy');
         Route::post('/holidays', [AttendanceController::class, 'storeHoliday'])->name('holidays.store');
+        Route::put('/holidays/{holiday}', [AttendanceController::class, 'updateHoliday'])->name('holidays.update');
+        Route::delete('/holidays/{holiday}', [AttendanceController::class, 'destroyHoliday'])->name('holidays.destroy');
+        Route::post('/leave-types', [AttendanceController::class, 'storeLeaveType'])->name('leave_types.store');
+        Route::put('/leave-types/{leaveType}', [AttendanceController::class, 'updateLeaveType'])->name('leave_types.update');
+        Route::delete('/leave-types/{leaveType}', [AttendanceController::class, 'destroyLeaveType'])->name('leave_types.destroy');
         Route::post('/leaves', [AttendanceController::class, 'storeLeaveRequest'])->name('leaves.store');
         Route::post('/leaves/{leaveRequest}/review', [AttendanceController::class, 'reviewLeaveRequest'])->name('leaves.review');
         Route::get('/export-payroll', [AttendanceController::class, 'exportPayrollCsv'])->name('export_payroll');
@@ -191,8 +214,10 @@ Route::middleware('auth')->group(function () {
         Route::get('/{payrollPeriod}', [PayrollController::class, 'show'])->name('show');
         Route::post('/{payrollPeriod}/recalculate', [PayrollController::class, 'recalculate'])->name('recalculate');
         Route::post('/{payrollPeriod}/lock', [PayrollController::class, 'approveAndLock'])->name('lock');
+        Route::get('/{payrollPeriod}/export-payout', [PayrollController::class, 'exportBankPayoutCsv'])->name('export_payout');
         Route::post('/{payrollPeriod}/entries/{entry}', [PayrollController::class, 'adjustEntry'])->name('entries.adjust');
         Route::get('/{payrollPeriod}/entries/{entry}/payslip', [PayrollController::class, 'payslip'])->name('payslip');
+        Route::get('/{payrollPeriod}/entries/{entry}/payslip-pdf', [PayrollController::class, 'payslipPdf'])->name('payslip_pdf');
     });
 
     // Work Orders Workflow
@@ -227,7 +252,11 @@ Route::middleware('auth')->group(function () {
         // Phase B & E: Site Measurements & RA Billing Engine
         Route::get('/{workOrder}/measurements/create', [RaBillController::class, 'createMeasurement'])->name('measurements.create');
         Route::post('/{workOrder}/measurements', [RaBillController::class, 'storeMeasurement'])->name('measurements.store');
+        Route::get('/{workOrder}/measurements/pdf', [RaBillController::class, 'exportMeasurementBookPdf'])->name('measurements.pdf');
         Route::get('/{workOrder}/measurements/{measurement}/photo', [RaBillController::class, 'downloadMeasurementPhoto'])->name('measurements.photo');
+        Route::post('/{workOrder}/measurements/{measurement}/verify', [RaBillController::class, 'verifyMeasurement'])->name('measurements.verify');
+        Route::put('/{workOrder}/measurements/{measurement}', [RaBillController::class, 'updateMeasurement'])->name('measurements.update');
+        Route::delete('/{workOrder}/measurements/{measurement}', [RaBillController::class, 'destroyMeasurement'])->name('measurements.destroy');
         Route::get('/{workOrder}/ra-bills/create', [RaBillController::class, 'create'])->name('ra_bills.create');
         Route::post('/{workOrder}/ra-bills', [RaBillController::class, 'store'])->name('ra_bills.store');
         Route::get('/{workOrder}/ra-bills/{raBill}', [RaBillController::class, 'show'])->name('ra_bills.show');
@@ -249,18 +278,53 @@ Route::middleware('auth')->group(function () {
         Route::get('/requests/create', [ProcurementController::class, 'createRequest'])->name('create_request');
         Route::post('/requests', [ProcurementController::class, 'storeRequest'])->name('store_request');
         Route::post('/requests/{purchaseRequest}/approve', [ProcurementController::class, 'approveRequest'])->name('approve_request');
+        Route::post('/requests/{purchaseRequest}/reject', [ProcurementController::class, 'rejectRequest'])->name('reject_request');
+        Route::post('/requests/{purchaseRequest}/cancel', [ProcurementController::class, 'cancelRequest'])->name('cancel_request');
         Route::get('/requests/{purchaseRequest}/create-po', [ProcurementController::class, 'createOrderForm'])->name('create_po');
         Route::post('/requests/{purchaseRequest}/store-po', [ProcurementController::class, 'storeOrder'])->name('store_po');
-        
+
         Route::get('/orders', [ProcurementController::class, 'orders'])->name('orders');
+        Route::get('/orders/{purchaseOrder}/pdf', [ProcurementController::class, 'downloadOrderPdf'])->name('orders.pdf');
         Route::get('/orders/{purchaseOrder}/receive', [ProcurementController::class, 'receiveGoodsForm'])->name('receive_goods');
         Route::post('/orders/{purchaseOrder}/confirm-receipt', [ProcurementController::class, 'confirmReceipt'])->name('confirm_receipt');
+
+        Route::get('/vendors', [ProcurementController::class, 'vendors'])->name('vendors');
+        Route::post('/vendors', [ProcurementController::class, 'storeVendor'])->name('vendors.store');
+        Route::put('/vendors/{vendor}', [ProcurementController::class, 'updateVendor'])->name('vendors.update');
+        Route::delete('/vendors/{vendor}', [ProcurementController::class, 'destroyVendor'])->name('vendors.destroy');
+    });
+
+    // Clients Directory
+    Route::prefix('clients')->name('clients.')->group(function () {
+        Route::get('/', [ClientController::class, 'index'])->name('index');
+        Route::post('/', [ClientController::class, 'store'])->name('store');
+        Route::put('/{client}', [ClientController::class, 'update'])->name('update');
+        Route::delete('/{client}', [ClientController::class, 'destroy'])->name('destroy');
     });
 
     // Inventory Management
     Route::prefix('inventory')->name('inventory.')->group(function () {
         Route::get('/stocks', [InventoryController::class, 'stocks'])->name('stocks');
         Route::get('/transactions', [InventoryController::class, 'transactions'])->name('transactions');
+        Route::get('/warehouses', [InventoryController::class, 'warehouses'])->name('warehouses');
+        Route::post('/warehouses', [InventoryController::class, 'storeWarehouse'])->name('warehouses.store');
+        Route::put('/warehouses/{warehouse}', [InventoryController::class, 'updateWarehouse'])->name('warehouses.update');
+        Route::delete('/warehouses/{warehouse}', [InventoryController::class, 'destroyWarehouse'])->name('warehouses.destroy');
+        Route::get('/materials', [InventoryController::class, 'materials'])->name('materials');
+        Route::post('/materials', [InventoryController::class, 'storeMaterial'])->name('materials.store');
+        Route::put('/materials/{material}', [InventoryController::class, 'updateMaterial'])->name('materials.update');
+        Route::delete('/materials/{material}', [InventoryController::class, 'destroyMaterial'])->name('materials.destroy');
+        Route::post('/categories', [InventoryController::class, 'storeCategory'])->name('categories.store');
+        Route::put('/categories/{category}', [InventoryController::class, 'updateCategory'])->name('categories.update');
+        Route::delete('/categories/{category}', [InventoryController::class, 'destroyCategory'])->name('categories.destroy');
+
+        Route::post('/movements/issue', [InventoryController::class, 'storeIssue'])->name('movements.issue');
+        Route::post('/movements/transfer', [InventoryController::class, 'storeTransfer'])->name('movements.transfer');
+        Route::post('/movements/return', [InventoryController::class, 'storeReturn'])->name('movements.return');
+        Route::post('/movements/adjustment', [InventoryController::class, 'storeAdjustment'])->name('movements.adjustment');
+        Route::post('/transactions/{transaction}/approve-adjustment', [InventoryController::class, 'approveAdjustment'])->name('adjustments.approve');
+        Route::post('/transactions/{transaction}/reject-adjustment', [InventoryController::class, 'rejectAdjustment'])->name('adjustments.reject');
+        Route::get('/transactions/{transaction}/grn-pdf', [InventoryController::class, 'downloadGrnPdf'])->name('grn_pdf');
     });
 
     // Operational Reports

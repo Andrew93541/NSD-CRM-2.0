@@ -9,7 +9,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 class BillExport extends Model
 {
-    use HasFactory, BelongsToCompany;
+    use BelongsToCompany, HasFactory;
 
     protected $fillable = [
         'company_id',
@@ -17,6 +17,7 @@ class BillExport extends Model
         'ra_bill_id',
         'export_type',
         'file_name',
+        'storage_disk',
         'file_path',
         'invoice_number',
         'exported_by',
@@ -37,4 +38,3 @@ class BillExport extends Model
         return $this->belongsTo(User::class, 'exported_by');
     }
 }
-

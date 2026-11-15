@@ -579,6 +579,11 @@
                     @endif
                 </table>
             </div>
+            @if(!empty($monthMatrix['paginator']) && $monthMatrix['paginator']->hasPages())
+                <div class="px-5 py-3 border-t border-slate-200 dark:border-slate-800">
+                    {{ $monthMatrix['paginator']->links() }}
+                </div>
+            @endif
         </div>
     @endif
 </div>

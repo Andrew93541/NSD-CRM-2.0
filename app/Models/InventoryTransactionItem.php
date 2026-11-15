@@ -15,6 +15,8 @@ class InventoryTransactionItem extends Model
         'material_id',
         'quantity',
         'unit_cost',
+        'previous_quantity',
+        'resulting_quantity',
     ];
 
     protected function casts(): array
@@ -22,6 +24,8 @@ class InventoryTransactionItem extends Model
         return [
             'quantity' => 'decimal:2',
             'unit_cost' => 'decimal:2',
+            'previous_quantity' => 'decimal:2',
+            'resulting_quantity' => 'decimal:2',
         ];
     }
 

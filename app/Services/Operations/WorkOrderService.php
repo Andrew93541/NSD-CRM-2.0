@@ -3,6 +3,7 @@
 namespace App\Services\Operations;
 
 use App\Models\AuditLog;
+use App\Models\RaBill;
 use App\Models\User;
 use App\Models\WorkOrder;
 use App\Models\WorkOrderApproval;
@@ -19,7 +20,7 @@ class WorkOrderService
     public function createWorkOrder(array $data, User $creator): WorkOrder
     {
         $companyId = (int) TenantContext::getCompanyId();
-        if (!$companyId) {
+        if (! $companyId) {
             throw new InvalidArgumentException('Tenant context not established.');
         }
 
@@ -28,9 +29,9 @@ class WorkOrderService
         return DB::transaction(function () use ($companyId, $data, $creator, $year) {
             $orderNumber = $this->generateNextOrderNumber($companyId, $year);
 
-            $rawLines = !empty($data['items']) && is_array($data['items'])
+            $rawLines = ! empty($data['items']) && is_array($data['items'])
                 ? $data['items']
-                : (!empty($data['boq_items']) && is_array($data['boq_items']) ? $data['boq_items'] : []);
+                : (! empty($data['boq_items']) && is_array($data['boq_items']) ? $data['boq_items'] : []);
 
             $normalizedLines = [];
             $boqItems = [];
@@ -93,7 +94,7 @@ class WorkOrderService
                     ? round((float) $data['estimated_amount'], 2)
                     : 0.00);
 
-            $wo = new WorkOrder();
+            $wo = new WorkOrder;
             $wo->company_id = $companyId;
             $wo->project_id = $data['project_id'];
             $wo->site_id = $data['site_id'] ?? null;
@@ -102,6 +103,7 @@ class WorkOrderService
             $wo->client_reference = $data['client_reference'] ?? ($data['po_number'] ?? null);
 
             if (Schema::hasColumn('work_orders', 'client_id')) {
+                $taxMode = ($data['tax_mode'] ?? 'cgst_sgst') === 'igst' ? 'igst' : 'cgst_sgst';
                 $wo->client_id = $data['client_id'] ?? null;
                 $wo->po_number = $data['po_number'] ?? ($data['client_reference'] ?? null);
                 $wo->po_date = $data['po_date'] ?? null;
@@ -109,8 +111,14 @@ class WorkOrderService
                 $wo->user_department_person = $data['user_department_person'] ?? null;
                 $wo->effective_date = $data['effective_date'] ?? ($data['target_start_date'] ?? null);
                 $wo->completion_date = $data['completion_date'] ?? ($data['target_completion_date'] ?? null);
-                $wo->cgst_rate = isset($data['cgst_rate']) ? round((float) $data['cgst_rate'], 2) : 9.00;
-                $wo->sgst_rate = isset($data['sgst_rate']) ? round((float) $data['sgst_rate'], 2) : 9.00;
+                $wo->cgst_rate = $taxMode === 'igst' ? 0.00 : (isset($data['cgst_rate']) ? round((float) $data['cgst_rate'], 2) : 9.00);
+                $wo->sgst_rate = $taxMode === 'igst' ? 0.00 : (isset($data['sgst_rate']) ? round((float) $data['sgst_rate'], 2) : 9.00);
+                if (Schema::hasColumn('work_orders', 'tax_mode')) {
+                    $wo->tax_mode = $taxMode;
+                    $wo->igst_rate = $taxMode === 'igst'
+                        ? (isset($data['igst_rate']) ? round((float) $data['igst_rate'], 2) : 18.00)
+                        : 0.00;
+                }
                 $wo->retention_percent = isset($data['retention_percent']) ? round((float) $data['retention_percent'], 2) : 5.00;
                 $wo->current_revision = 0;
                 $wo->base_order_value = $estimatedAmount;
@@ -121,7 +129,7 @@ class WorkOrderService
                 $wo->contractor_gst = $data['contractor_gst'] ?? null;
                 $wo->contractor_contact = $data['contractor_contact'] ?? null;
                 $wo->payment_terms = $data['payment_terms'] ?? WorkOrder::DEFAULT_PAYMENT_TERMS;
-                $wo->boq_items = !empty($boqItems) ? $boqItems : null;
+                $wo->boq_items = ! empty($boqItems) ? $boqItems : null;
                 $wo->terms_and_conditions = $data['terms_and_conditions'] ?? WorkOrder::DEFAULT_TERMS;
             }
 
@@ -135,7 +143,7 @@ class WorkOrderService
             $wo->created_by = $creator->id;
             $wo->save();
 
-            if (!empty($normalizedLines) && Schema::hasTable('work_order_items')) {
+            if (! empty($normalizedLines) && Schema::hasTable('work_order_items')) {
                 foreach ($normalizedLines as $line) {
                     WorkOrderItem::create(array_merge($line, [
                         'company_id' => $companyId,
@@ -160,6 +168,18 @@ class WorkOrderService
                     'approved_at' => now(),
                 ]);
             }
+
+            NotificationDispatcher::notifyApprovers(
+                companyId: $companyId,
+                permission: 'work_orders.approve_site',
+                fallbackRoles: ['super_admin', 'company_admin', 'senior_manager', 'site_manager'],
+                type: 'work_order.approval_pending',
+                title: "Work Order {$wo->order_number} awaiting Tier 1 approval",
+                message: "{$wo->title} submitted by {$creator->name}.",
+                actionUrl: "/work-orders/{$wo->id}",
+                siteId: $wo->site_id ? (int) $wo->site_id : null,
+                excludeUserIds: [$creator->id]
+            );
 
             return $wo->fresh(['items', 'revisions', 'client']);
         });
@@ -315,14 +335,14 @@ class WorkOrderService
 
         foreach ($proposed as $idx => $itemData) {
             $itemModel = null;
-            if (!empty($itemData['id'])) {
+            if (! empty($itemData['id'])) {
                 $itemModel = WorkOrderItem::withoutGlobalScopes()
                     ->where('work_order_id', $wo->id)
                     ->where('id', (int) $itemData['id'])
                     ->first();
             }
 
-            if (!$itemModel) {
+            if (! $itemModel) {
                 $itemModel = WorkOrderItem::withoutGlobalScopes()
                     ->where('work_order_id', $wo->id)
                     ->where('sr_no', (string) $itemData['sr_no'])
@@ -373,7 +393,7 @@ class WorkOrderService
         ]);
 
         // If an unapproved draft/submitted RA bill exists on this work order, recalculate it so revised quantities unlock earlier excess
-        $openRaBills = \App\Models\RaBill::where('work_order_id', $wo->id)
+        $openRaBills = RaBill::where('work_order_id', $wo->id)
             ->whereIn('status', ['draft', 'submitted'])
             ->with('items')
             ->get();
@@ -412,12 +432,12 @@ class WorkOrderService
 
         $existingCodes = WorkOrder::withoutGlobalScopes()
             ->where('company_id', $companyId)
-            ->where('order_number', 'like', $pattern . '%')
+            ->where('order_number', 'like', $pattern.'%')
             ->pluck('order_number');
 
         $maxExisting = 0;
         foreach ($existingCodes as $code) {
-            if (preg_match('/^' . preg_quote($pattern, '/') . '(\d+)$/', (string) $code, $m)) {
+            if (preg_match('/^'.preg_quote($pattern, '/').'(\d+)$/', (string) $code, $m)) {
                 $val = (int) $m[1];
                 if ($val > $maxExisting) {
                     $maxExisting = $val;
@@ -480,6 +500,18 @@ class WorkOrderService
                 'comments' => $notes,
             ]);
 
+            NotificationDispatcher::notifyApprovers(
+                companyId: (int) $wo->company_id,
+                permission: 'work_orders.approve_senior',
+                fallbackRoles: ['super_admin', 'company_admin', 'senior_manager'],
+                type: 'work_order.approval_pending',
+                title: "Work Order {$wo->order_number} awaiting Tier 2 approval",
+                message: "Tier 1 approved by {$manager->name}. Ready for final authorization.",
+                actionUrl: "/work-orders/{$wo->id}",
+                siteId: $wo->site_id ? (int) $wo->site_id : null,
+                excludeUserIds: [$manager->id, (int) $wo->created_by]
+            );
+
             return $wo;
         });
     }
@@ -505,13 +537,25 @@ class WorkOrderService
                 'comments' => $notes,
             ]);
 
+            if ($wo->created_by && (int) $wo->created_by !== (int) $seniorManager->id) {
+                NotificationDispatcher::notifyUserDeduplicated(
+                    userId: (int) $wo->created_by,
+                    type: 'work_order.approved',
+                    title: "Work Order {$wo->order_number} fully approved",
+                    message: "Authorized by {$seniorManager->name} for site execution.",
+                    actionUrl: "/work-orders/{$wo->id}",
+                    siteId: $wo->site_id ? (int) $wo->site_id : null,
+                    companyId: (int) $wo->company_id
+                );
+            }
+
             return $wo;
         });
     }
 
     public function rejectWorkOrder(WorkOrder $wo, User $actor, string $reason): WorkOrder
     {
-        if (!in_array($wo->status, ['submitted', 'site_manager_approved'], true)) {
+        if (! in_array($wo->status, ['submitted', 'site_manager_approved'], true)) {
             throw new InvalidArgumentException('Work order cannot be rejected in its current status.');
         }
 
@@ -530,6 +574,18 @@ class WorkOrderService
                 'actor_id' => $actor->id,
                 'comments' => $reason,
             ]);
+
+            if ($wo->created_by && (int) $wo->created_by !== (int) $actor->id) {
+                NotificationDispatcher::notifyUserDeduplicated(
+                    userId: (int) $wo->created_by,
+                    type: 'work_order.rejected',
+                    title: "Work Order {$wo->order_number} rejected",
+                    message: "Rejected by {$actor->name}: {$reason}",
+                    actionUrl: "/work-orders/{$wo->id}",
+                    siteId: $wo->site_id ? (int) $wo->site_id : null,
+                    companyId: (int) $wo->company_id
+                );
+            }
 
             return $wo;
         });

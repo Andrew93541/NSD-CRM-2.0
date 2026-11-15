@@ -10,7 +10,7 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class InventoryTransaction extends Model
 {
-    use HasFactory, BelongsToCompany;
+    use BelongsToCompany, HasFactory;
 
     protected $fillable = [
         'company_id',
@@ -20,12 +20,15 @@ class InventoryTransaction extends Model
         'destination_warehouse_id',
         'site_id',
         'purchase_order_id',
+        'work_order_id',
         'challan_or_invoice_no',
         'transaction_date',
         'performed_by',
         'confirmed_by',
         'confirmed_at',
         'status',
+        'adjustment_reason',
+        'rejection_reason',
         'notes',
     ];
 
@@ -60,6 +63,11 @@ class InventoryTransaction extends Model
     public function purchaseOrder(): BelongsTo
     {
         return $this->belongsTo(PurchaseOrder::class);
+    }
+
+    public function workOrder(): BelongsTo
+    {
+        return $this->belongsTo(WorkOrder::class);
     }
 
     public function performedBy(): BelongsTo

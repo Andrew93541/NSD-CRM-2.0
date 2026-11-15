@@ -7,10 +7,11 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Support\Str;
 
 class Worker extends Model
 {
-    use HasFactory, BelongsToCompany;
+    use BelongsToCompany, HasFactory;
 
     public const GENDERS = [
         'male' => 'Male',
@@ -46,8 +47,15 @@ class Worker extends Model
         'contract' => 'Fixed / Contract',
     ];
 
+    public const STATUTORY_STATUSES = [
+        'unconfigured' => 'Unconfigured',
+        'applicable' => 'Applicable',
+        'not_applicable' => 'Not Applicable',
+    ];
+
     protected $fillable = [
         'company_id',
+        'user_id',
         'worker_type',
         'subcontractor_id',
         'code',
@@ -80,6 +88,20 @@ class Worker extends Model
         'bank_account_number',
         'bank_ifsc',
         'upi_id',
+        'pf_status',
+        'pf_employee_rate',
+        'pf_employer_rate',
+        'pf_wage_ceiling',
+        'uan_number',
+        'esic_status',
+        'esic_employee_rate',
+        'esic_employer_rate',
+        'esic_wage_ceiling',
+        'esic_ip_number',
+        'pt_status',
+        'pt_monthly_amount',
+        'statutory_effective_from',
+        'statutory_updated_by',
         'pin',
         'must_change_pin',
         'qr_token',
@@ -93,7 +115,7 @@ class Worker extends Model
     {
         static::creating(function (Worker $worker) {
             if (empty($worker->qr_token)) {
-                $worker->qr_token = \Illuminate\Support\Str::random(40);
+                $worker->qr_token = Str::random(40);
             }
         });
     }
@@ -106,11 +128,41 @@ class Worker extends Model
             'hourly_rate' => 'decimal:2',
             'contract_rate' => 'decimal:2',
             'overtime_rate' => 'decimal:2',
+            'pf_employee_rate' => 'decimal:2',
+            'pf_employer_rate' => 'decimal:2',
+            'pf_wage_ceiling' => 'decimal:2',
+            'esic_employee_rate' => 'decimal:2',
+            'esic_employer_rate' => 'decimal:2',
+            'esic_wage_ceiling' => 'decimal:2',
+            'pt_monthly_amount' => 'decimal:2',
             'date_of_birth' => 'date',
             'joining_date' => 'date',
             'exit_date' => 'date',
+            'statutory_effective_from' => 'date',
             'must_change_pin' => 'boolean',
         ];
+    }
+
+    public function statutoryOverallState(): string
+    {
+        $pf = in_array($this->pf_status, ['unconfigured', 'applicable', 'not_applicable'], true) ? $this->pf_status : 'unconfigured';
+        $esic = in_array($this->esic_status, ['unconfigured', 'applicable', 'not_applicable'], true) ? $this->esic_status : 'unconfigured';
+        $pt = in_array($this->pt_status, ['unconfigured', 'applicable', 'not_applicable'], true) ? $this->pt_status : 'unconfigured';
+
+        if (in_array('unconfigured', [$pf, $esic, $pt], true)) {
+            return 'unconfigured';
+        }
+
+        if (in_array('applicable', [$pf, $esic, $pt], true)) {
+            return 'applicable';
+        }
+
+        return 'not_applicable';
+    }
+
+    public function statutoryUpdater(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'statutory_updated_by');
     }
 
     public function payTypeLabel(): string
@@ -143,7 +195,7 @@ class Worker extends Model
     public function ensureQrToken(): string
     {
         if (empty($this->qr_token)) {
-            $this->qr_token = \Illuminate\Support\Str::random(40);
+            $this->qr_token = Str::random(40);
             $this->saveQuietly();
         }
 
@@ -152,7 +204,7 @@ class Worker extends Model
 
     public static function pinLockoutCacheKey(int $companyId, string $workerCode): string
     {
-        return 'worker-pin-lockout:' . $companyId . ':' . strtoupper(trim($workerCode));
+        return 'worker-pin-lockout:'.$companyId.':'.strtoupper(trim($workerCode));
     }
 
     public function getPinLockoutCacheKey(): string
@@ -162,12 +214,12 @@ class Worker extends Model
 
     public function getFullNameAttribute(): string
     {
-        return trim($this->first_name . ' ' . ($this->last_name ?? ''));
+        return trim($this->first_name.' '.($this->last_name ?? ''));
     }
 
     public function genderLabel(): ?string
     {
-        if (!$this->gender) {
+        if (! $this->gender) {
             return null;
         }
 
@@ -176,7 +228,7 @@ class Worker extends Model
 
     public function skillLevelLabel(): ?string
     {
-        if (!$this->skill_level) {
+        if (! $this->skill_level) {
             return null;
         }
 
@@ -186,6 +238,11 @@ class Worker extends Model
     public function company(): BelongsTo
     {
         return $this->belongsTo(Company::class);
+    }
+
+    public function user(): BelongsTo
+    {
+        return $this->belongsTo(User::class);
     }
 
     public function subcontractor(): BelongsTo
